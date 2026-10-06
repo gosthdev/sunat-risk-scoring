@@ -1,0 +1,38 @@
+# Environments
+venv/
+.env
+.env.local
+
+# Data
+data/raw/*
+data/processed/*
+*.csv
+*.parquet
+
+# AWS
+.aws/credentials
+AWS_CREDENTIALS.txt
+
+# Models
+models/*.pkl
+models/*.joblib
+
+#Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Jupyter
+.ipynb
