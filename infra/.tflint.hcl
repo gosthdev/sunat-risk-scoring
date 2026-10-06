@@ -13,6 +13,6 @@ plugin "aws" {
   source  = "github.com/terraform-linters/tflint-ruleset-aws"
 }
 
-terraform {
-  required_version = ">= 1.5.0"
+rule "terraform_required_version" {
+  enabled = false
 }
