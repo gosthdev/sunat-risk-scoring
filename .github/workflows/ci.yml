@@ -30,6 +30,8 @@ jobs:
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
@@ -41,6 +43,8 @@ jobs:
           terraform validate
 
       - name: TFLint Init & Run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tflint --init --config "$(pwd)/.tflint.hcl"
           tflint --recursive --config "$(pwd)/.tflint.hcl"
