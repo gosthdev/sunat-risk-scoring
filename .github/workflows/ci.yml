@@ -1,0 +1,89 @@
+# CI solo de validación: no usa credenciales de AWS ni despliega nada.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform:
+    name: Terraform (fmt + validate + tflint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Formato
+        run: terraform fmt -check -recursive
+
+      - name: Init sin backend
+        run: terraform init -backend=false -input=false
+
+      - name: Validate
+        run: terraform validate
+
+      - uses: terraform-linters/setup-tflint@v4
+
+      - name: tflint
+        run: tflint --recursive --config "$(pwd)/.tflint.hcl"
+
+  shell:
+    name: Scripts (shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck infra/scripts/*.sh
+
+  python:
+    name: Python (ruff + mypy + pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          pip install ruff mypy pytest
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      # Errores de código: variables sin usar, imports rotos, bugs típicos, riesgos de seguridad.
+      - name: Lint (ruff check)
+        if: ${{ hashFiles('**/*.py') != '' }}
+        run: ruff check .
+
+      # Formato: indentación, espacios, comillas, saltos de línea.
+      - name: Formato (ruff format)
+        if: ${{ hashFiles('**/*.py') != '' }}
+        run: ruff format --check .
+
+      # Tipos: detecta llamadas con argumentos incorrectos antes de ejecutar.
+      - name: Tipos (mypy)
+        if: ${{ hashFiles('src/**/*.py') != '' }}
+        run: mypy src
+
+      - uses: actions/setup-java@v4
+        if: ${{ hashFiles('tests/**/*.py') != '' }}
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Tests
+        if: ${{ hashFiles('tests/**/*.py') != '' }}
+        run: pytest -q
