@@ -35,11 +35,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/spark/jobs/requirements.txt
+          pip install -r src/requirements.txt
 
       - name: Run prepare small datasets
         env:
-          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET }}
+          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring-raw' }}
           PYTHONPATH: src/spark/common
         run: |
           if [ -z "$DATALAKE_BUCKET" ]; then

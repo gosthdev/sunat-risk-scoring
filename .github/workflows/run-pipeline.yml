@@ -1,0 +1,67 @@
+name: Run EMR Spark Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      emr_application_id:
+        description: "ID de la aplicación EMR Serverless (dejar vacío para usar secret/variable)"
+        required: false
+        type: string
+        default: ""
+      datalake_bucket:
+        description: "Nombre del bucket DataLake (dejar vacío para usar secret/variable)"
+        required: false
+        type: string
+        default: ""
+      artifacts_bucket:
+        description: "Nombre del bucket de artefactos (dejar vacío para usar secret/variable)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run-pipeline:
+    name: Execute 5-Step Spark Pipeline on EMR Serverless
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Package Shared Common Modules
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        env:
+          ARTIFACTS_BUCKET: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+        run: |
+          if [ -z "$ARTIFACTS_BUCKET" ]; then
+            echo "ERROR: ARTIFACTS_BUCKET no está configurado en inputs, vars ni secrets." >&2
+            exit 1
+          fi
+
+          echo "Subiendo common.zip a s3://$ARTIFACTS_BUCKET/jobs/common.zip"
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+
+          echo "Sincronizando jobs 01..05 a s3://$ARTIFACTS_BUCKET/jobs/"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Submit Spark Steps to EMR Serverless
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+          EMR_APPLICATION_ID: ${{ inputs.emr_application_id != '' && inputs.emr_application_id || vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
+          EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
+          ARTIFACTS_BUCKET: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring-raw' }}
+        run: |
+          bash src/spark/jobs/05_submit_spark_steps.sh
