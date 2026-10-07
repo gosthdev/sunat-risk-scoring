@@ -23,13 +23,13 @@ import sys
 from pyspark.sql.functions import col, trim, udf
 from pyspark.sql.types import StringType
 
-from spark.common.s3_paths import (
-    BRONZE_PADRON_RUC,
-    BRONZE_ORDENES_COMPRA,
-    SILVER_PADRON_RUC,
-    SILVER_ORDENES_COMPRA,
-)
 from spark.common.region_normalizer import normalize_department
+from spark.common.s3_paths import (
+    BRONZE_ORDENES_COMPRA,
+    BRONZE_PADRON_RUC,
+    SILVER_ORDENES_COMPRA,
+    SILVER_PADRON_RUC,
+)
 from spark.common.spark_session_factory import create_spark_session
 
 normalize_department_udf = udf(normalize_department, StringType())
@@ -44,11 +44,7 @@ def clean_padron_ruc(spark):
         "Departamento", normalize_department_udf(trim(col("Departamento")))
     )
 
-    (
-        df.write.mode("overwrite")
-        .partitionBy("anio", "mes")
-        .parquet(SILVER_PADRON_RUC)
-    )
+    (df.write.mode("overwrite").partitionBy("anio", "mes").parquet(SILVER_PADRON_RUC))
 
 
 def clean_ordenes_compra(spark):

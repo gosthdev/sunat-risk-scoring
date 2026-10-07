@@ -22,20 +22,20 @@ Uso: spark-submit --py-files common.zip 01_ingest_bronze.py
 
 import sys
 
-from pyspark.sql.functions import col, year, lit
+from pyspark.sql.functions import col, lit, year
 
 from spark.common.s3_paths import (
-    RAW_PADRON_RUC,
-    RAW_ORDENES_COMPRA,
-    BRONZE_PADRON_RUC,
     BRONZE_ORDENES_COMPRA,
-    BRONZE_PADRON_RUC_QUARANTINE,
     BRONZE_ORDENES_COMPRA_QUARANTINE,
+    BRONZE_PADRON_RUC,
+    BRONZE_PADRON_RUC_QUARANTINE,
+    RAW_ORDENES_COMPRA,
+    RAW_PADRON_RUC,
 )
 from spark.common.schema_definitions import (
-    PADRON_RUC_SCHEMA,
-    ORDENES_COMPRA_SCHEMA,
     ORDENES_COMPRA_DATE_COLUMNS,
+    ORDENES_COMPRA_SCHEMA,
+    PADRON_RUC_SCHEMA,
     VALID_YEAR_RANGE,
 )
 from spark.common.spark_session_factory import create_spark_session

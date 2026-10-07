@@ -38,7 +38,7 @@ jobs:
 
       - name: Terraform Init & Validate (dev)
         run: |
-          cd enviroments/dev
+          cd environments/dev
           terraform init -backend=false
           terraform validate
 
@@ -52,8 +52,12 @@ jobs:
   python:
     name: Python (ruff + mypy + pytest)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - uses: actions/setup-python@v5
         with:
@@ -64,15 +68,24 @@ jobs:
           pip install ruff mypy pytest
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
-      # Errores de código: variables sin usar, imports rotos, bugs típicos, riesgos de seguridad.
+      # Aplica correcciones automáticas de lint y formato con ruff
+      - name: Auto-fix con ruff
+        if: ${{ hashFiles('**/*.py') != '' }}
+        run: |
+          ruff check --fix . || true
+          ruff format .
+
+      # Si hubo cambios, hace commit y push automático a la rama
+      - name: Commit y push de correcciones
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style(auto): correcciones automáticas de ruff"
+          branch: ${{ github.head_ref || github.ref_name }}
+
+      # Errores de código no corregibles automáticamente
       - name: Lint (ruff check)
         if: ${{ hashFiles('**/*.py') != '' }}
         run: ruff check .
-
-      # Formato: indentación, espacios, comillas, saltos de línea.
-      - name: Formato (ruff format)
-        if: ${{ hashFiles('**/*.py') != '' }}
-        run: ruff format --check .
 
       # Tipos: detecta llamadas con argumentos incorrectos antes de ejecutar.
       - name: Tipos (mypy)

@@ -24,18 +24,17 @@ import sys
 
 import awswrangler as wr
 import pandas as pd
-
+from region_normalizer import normalize_department
 from s3_paths import (
-    RAW_PRICOS,
-    RAW_INGRESOS_TRIBUTARIOS,
     RAW_EPEN,
+    RAW_INGRESOS_TRIBUTARIOS,
+    RAW_PRICOS,
     RAW_SSCO,
-    SILVER_PRICOS,
-    SILVER_INGRESOS_TRIBUTARIOS,
     SILVER_EPEN,
+    SILVER_INGRESOS_TRIBUTARIOS,
+    SILVER_PRICOS,
     SILVER_SSCO,
 )
-from region_normalizer import normalize_department
 
 # Nombre real del archivo con los montos en soles (no el de variación %).
 # AJUSTAR si el nombre real en raw/ingresos_tributarios/ difiere.

@@ -16,8 +16,7 @@ Uso: spark-submit --py-files common.zip 05_scoring_dataset_gold.py
 import sys
 
 from pyspark.sql.functions import col, when
-
-from s3_paths import GOLD_RUC_FEATURES, SILVER_SSCO, GOLD_SCORING_DATASET
+from s3_paths import GOLD_RUC_FEATURES, GOLD_SCORING_DATASET, SILVER_SSCO
 
 # Población objetivo: TODO el Padrón, no solo quienes contratan con el
 # Estado (cruce de cobertura dio 45/766 SSCO con contratos vs 764/766 en
@@ -34,12 +33,15 @@ def main():
         ssco = spark.read.parquet(SILVER_SSCO)
 
         total_ssco = ssco.count()
-        ssco_en_features = ssco.join(features, on="RUC", how="inner").select("RUC").distinct().count()
-        print(f"[cobertura SSCO] {ssco_en_features}/{total_ssco} RUC de la lista SSCO aparecen en gold/ruc_features")
+        ssco_en_features = (
+            ssco.join(features, on="RUC", how="inner").select("RUC").distinct().count()
+        )
+        print(
+            f"[cobertura SSCO] {ssco_en_features}/{total_ssco} RUC de la lista SSCO aparecen en gold/ruc_features"
+        )
 
-        dataset = (
-            features.join(ssco, on="RUC", how="left")
-            .withColumn("es_ssco", when(col("es_ssco").isNull(), False).otherwise(col("es_ssco")))
+        dataset = features.join(ssco, on="RUC", how="left").withColumn(
+            "es_ssco", when(col("es_ssco").isNull(), False).otherwise(col("es_ssco"))
         )
 
         (

@@ -26,20 +26,24 @@ import sys
 
 from pyspark.sql.functions import (
     col,
-    min as spark_min,
-    sum as spark_sum,
     count,
-    datediff,
     current_date,
-    when,
+    datediff,
     format_string,
+    when,
+)
+from pyspark.sql.functions import (
+    min as spark_min,
+)
+from pyspark.sql.functions import (
+    sum as spark_sum,
 )
 
 from spark.common.s3_paths import (
-    SILVER_PADRON_RUC,
-    SILVER_ORDENES_COMPRA,
-    SILVER_PRICOS,
     GOLD_RUC_FEATURES,
+    SILVER_ORDENES_COMPRA,
+    SILVER_PADRON_RUC,
+    SILVER_PRICOS,
 )
 from spark.common.spark_session_factory import create_spark_session
 
@@ -105,9 +109,9 @@ def main():
             )
             .withColumn(
                 "monto_total_contratado_estado",
-                when(
-                    col("monto_total_contratado_estado").isNull(), 0.0
-                ).otherwise(col("monto_total_contratado_estado")),
+                when(col("monto_total_contratado_estado").isNull(), 0.0).otherwise(
+                    col("monto_total_contratado_estado")
+                ),
             )
             .withColumn(
                 "cantidad_contratos_estado",

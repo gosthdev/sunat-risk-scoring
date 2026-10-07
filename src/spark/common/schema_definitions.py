@@ -9,13 +9,13 @@ Tipos definidos según DiccionarioDeDatosIntegrado.md.
 """
 
 from pyspark.sql.types import (
-    StructType,
-    StructField,
-    LongType,
-    IntegerType,
-    StringType,
-    DoubleType,
     DateType,
+    DoubleType,
+    IntegerType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
 )
 
 # RUC (11 dígitos, hasta ~2*10^10) y nro_de_orden (hasta ~4.6*10^9) exceden
@@ -27,9 +27,15 @@ PADRON_RUC_SCHEMA = StructType(
         StructField("Estado", StringType(), nullable=True),
         StructField("Condicion", StringType(), nullable=True),
         StructField("Tipo", StringType(), nullable=True),
-        StructField("Actividad_Economica_CIIU_revision3_Principal", StringType(), nullable=True),
-        StructField("Actividad_Economica_CIIU_revision3_Secundaria", StringType(), nullable=True),
-        StructField("Actividad_Economica_CIIU_revision4_Principal", StringType(), nullable=True),
+        StructField(
+            "Actividad_Economica_CIIU_revision3_Principal", StringType(), nullable=True
+        ),
+        StructField(
+            "Actividad_Economica_CIIU_revision3_Secundaria", StringType(), nullable=True
+        ),
+        StructField(
+            "Actividad_Economica_CIIU_revision4_Principal", StringType(), nullable=True
+        ),
         StructField("NroTrab", StringType(), nullable=True),
         StructField("TipoFacturacion", StringType(), nullable=True),
         StructField("TipoContabilidad", StringType(), nullable=True),

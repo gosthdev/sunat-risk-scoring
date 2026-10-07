@@ -22,17 +22,18 @@ Uso: spark-submit --py-files common.zip 04_regional_gold.py
 
 import sys
 
-from pyspark.sql.functions import col, count, sum as spark_sum, when, udf
+from pyspark.sql.functions import col, count, udf, when
+from pyspark.sql.functions import sum as spark_sum
 from pyspark.sql.types import StringType
 
+from spark.common.region_normalizer import department_from_ccdd
 from spark.common.s3_paths import (
-    SILVER_PADRON_RUC,
+    GOLD_REGIONAL_SUMMARY,
     SILVER_EPEN,
     SILVER_INGRESOS_TRIBUTARIOS,
+    SILVER_PADRON_RUC,
     SILVER_PRICOS,
-    GOLD_REGIONAL_SUMMARY,
 )
-from spark.common.region_normalizer import department_from_ccdd
 from spark.common.spark_session_factory import create_spark_session
 
 department_from_ccdd_udf = udf(department_from_ccdd, StringType())
@@ -80,9 +81,7 @@ def recaudacion_por_departamento(spark):
 def concentracion_pricos_por_departamento(spark):
     pricos = spark.read.parquet(SILVER_PRICOS)
     padron = (
-        spark.read.parquet(SILVER_PADRON_RUC)
-        .select("RUC", "Departamento")
-        .distinct()
+        spark.read.parquet(SILVER_PADRON_RUC).select("RUC", "Departamento").distinct()
     )
 
     return (
