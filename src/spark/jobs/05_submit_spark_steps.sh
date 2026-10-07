@@ -28,6 +28,10 @@ POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-15}"
 EMR_APPLICATION_NAME="${EMR_APPLICATION_NAME:-sunat-ssco-spark}"
 DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring-raw}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
+RAW_BUCKET="${RAW_BUCKET:-sunat-risk-scoring-raw}"
+BRONZE_BUCKET="${BRONZE_BUCKET:-sunat-risk-scoring-bronze}"
+SILVER_BUCKET="${SILVER_BUCKET:-sunat-risk-scoring-silver}"
+GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
 
 # ------------------------------------------------------------------------------
 # 1. Resolución y Validación de variables
@@ -118,8 +122,18 @@ for step in "${STEPS[@]}"; do
   echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step} (${SCRIPT_NAME})"
   echo "------------------------------------------------------------------------"
 
-  # Parámetros spark-submit: empaquetado común y variable DATALAKE_BUCKET
-  SPARK_PARAMS="--py-files ${PY_FILES_URI} --conf spark.emr-serverless.driverEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} --conf spark.executorEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET}"
+  # Parámetros spark-submit: empaquetado común y variables de buckets
+  SPARK_PARAMS="--py-files ${PY_FILES_URI} \
+--conf spark.emr-serverless.driverEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} \
+--conf spark.executorEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} \
+--conf spark.emr-serverless.driverEnv.RAW_BUCKET=${RAW_BUCKET} \
+--conf spark.executorEnv.RAW_BUCKET=${RAW_BUCKET} \
+--conf spark.emr-serverless.driverEnv.BRONZE_BUCKET=${BRONZE_BUCKET} \
+--conf spark.executorEnv.BRONZE_BUCKET=${BRONZE_BUCKET} \
+--conf spark.emr-serverless.driverEnv.SILVER_BUCKET=${SILVER_BUCKET} \
+--conf spark.executorEnv.SILVER_BUCKET=${SILVER_BUCKET} \
+--conf spark.emr-serverless.driverEnv.GOLD_BUCKET=${GOLD_BUCKET} \
+--conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET}"
 
   # Iniciar Job Run en EMR Serverless
   JOB_RUN_ID=$(aws emr-serverless start-job-run \
