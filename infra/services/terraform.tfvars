@@ -1,0 +1,19 @@
+aws_region  = "us-east-1"
+project_tag = "sunat-risk-scoring"
+
+raw_bucket_name       = "sunat-risk-scoring-raw"
+bronze_bucket_name    = "sunat-risk-scoring-bronze"
+silver_bucket_name    = "sunat-risk-scoring-silver"
+gold_bucket_name      = "sunat-risk-scoring-gold"
+artifacts_bucket_name = "sunat-risk-scoring-artifacts"
+
+emr_release_label        = "emr-7.13.0"
+emr_max_cpu              = "16 vCPU"
+emr_max_memory           = "64 GB"
+emr_max_disk             = "300 GB"
+emr_idle_timeout_minutes = 15
+
+# 10 GB por consulta
+athena_bytes_scanned_cutoff = 10737418240
+
+github_repo = "gosthdev/sunat-risk-scoring"
