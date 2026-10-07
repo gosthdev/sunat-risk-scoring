@@ -1,0 +1,51 @@
+name: Prepare Small Datasets (Silver)
+
+on:
+  workflow_dispatch:
+    inputs:
+      datalake_bucket:
+        description: "Nombre del bucket DataLake (dejar vacío para usar secret/variable)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  prepare-small-datasets:
+    name: Prepare PRICOS, EPEN, Ingresos Tributarios & SSCO
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+
+      - name: Run prepare small datasets
+        env:
+          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring-raw' }}
+          PYTHONPATH: src/spark/common
+        run: |
+          if [ -z "$DATALAKE_BUCKET" ]; then
+            echo "ERROR: DATALAKE_BUCKET no está configurado en inputs, vars ni secrets." >&2
+            exit 1
+          fi
+          echo "Procesando datasets pequeños con destino al bucket: $DATALAKE_BUCKET"
+          python3 src/spark/jobs/00_prepare_small_datasets.py
+          echo "✓ Datasets pequeños procesados exitosamente."
