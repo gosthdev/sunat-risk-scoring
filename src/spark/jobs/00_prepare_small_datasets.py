@@ -60,10 +60,25 @@ def prepare_pricos():
 
 
 def prepare_ingresos_tributarios():
-    df = wr.s3.read_csv(f"{RAW_INGRESOS_TRIBUTARIOS}/{INGRESOS_TRIBUTARIOS_ARCHIVO}")
-    df["Departamento"] = df["Departamento"].map(normalize_department)
+    raw_path = f"{RAW_INGRESOS_TRIBUTARIOS}/{INGRESOS_TRIBUTARIOS_ARCHIVO}"
+    try:
+        df = wr.s3.read_csv(raw_path)
+    except Exception:
+        # Fallback si el archivo raw es cdro_A13.xlsx en lugar de CSV
+        from ingresos_transformer import process_both_ingresos
+
+        tmp_excel = "/tmp/cdro_A13.xlsx"
+        wr.s3.download(f"{RAW_INGRESOS_TRIBUTARIOS}/cdro_A13.xlsx", tmp_excel)
+        df, _ = process_both_ingresos(tmp_excel)
+
+    # Validar tipado y columnas estandarizadas
+    df["Departamento"] = df["Departamento"].astype("string")
+    df["Periodo"] = df["Periodo"].astype("string")
+    df["Anio"] = df["Anio"].astype("int64")
+    df["Mes"] = df["Mes"].astype("string")
     df["Monto_Recaudado"] = pd.to_numeric(df["Monto_Recaudado"], errors="coerce")
     df = df.dropna(subset=["Monto_Recaudado"])
+
     wr.s3.to_parquet(
         df, path=SILVER_INGRESOS_TRIBUTARIOS, dataset=True, mode="overwrite"
     )

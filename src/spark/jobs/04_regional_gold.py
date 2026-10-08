@@ -116,11 +116,27 @@ def informalidad_por_departamento(spark):
     ).select("Departamento", "pct_informalidad")
 
 
-def recaudacion_por_departamento(spark):
+def recaudacion_por_departamento(spark, anio_ref=None):
     ingresos = spark.read.parquet(SILVER_INGRESOS_TRIBUTARIOS)
+
+    # Filtrar por anio_ref si la columna Anio existe
+    if "Anio" in ingresos.columns and anio_ref is not None:
+        ingresos = ingresos.filter(col("Anio") == int(anio_ref))
+
+    # Excluir Total y sub-jurisdicciones de Lima para evitar duplicados con la fila Lima
+    excluir = ["TOTAL", "Total", "Lima Metropolitana", "Lima Provincias"]
+    ingresos_filtrados = ingresos.filter(~col("Departamento").isin(excluir))
+
+    # Normalizar Departamento al nombre canónico
+    from region_normalizer import normalize_department
+
+    normalize_dept_udf = udf(normalize_department, StringType())
+    ingresos_normalizados = ingresos_filtrados.withColumn(
+        "Departamento", normalize_dept_udf(col("Departamento"))
+    )
+
     return (
-        ingresos.filter(col("Departamento") != "TOTAL")
-        .groupBy(col("Departamento"))
+        ingresos_normalizados.groupBy(col("Departamento"))
         .agg(spark_sum("Monto_Recaudado").alias("recaudacion_soles"))
     )
 
@@ -148,7 +164,7 @@ def main():
 
         ruc_activos = ruc_activos_por_departamento(spark, padron_ref)
         informalidad = informalidad_por_departamento(spark)
-        recaudacion = recaudacion_por_departamento(spark)
+        recaudacion = recaudacion_por_departamento(spark, anio_ref)
         pricos = concentracion_pricos_por_departamento(spark, padron_ref)
 
         resumen = (
