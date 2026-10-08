@@ -6,50 +6,102 @@ resource "aws_iam_role_policy" "deploy_jobs" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "ArtifactsBucketAccess"
+        Sid    = "ProjectBucketsAccess"
         Effect = "Allow"
         Action = [
           "s3:ListBucket",
           "s3:GetBucketLocation"
         ]
-        Resource = [var.artifacts_bucket_arn]
-      },
-      {
-        Sid    = "UploadJobsAndArtifacts"
-        Effect = "Allow"
-        Action = [
-          "s3:PutObject",
-          "s3:GetObject"
-        ]
-        Resource = ["${var.artifacts_bucket_arn}/*"]
-      },
-      {
-        Sid    = "DataBucketsAccess"
-        Effect = "Allow"
-        Action = [
-          "s3:ListBucket",
-          "s3:GetBucketLocation"
-        ]
-        Resource = [
+        Resource = compact([
+          var.artifacts_bucket_arn,
           var.raw_bucket_arn,
-          var.silver_bucket_arn
-        ]
+          var.bronze_bucket_arn,
+          var.silver_bucket_arn,
+          var.gold_bucket_arn
+        ])
       },
       {
-        Sid      = "ReadRawForSmallDatasets"
-        Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = ["${var.raw_bucket_arn}/*"]
-      },
-      {
-        Sid    = "ReadWriteSilverForSmallDatasets"
+        Sid    = "ProjectObjectsAccess"
         Effect = "Allow"
         Action = [
           "s3:GetObject",
           "s3:PutObject",
           "s3:DeleteObject"
         ]
-        Resource = ["${var.silver_bucket_arn}/*"]
+        Resource = compact(flatten([
+          "${var.artifacts_bucket_arn}/*",
+          "${var.raw_bucket_arn}/*",
+          var.bronze_bucket_arn != "" ? ["${var.bronze_bucket_arn}/*"] : [],
+          "${var.silver_bucket_arn}/*",
+          var.gold_bucket_arn != "" ? ["${var.gold_bucket_arn}/*"] : []
+        ]))
+      },
+      {
+        Sid    = "ManageEphemeralEC2"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeImages",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus",
+          "ec2:DescribeVolumes",
+          "ec2:CreateSecurityGroup",
+          "ec2:DeleteSecurityGroup",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupEgress",
+          "ec2:RunInstances",
+          "ec2:TerminateInstances",
+          "ec2:CreateTags",
+          "ec2:DeleteTags"
+        ]
+        Resource = ["*"]
+      },
+      {
+        Sid    = "ManageIngestionIAM"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:GetRole",
+          "iam:TagRole",
+          "iam:UntagRole",
+          "iam:CreatePolicy",
+          "iam:DeletePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:TagPolicy",
+          "iam:UntagPolicy",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:ListAttachedRolePolicies",
+          "iam:CreateInstanceProfile",
+          "iam:DeleteInstanceProfile",
+          "iam:GetInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile",
+          "iam:TagInstanceProfile",
+          "iam:UntagInstanceProfile"
+        ]
+        Resource = [
+          "arn:aws:iam::*:role/sunat-ingestion-ec2-role",
+          "arn:aws:iam::*:policy/sunat-ingestion-ec2-s3-policy",
+          "arn:aws:iam::*:instance-profile/sunat-ingestion-ec2-profile"
+        ]
+      },
+      {
+        Sid      = "PassIngestionRoleToEC2"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = ["arn:aws:iam::*:role/sunat-ingestion-ec2-role"]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ec2.amazonaws.com"
+          }
+        }
       },
       {
         Sid    = "EMRServerlessListApplications"
@@ -84,6 +136,27 @@ resource "aws_iam_role_policy" "deploy_jobs" {
             "iam:PassedToService" = "emr-serverless.amazonaws.com"
           }
         }
+      },
+      {
+        Sid    = "GlueAndAthenaAnalytics"
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:CreateDatabase",
+          "glue:GetCrawler",
+          "glue:CreateCrawler",
+          "glue:UpdateCrawler",
+          "glue:StartCrawler",
+          "glue:GetTables",
+          "glue:GetTable",
+          "athena:GetWorkGroup",
+          "athena:CreateWorkGroup",
+          "athena:StartQueryExecution",
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:StopQueryExecution"
+        ]
+        Resource = ["*"]
       }
     ]
   })

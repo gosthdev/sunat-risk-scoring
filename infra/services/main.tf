@@ -43,7 +43,9 @@ module "iam_github_actions_role" {
   github_repo            = var.github_repo
   artifacts_bucket_arn   = data.aws_s3_bucket.artifacts.arn
   raw_bucket_arn         = data.aws_s3_bucket.raw.arn
+  bronze_bucket_arn      = data.aws_s3_bucket.bronze.arn
   silver_bucket_arn      = data.aws_s3_bucket.silver.arn
+  gold_bucket_arn        = data.aws_s3_bucket.gold.arn
   emr_application_arn    = module.emr_serverless_app.application_arn
   emr_execution_role_arn = module.iam_emr_execution_role.role_arn
 }
