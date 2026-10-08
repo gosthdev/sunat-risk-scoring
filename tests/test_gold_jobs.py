@@ -4,7 +4,7 @@ import sys
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Asegurar que los módulos de src/spark estén en sys.path tanto para pytest como unittest
 _ROOT = Path(__file__).resolve().parent.parent
@@ -21,6 +21,24 @@ HAS_JAVA = shutil.which("java") is not None
 
 
 class TestGoldJobs(unittest.TestCase):
+    spark = None
+
+    @classmethod
+    def setUpClass(cls):
+        if HAS_JAVA:
+            from pyspark.sql import SparkSession
+
+            cls.spark = (
+                SparkSession.builder.master("local[1]")
+                .appName("test-gold-jobs")
+                .getOrCreate()
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.spark is not None:
+            cls.spark.stop()
+
     def test_normalize_department(self):
         self.assertEqual(normalize_department("LIMA"), "LIMA")
         self.assertEqual(normalize_department("  arequipa "), "AREQUIPA")
@@ -50,61 +68,61 @@ class TestGoldJobs(unittest.TestCase):
         antiguedad = None if diff < 0 else diff
         self.assertIsNone(antiguedad)
 
-    @unittest.skipIf(not HAS_JAVA, "Requiere Java para PySpark functions")
+    @unittest.skipIf(not HAS_JAVA, "Requiere Java para PySpark")
     def test_obtener_padron_mes_referencia_with_env_vars(self):
         """Verifica que obtener_padron_mes_referencia respete las variables de entorno."""
         from importlib import import_module
 
         regional_mod = import_module("04_regional_gold")
 
-        mock_spark = MagicMock()
-        mock_padron = MagicMock()
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [(2025, 1, "ACTIVO", "LIMA"), (2025, 6, "ACTIVO", "LIMA")],
+            ["anio", "mes", "Estado", "Departamento"],
+        )
 
         with patch.dict(
             os.environ,
             {
                 "ANIO_REFERENCIA_REGIONAL": "2025",
-                "MES_REFERENCIA_REGIONAL": "12",
+                "MES_REFERENCIA_REGIONAL": "1",
             },
         ):
-            _padron_filtrado, anio_ref, mes_ref = (
-                regional_mod.obtener_padron_mes_referencia(
-                    spark=mock_spark, padron=mock_padron
-                )
+            padron_filtrado, anio_ref, mes_ref = (
+                regional_mod.obtener_padron_mes_referencia(spark=self.spark, padron=df)
             )
             self.assertEqual(anio_ref, 2025)
-            self.assertEqual(mes_ref, 12)
-            self.assertTrue(mock_padron.filter.called)
+            self.assertEqual(mes_ref, 1)
+            self.assertEqual(padron_filtrado.count(), 1)
 
-    @unittest.skipIf(not HAS_JAVA, "Requiere Java para PySpark functions")
+    @unittest.skipIf(not HAS_JAVA, "Requiere Java para PySpark")
     def test_obtener_padron_mes_referencia_auto_detect_latest(self):
         """Verifica que se seleccione el último snapshot cuando no hay variables de entorno."""
         from importlib import import_module
 
         regional_mod = import_module("04_regional_gold")
 
-        mock_spark = MagicMock()
-        mock_padron = MagicMock()
-        mock_select = MagicMock()
-        mock_padron.select.return_value = mock_select
-        mock_select.distinct.return_value = mock_select
-        mock_select.orderBy.return_value = mock_select
-        mock_select.first.return_value = {"anio": 2025, "mes": 12}
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [
+                (2025, 1, "ACTIVO", "LIMA"),
+                (2025, 12, "ACTIVO", "LIMA"),
+                (2025, 6, "ACTIVO", "LIMA"),
+            ],
+            ["anio", "mes", "Estado", "Departamento"],
+        )
 
         with patch.dict(os.environ, {}, clear=True):
-            _padron_filtrado, anio_ref, mes_ref = (
-                regional_mod.obtener_padron_mes_referencia(
-                    spark=mock_spark, padron=mock_padron
-                )
+            padron_filtrado, anio_ref, mes_ref = (
+                regional_mod.obtener_padron_mes_referencia(spark=self.spark, padron=df)
             )
             self.assertEqual(anio_ref, 2025)
             self.assertEqual(mes_ref, 12)
-            self.assertTrue(mock_padron.filter.called)
+            self.assertEqual(padron_filtrado.count(), 1)
 
     @unittest.skipIf(not HAS_JAVA, "Requiere Java para Spark local")
     def test_pyspark_integration(self):
         """Test de integración cuando Java está disponible (e.g. en GitHub Actions)."""
-        from pyspark.sql import SparkSession
         from pyspark.sql.functions import (
             col,
             concat,
@@ -115,29 +133,24 @@ class TestGoldJobs(unittest.TestCase):
             to_date,
         )
 
-        spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
-        try:
-            df = spark.createDataFrame([(2025, 1), (2025, 2)], ["anio", "mes"])
-            df = df.withColumn(
-                "mes_referencia",
-                format_string("%d%02d", col("anio"), col("mes")),
-            )
-            df = df.withColumn(
-                "fecha_ref",
-                last_day(to_date(concat(col("mes_referencia"), lit("01")), "yyyyMMdd")),
-            )
-            df = df.withColumn(
-                "primera_orden", to_date(lit("2025-01-15"), "yyyy-MM-dd")
-            )
-            df = df.withColumn(
-                "antiguedad", datediff(col("fecha_ref"), col("primera_orden"))
-            )
+        assert self.spark is not None
+        df = self.spark.createDataFrame([(2025, 1), (2025, 2)], ["anio", "mes"])
+        df = df.withColumn(
+            "mes_referencia",
+            format_string("%d%02d", col("anio"), col("mes")),
+        )
+        df = df.withColumn(
+            "fecha_ref",
+            last_day(to_date(concat(col("mes_referencia"), lit("01")), "yyyyMMdd")),
+        )
+        df = df.withColumn("primera_orden", to_date(lit("2025-01-15"), "yyyy-MM-dd"))
+        df = df.withColumn(
+            "antiguedad", datediff(col("fecha_ref"), col("primera_orden"))
+        )
 
-            rows = {r["mes_referencia"]: r["antiguedad"] for r in df.collect()}
-            self.assertEqual(rows["202501"], 16)
-            self.assertEqual(rows["202502"], 44)
-        finally:
-            spark.stop()
+        rows = {r["mes_referencia"]: r["antiguedad"] for r in df.collect()}
+        self.assertEqual(rows["202501"], 16)
+        self.assertEqual(rows["202502"], 44)
 
 
 if __name__ == "__main__":
