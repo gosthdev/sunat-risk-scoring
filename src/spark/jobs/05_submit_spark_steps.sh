@@ -83,9 +83,28 @@ if [[ "$MISSING_VARS" -ne 0 ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 2. Definición de Steps
+# 2. Definición y Selección de Steps
 # ------------------------------------------------------------------------------
-STEPS=(
+ONLY_STEPS="${ONLY_STEPS:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --only-steps|--only-step|--steps|--step)
+      ONLY_STEPS="$2"
+      shift 2
+      ;;
+    *)
+      if [[ "$1" =~ ^0[1-5] ]]; then
+        ONLY_STEPS="$1"
+        shift
+      else
+        echo "WARN: Parámetro desconocido: $1" >&2
+        shift
+      fi
+      ;;
+  esac
+done
+
+ALL_STEPS=(
   "01_ingest_bronze"
   "02_clean_silver"
   "03_feature_gold"
@@ -93,16 +112,38 @@ STEPS=(
   "05_scoring_dataset_gold"
 )
 
+if [[ -n "${ONLY_STEPS}" ]]; then
+  STEPS=()
+  NORMALIZED_STEPS=$(echo "${ONLY_STEPS}" | tr ',' ' ')
+  for raw_s in ${NORMALIZED_STEPS}; do
+    clean_s="${raw_s%.py}"
+    clean_s="$(echo "$clean_s" | xargs)"
+    if [[ -z "$clean_s" ]]; then
+      continue
+    fi
+    for full_step in "${ALL_STEPS[@]}"; do
+      if [[ "$clean_s" == "$full_step" || "$full_step" == "${clean_s}"* || "$clean_s" == "job${full_step:0:2}"* ]]; then
+        clean_s="$full_step"
+        break
+      fi
+    done
+    STEPS+=("$clean_s")
+  done
+else
+  STEPS=("${ALL_STEPS[@]}")
+fi
+
 TOTAL_STEPS="${#STEPS[@]}"
 PY_FILES_URI="s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
 LOG_URI="s3://${ARTIFACTS_BUCKET}/emr-logs/"
 
 echo "========================================================================"
-echo "Iniciando Pipeline EMR Serverless (5 steps secuenciales)"
+echo "Iniciando Pipeline EMR Serverless (${TOTAL_STEPS} step(s))"
 echo "Aplicación EMR ID : ${EMR_APPLICATION_ID}"
 echo "Región AWS        : ${AWS_REGION}"
 echo "Bucket Artefactos : ${ARTIFACTS_BUCKET}"
 echo "Bucket DataLake   : ${DATALAKE_BUCKET}"
+echo "Steps a ejecutar  : ${STEPS[*]}"
 echo "Total de Steps    : ${TOTAL_STEPS}"
 echo "========================================================================"
 
@@ -202,5 +243,5 @@ done
 
 echo ""
 echo "========================================================================"
-echo "✓ Pipeline completado con éxito: Todos los 5 steps finalizaron en SUCCESS."
+echo "✓ Pipeline completado con éxito: Todos los ${TOTAL_STEPS} step(s) finalizaron en SUCCESS."
 echo "========================================================================"
