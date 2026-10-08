@@ -62,7 +62,7 @@ def prepare_ingresos_tributarios():
     raw_path = f"{RAW_INGRESOS_TRIBUTARIOS}/{INGRESOS_TRIBUTARIOS_ARCHIVO}"
     try:
         df = wr.s3.read_csv(raw_path)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Fallback si el archivo raw es cdro_A13.xlsx en lugar de CSV
         from ingresos_transformer import process_both_ingresos
 
