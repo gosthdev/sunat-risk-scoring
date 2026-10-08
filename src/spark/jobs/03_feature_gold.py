@@ -38,14 +38,13 @@ from pyspark.sql.functions import (
 from pyspark.sql.functions import (
     sum as spark_sum,
 )
-
-from spark.common.s3_paths import (
+from s3_paths import (
     GOLD_RUC_FEATURES,
     SILVER_ORDENES_COMPRA,
     SILVER_PADRON_RUC,
     SILVER_PRICOS,
 )
-from spark.common.spark_session_factory import create_spark_session
+from spark_session_factory import create_spark_session
 
 
 def build_contratacion_estado_features(spark):
