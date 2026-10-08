@@ -36,31 +36,48 @@ def log(msg: str):
 def download_file(url: str, dest_path: Path):
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     log(f"Descargando: {url} -> {dest_path}")
-    
+
     # Intentar curl si está disponible (soporta SSL moderno y redirecciones 30x)
-    cmd = ["curl", "-fSL", "--retry", "3", "--retry-delay", "2", "-o", str(dest_path), url]
+    cmd = [
+        "curl",
+        "-fSL",
+        "--retry",
+        "3",
+        "--retry-delay",
+        "2",
+        "-o",
+        str(dest_path),
+        url,
+    ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if res.returncode != 0:
         log(f"curl falló ({res.stderr.decode()}). Reintentando con urllib...")
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) IngestionWorker/1.0"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) IngestionWorker/1.0"
+            },
         )
-        with urllib.request.urlopen(req, timeout=300) as resp, open(dest_path, "wb") as out:
+        with (
+            urllib.request.urlopen(req, timeout=300) as resp,
+            open(dest_path, "wb") as out,
+        ):
             shutil.copyfileobj(resp, out)
-    
-    log(f"✓ Descargado ({dest_path.stat().st_size / (1024*1024):.2f} MB): {dest_path.name}")
+
+    log(
+        f"✓ Descargado ({dest_path.stat().st_size / (1024 * 1024):.2f} MB): {dest_path.name}"
+    )
 
 
 def process_padron_ruc(key: str, url: str):
     if not url:
         return
-    
+
     # key esperada: "2025-01" o similar
     partes = key.split("-")
     anio = partes[0]
     mes = partes[1].zfill(2) if len(partes) > 1 else "01"
-    
+
     out_dir = BASE_DIR / "padron_ruc" / f"anio={anio}" / f"mes={mes}"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = out_dir / "padron.csv"
@@ -76,12 +93,16 @@ def process_padron_ruc(key: str, url: str):
         z.extractall(extract_dir)
 
     # Buscar el archivo extraído (.txt o .csv)
-    extracted_files = [f for f in extract_dir.rglob("*") if f.is_file() and not f.name.startswith(".")]
+    extracted_files = [
+        f for f in extract_dir.rglob("*") if f.is_file() and not f.name.startswith(".")
+    ]
     if not extracted_files:
         raise FileNotFoundError(f"No se encontraron archivos dentro de {temp_zip}")
 
     src_file = extracted_files[0]
-    log(f"Archivo extraído: {src_file.name} ({src_file.stat().st_size / (1024*1024):.2f} MB)")
+    log(
+        f"Archivo extraído: {src_file.name} ({src_file.stat().st_size / (1024 * 1024):.2f} MB)"
+    )
 
     # Inspeccionar codificación y delimitador de la cabecera
     src_encoding = "utf-8"
@@ -94,8 +115,13 @@ def process_padron_ruc(key: str, url: str):
             first_line = f.readline()
 
     if "|" in first_line:
-        log(f"Detectado delimitador pipe '|' (encoding: {src_encoding}). Convirtiendo a CSV estándar (coma UTF-8)...")
-        with open(src_file, "r", encoding=src_encoding, errors="replace") as fin, open(out_csv, "w", encoding="utf-8", newline="") as fout:
+        log(
+            f"Detectado delimitador pipe '|' (encoding: {src_encoding}). Convirtiendo a CSV estándar (coma UTF-8)..."
+        )
+        with (
+            open(src_file, "r", encoding=src_encoding, errors="replace") as fin,
+            open(out_csv, "w", encoding="utf-8", newline="") as fout,
+        ):
             reader = csv.reader(fin, delimiter="|")
             writer = csv.writer(fout)
             for row in reader:
@@ -114,11 +140,11 @@ def process_padron_ruc(key: str, url: str):
 def process_ordenes_compra(key: str, url: str):
     if not url:
         return
-    
+
     partes = key.split("-")
     anio = partes[0]
     mes = partes[1].zfill(2) if len(partes) > 1 else "01"
-    
+
     out_dir = BASE_DIR / "ordenes_compra" / f"anio={anio}" / f"mes={mes}"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = out_dir / "ordenes.csv"
@@ -167,11 +193,14 @@ def process_small_datasets(small_dict: dict):
         dest_csv = out_dir / "cdrA13_tabular.csv"
         temp_file = BASE_DIR / "tmp" / "ingresos_tributarios.raw"
         download_file(url, temp_file)
-        
+
         try:
             import pandas as pd
+
             df = pd.read_excel(temp_file)
-            log("Ingresos Tributarios detectado como Excel (.xlsx). Convirtiendo a CSV...")
+            log(
+                "Ingresos Tributarios detectado como Excel (.xlsx). Convirtiendo a CSV..."
+            )
             df.to_csv(dest_csv, index=False, encoding="utf-8")
             temp_file.unlink(missing_ok=True)
         except Exception:
@@ -196,16 +225,25 @@ def process_small_datasets(small_dict: dict):
                 z.extractall(extract_dir)
 
             # Buscar archivo de datos principal (el más pesado o de datos)
-            candidates = [f for f in extract_dir.rglob("*") if f.is_file() and not f.name.startswith(".")]
+            candidates = [
+                f
+                for f in extract_dir.rglob("*")
+                if f.is_file() and not f.name.startswith(".")
+            ]
             if not candidates:
-                raise FileNotFoundError("No se encontraron archivos dentro del ZIP de EPEN")
+                raise FileNotFoundError(
+                    "No se encontraron archivos dentro del ZIP de EPEN"
+                )
             candidates.sort(key=lambda f: f.stat().st_size, reverse=True)
             chosen = candidates[0]
-            log(f"Archivo de datos detectado en EPEN: {chosen.name} ({chosen.stat().st_size / (1024*1024):.2f} MB)")
+            log(
+                f"Archivo de datos detectado en EPEN: {chosen.name} ({chosen.stat().st_size / (1024 * 1024):.2f} MB)"
+            )
 
             if chosen.suffix.lower() in [".xlsx", ".xls"]:
                 log("Convirtiendo Excel de EPEN a CSV...")
                 import pandas as pd
+
                 df = pd.read_excel(chosen)
                 df.to_csv(out_csv, index=False, encoding="utf-8")
             else:
@@ -217,6 +255,7 @@ def process_small_datasets(small_dict: dict):
             # Si se descargó directo (no ZIP)
             try:
                 import pandas as pd
+
                 df = pd.read_excel(temp_file)
                 log("EPEN detectado como Excel (.xlsx). Convirtiendo a CSV...")
                 df.to_csv(out_csv, index=False, encoding="utf-8")
@@ -229,10 +268,17 @@ def process_small_datasets(small_dict: dict):
 
 def upload_to_s3():
     log(f"Iniciando sincronización con S3: s3://{RAW_BUCKET}/...")
-    
-    subdirs = ["padron_ruc", "ordenes_compra", "pricos", "ssco", "ingresos_tributarios", "epen"]
+
+    subdirs = [
+        "padron_ruc",
+        "ordenes_compra",
+        "pricos",
+        "ssco",
+        "ingresos_tributarios",
+        "epen",
+    ]
     uploaded_summary = []
-    
+
     for sub in subdirs:
         local_path = BASE_DIR / sub
         if local_path.exists():
@@ -243,8 +289,12 @@ def upload_to_s3():
             files = list(local_path.rglob("*"))
             data_files = [f for f in files if f.is_file()]
             total_mb = sum(f.stat().st_size for f in data_files) / (1024 * 1024)
-            uploaded_summary.append(f"{sub}: {len(data_files)} archivos ({total_mb:.2f} MB)")
-            log(f"✓ {sub} sincronizado exitosamente ({len(data_files)} archivos, {total_mb:.2f} MB).")
+            uploaded_summary.append(
+                f"{sub}: {len(data_files)} archivos ({total_mb:.2f} MB)"
+            )
+            log(
+                f"✓ {sub} sincronizado exitosamente ({len(data_files)} archivos, {total_mb:.2f} MB)."
+            )
 
     # Marcar éxito y bitácora estructurada en S3
     success_marker = BASE_DIR / "_INGESTION_SUCCESS"
@@ -255,8 +305,19 @@ def upload_to_s3():
         f"SUMMARY=\n" + "\n".join(f"  - {s}" for s in uploaded_summary) + "\n"
     )
     success_marker.write_text(summary_text)
-    subprocess.run(["aws", "s3", "cp", str(success_marker), f"s3://{RAW_BUCKET}/_INGESTION_SUCCESS"], check=True)
-    log("✓ Señal de éxito y resumen subida a s3://" + RAW_BUCKET + "/_INGESTION_SUCCESS")
+    subprocess.run(
+        [
+            "aws",
+            "s3",
+            "cp",
+            str(success_marker),
+            f"s3://{RAW_BUCKET}/_INGESTION_SUCCESS",
+        ],
+        check=True,
+    )
+    log(
+        "✓ Señal de éxito y resumen subida a s3://" + RAW_BUCKET + "/_INGESTION_SUCCESS"
+    )
 
 
 def main():
@@ -298,9 +359,19 @@ if __name__ == "__main__":
     except Exception as e:
         log(f"ERROR CRÍTICO: {e}")
         import traceback
+
         traceback.print_exc()
         # Reportar fallo a S3
         fail_marker = BASE_DIR / "_INGESTION_FAILED"
-        fail_marker.write_text(f"ERROR={str(e)}\n")
-        subprocess.run(["aws", "s3", "cp", str(fail_marker), f"s3://{RAW_BUCKET}/_INGESTION_FAILED"], check=False)
+        fail_marker.write_text(f"ERROR={e!s}\n")
+        subprocess.run(
+            [
+                "aws",
+                "s3",
+                "cp",
+                str(fail_marker),
+                f"s3://{RAW_BUCKET}/_INGESTION_FAILED",
+            ],
+            check=False,
+        )
         sys.exit(1)
