@@ -191,21 +191,35 @@ def process_small_datasets(small_dict: dict):
         out_dir = BASE_DIR / "ingresos_tributarios"
         out_dir.mkdir(parents=True, exist_ok=True)
         dest_csv = out_dir / "cdrA13_tabular.csv"
+        dest_var_csv = out_dir / "cdrA13_Var_tabular.csv"
         temp_file = BASE_DIR / "tmp" / "ingresos_tributarios.raw"
         download_file(url, temp_file)
 
         try:
-            import pandas as pd
-
-            df = pd.read_excel(temp_file)
-            log(
-                "Ingresos Tributarios detectado como Excel (.xlsx). Convirtiendo a CSV..."
+            # Intentar des-pivoteado estandarizado con ingresos_transformer
+            common_dir = str(
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "src"
+                / "spark"
+                / "common"
             )
-            df.to_csv(dest_csv, index=False, encoding="utf-8")
+            if common_dir not in sys.path:
+                sys.path.insert(0, common_dir)
+            from ingresos_transformer import process_both_ingresos
+
+            df_monto, df_var = process_both_ingresos(str(temp_file))
+            df_monto.to_csv(dest_csv, index=False, encoding="utf-8")
+            df_var.to_csv(dest_var_csv, index=False, encoding="utf-8")
+            log(
+                "✓ Ingresos Tributarios des-pivoteados exitosamente en cdrA13_tabular.csv y cdrA13_Var_tabular.csv"
+            )
             temp_file.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
+            log(
+                f"Advertencia: Falló des-pivoteo de Ingresos Tributarios ({err}). Guardando respaldo..."
+            )
             shutil.move(str(temp_file), str(dest_csv))
-        log(f"✓ Ingresos Tributarios guardado en: {dest_csv}")
+        log(f"✓ Ingresos Tributarios guardados en: {dest_csv}")
 
     # EPEN
     if small_dict.get("epen"):
