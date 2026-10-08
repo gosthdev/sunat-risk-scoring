@@ -161,8 +161,22 @@ def process_small_datasets(small_dict: dict):
 
     # Ingresos Tributarios
     if small_dict.get("ingresos_tributarios"):
-        dest = BASE_DIR / "ingresos_tributarios" / "cdrA13_tabular.csv"
-        download_file(small_dict["ingresos_tributarios"], dest)
+        url = small_dict["ingresos_tributarios"].strip()
+        out_dir = BASE_DIR / "ingresos_tributarios"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest_csv = out_dir / "cdrA13_tabular.csv"
+        temp_file = BASE_DIR / "tmp" / "ingresos_tributarios.raw"
+        download_file(url, temp_file)
+        
+        try:
+            import pandas as pd
+            df = pd.read_excel(temp_file)
+            log("Ingresos Tributarios detectado como Excel (.xlsx). Convirtiendo a CSV...")
+            df.to_csv(dest_csv, index=False, encoding="utf-8")
+            temp_file.unlink(missing_ok=True)
+        except Exception:
+            shutil.move(str(temp_file), str(dest_csv))
+        log(f"✓ Ingresos Tributarios guardado en: {dest_csv}")
 
     # EPEN
     if small_dict.get("epen"):

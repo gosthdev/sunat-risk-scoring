@@ -1,16 +1,3 @@
-#!/usr/bin/env bash
-# ==============================================================================
-# run_and_destroy.sh
-#
-# Automatiza el ciclo de vida COMPLETO de la EC2 efímera de ingesta:
-#   1. Valida que urls.json tenga URLs configurados.
-#   2. Aplica terraform en infra/ingestion_ec2 (crea EC2, EBS, SG, IAM).
-#   3. Monitorea la ejecución en tiempo real hasta detectar _INGESTION_SUCCESS.
-#   4. Destruye automáticamente el 100% de la infraestructura con terraform destroy.
-#
-# CERO residuos: no quedan instancias, ni discos EBS, ni IPs, ni SG, ni Roles.
-# ==============================================================================
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,9 +6,6 @@ cd "$SCRIPT_DIR"
 AWS_PROFILE="${AWS_PROFILE:-bigdata}"
 export AWS_PROFILE
 
-echo "================================================================="
-echo "   INGESTOR EFÍMERO SUNAT - CICLO DE VIDA CON DESTRUCCIÓN TOTAL  "
-echo "================================================================="
 echo "Directorio de trabajo: $SCRIPT_DIR"
 echo "Perfil de AWS:         $AWS_PROFILE"
 
@@ -70,6 +54,13 @@ echo -e "\n✓ EC2 desplegada exitosamente:"
 echo "  - Instancia: $INSTANCE_ID"
 echo "  - IP Efímera: $PUBLIC_IP"
 echo "  - Bucket Raw: s3://$RAW_BUCKET"
+
+# Función de limpieza garantizada ante cualquier salida o interrupción
+cleanup() {
+  echo "Ejecutando 'terraform destroy -auto-approve'..."
+  terraform destroy -auto-approve
+  echo -e "\n✓ Verificación: Toda la infraestructura efímera ha sido eliminada."
+}
 
 # 3. Monitoreo del proceso en S3
 echo -e "\n[3/4] Monitoreando progreso de descarga, conversión y subida a S3..."
@@ -172,15 +163,8 @@ fi
 # 5. Destrucción total garantizada
 cleanup
 
-if [ "$SUCCESS" -eq 1 ]; then
-  echo -e "\n================================================================="
-  echo "   ¡TRANQUILIDAD TOTAL: INGESTA Y DESTRUCCIÓN 100% EXITOSAS!    "
-  echo "================================================================="
-  echo "   ✓ Todos los datasets están en su lugar en S3 Raw (Hive-ready)"
-  echo "   ✓ Compatibilidad verificada con jobs de Spark (01_ingest_bronze)"
-  echo "   ✓ Cero residuos en AWS: EC2, EBS, SG y Roles destruidos      "
-  echo "   ✓ Costo operativo residual en AWS: \$0.00                     "
-  echo "================================================================="
+if [ "$SUCCESS" -eq 1 ]; then 
+  echo "   ¡TRANQUILIDAD TOTAL: INGESTA Y DESTRUCCIÓN EXITOSAS!    "
 else
   echo -e "\nRevisa los errores reportados antes de volver a intentar."
   exit 1
