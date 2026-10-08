@@ -1,8 +1,19 @@
 import os
 import shutil
+import sys
 import unittest
 from datetime import date
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+# Asegurar que los módulos de src/spark estén en sys.path tanto para pytest como unittest
+_ROOT = Path(__file__).resolve().parent.parent
+_COMMON_PATH = str(_ROOT / "src" / "spark" / "common")
+_JOBS_PATH = str(_ROOT / "src" / "spark" / "jobs")
+if _COMMON_PATH not in sys.path:
+    sys.path.insert(0, _COMMON_PATH)
+if _JOBS_PATH not in sys.path:
+    sys.path.insert(0, _JOBS_PATH)
 
 from region_normalizer import normalize_department
 
