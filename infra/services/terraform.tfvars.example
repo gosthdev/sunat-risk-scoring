@@ -8,9 +8,9 @@ gold_bucket_name      = "sunat-risk-scoring-gold"
 artifacts_bucket_name = "sunat-risk-scoring-artifacts"
 
 emr_release_label        = "emr-7.13.0"
-emr_max_cpu              = "16 vCPU"
-emr_max_memory           = "64 GB"
-emr_max_disk             = "300 GB"
+emr_max_cpu              = "32 vCPU"
+emr_max_memory           = "128 GB"
+emr_max_disk             = "500 GB"
 emr_idle_timeout_minutes = 15
 
 # 10 GB por consulta

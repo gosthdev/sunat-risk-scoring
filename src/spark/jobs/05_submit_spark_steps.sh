@@ -163,8 +163,13 @@ for step in "${STEPS[@]}"; do
   echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step} (${SCRIPT_NAME})"
   echo "------------------------------------------------------------------------"
 
-  # Parámetros spark-submit: empaquetado común y variables de buckets
+  # Parámetros spark-submit: empaquetado común, variables de buckets y dimensionamiento controlado
   SPARK_PARAMS="--py-files ${PY_FILES_URI} \
+--conf spark.driver.cores=4 \
+--conf spark.driver.memory=14g \
+--conf spark.executor.cores=4 \
+--conf spark.executor.memory=14g \
+--conf spark.dynamicAllocation.maxExecutors=3 \
 --conf spark.emr-serverless.driverEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} \
 --conf spark.executorEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} \
 --conf spark.emr-serverless.driverEnv.RAW_BUCKET=${RAW_BUCKET} \
