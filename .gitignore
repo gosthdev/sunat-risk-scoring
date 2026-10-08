@@ -1,38 +1,81 @@
-# Environments
+# ── Environments ──────────────────────────────────────────────
 venv/
+.venv/
+env/
 .env
-.env.local
+.env.*
+!.env.example
 
-# Data
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+coverage.xml
+htmlcov/
+
+# ── Jupyter ───────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Data ──────────────────────────────────────────────────────
 data/raw/*
 data/processed/*
+data/silver/*
+data/artifacts/*
 *.csv
 *.parquet
+*.json.gz
+*.orc
+*.avro
+common.zip
 
-# AWS
-.aws/credentials
-AWS_CREDENTIALS.txt
-
-# Models
+# ── Models ────────────────────────────────────────────────────
 models/*.pkl
 models/*.joblib
+models/*.h5
+models/*.pt
+models/*.onnx
 
-#Terraform
-.terraform/
+# ── AWS ───────────────────────────────────────────────────────
+.aws/
+AWS_CREDENTIALS.txt
+*.pem
+*.p12
+
+# ── Terraform ─────────────────────────────────────────────────
+**/.terraform/
 *.tfstate
 *.tfstate.*
+*.tfstate.backup
 crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+terraform.plan
+*.tfplan
 
-# IDE
+# ── Logs ──────────────────────────────────────────────────────
+logs/
+*.log
+spark-warehouse/
+
+# ── IDE ───────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-*.egg-info/
-
-# Jupyter
-.ipynb
+*.swo
+.DS_Store
+Thumbs.db
