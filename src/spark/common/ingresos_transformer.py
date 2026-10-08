@@ -76,7 +76,7 @@ def transform_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet) -> pd.DataFra
             except ValueError:
                 pass
 
-        if r5_val is not None:
+        if r5_val is not None and curr_year is not None:
             raw_m = str(r5_val).strip().lower()
             if raw_m in MONTH_MAP:
                 std_m = MONTH_MAP[raw_m]
@@ -92,6 +92,8 @@ def transform_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet) -> pd.DataFra
             continue
 
         for c, (anio, mes) in col_meta.items():
+            if anio is None:
+                continue
             val = sheet.cell(r, c).value
             periodo = f"{anio}_{mes}"
             monto = None
