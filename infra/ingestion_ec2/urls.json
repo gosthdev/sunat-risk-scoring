@@ -1,0 +1,36 @@
+{
+  "padron_ruc": {
+    "2025-01": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202501.zip",
+    "2025-02": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202502.zip",
+    "2025-03": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202503.zip",
+    "2025-04": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202504.zip",
+    "2025-05": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202505.zip",
+    "2025-06": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202506.zip",
+    "2025-07": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202507.zip",
+    "2025-08": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202508.zip",
+    "2025-09": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202509.zip",
+    "2025-10": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202510.zip",
+    "2025-11": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202511.zip",
+    "2025-12": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202512.zip"
+  },
+  "ordenes_compra": {
+    "2025-01": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBRU5FUk8yMDI1XzAueGxzeA==",
+    "2025-02": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBRkVCUkVSTzIwMjVfMC54bHN4",
+    "2025-03": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBTUFSWk8yMDI1XzAueGxzeA==",
+    "2025-04": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBQUJSSUwyMDI1XzAueGxzeA==",
+    "2025-05": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBTUFZTzIwMjVfMC54bHN4",
+    "2025-06": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBSlVOSU8yMDI1XzAueGxzeA==",
+    "2025-07": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBSlVMSU8yMDI1XzAueGxzeA==",
+    "2025-08": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBQUdPU1RPMjAyNV8wLnhsc3g=",
+    "2025-09": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBU0VQVElFTUJSRTIwMjVfMC54bHN4",
+    "2025-10": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBT0NUVUJSRTIwMjVfMC54bHN4",
+    "2025-11": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBTk9WSUVNQlJFMjAyNV8wLnhsc3g=",
+    "2025-12": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBRElDSUVNQlJFMjAyNV8wLnhsc3g="
+  },
+  "small_datasets": {
+    "pricos": "https://www.sunat.gob.pe/padronesnotificaciones/pricos/principalesContrib-PRICOS.xlsx",
+    "ssco": "https://www.sunat.gob.pe/padronesnotificaciones/ssco/sujesincapacidadOperativa.xlsx",
+    "ingresos_tributarios": "https://www.sunat.gob.pe/estadisticasestudios/nota_tributaria/cdro_A13.xlsx",
+    "epen": "https://proyectos.inei.gob.pe/iinei/srienaho/descarga/CSV/1001-Modulo76.zip"
+  }
+}
