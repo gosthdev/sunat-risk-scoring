@@ -49,7 +49,7 @@ resource "aws_iam_role" "ingestion" {
 
 resource "aws_iam_policy" "ingestion_s3" {
   name        = "sunat-ingestion-ec2-s3-policy"
-  description = "Permisos para sincronizar datos raw hacia S3 desde la EC2 efímera"
+  description = "Permisos para sincronizar datos raw hacia S3 desde la EC2 efimera"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -88,7 +88,7 @@ resource "aws_iam_instance_profile" "ingestion" {
 ############ Security Group (Sin puertos de entrada abiertos) ############
 resource "aws_security_group" "ingestion" {
   name        = "sunat-ingestion-ec2-sg"
-  description = "SG efímero: solo egress HTTPS a internet, sin puertos de entrada"
+  description = "SG efimero: solo egress HTTPS a internet, sin puertos de entrada"
   vpc_id      = data.aws_vpc.default.id
 
   egress {
@@ -101,6 +101,21 @@ resource "aws_security_group" "ingestion" {
   }
 }
 
+############ Bootstrap Files in S3 (Evita exceder límite de 16KB en User Data) ############
+resource "aws_s3_object" "bootstrap_urls" {
+  bucket = var.raw_bucket_name
+  key    = "_bootstrap/urls.json"
+  source = "${path.module}/urls.json"
+  etag   = filemd5("${path.module}/urls.json")
+}
+
+resource "aws_s3_object" "bootstrap_script" {
+  bucket = var.raw_bucket_name
+  key    = "_bootstrap/process_and_upload.py"
+  source = "${path.module}/scripts/process_and_upload.py"
+  etag   = filemd5("${path.module}/scripts/process_and_upload.py")
+}
+
 ############ Instancia EC2 Efímera ############
 resource "aws_instance" "ingestion_worker" {
   ami                         = data.aws_ami.ubuntu.id
@@ -109,6 +124,12 @@ resource "aws_instance" "ingestion_worker" {
   vpc_security_group_ids      = [aws_security_group.ingestion.id]
   iam_instance_profile        = aws_iam_instance_profile.ingestion.name
   associate_public_ip_address = true # IP pública efímera dinámica (desaparece al destruirse la EC2)
+
+  depends_on = [
+    aws_s3_object.bootstrap_urls,
+    aws_s3_object.bootstrap_script,
+    aws_iam_role_policy_attachment.ingestion
+  ]
 
   root_block_device {
     volume_size           = var.ebs_volume_size
@@ -138,15 +159,9 @@ resource "aws_instance" "ingestion_worker" {
 
     mkdir -p /opt/ingestion /data/tmp
 
-    echo "=== [2/4] Escribiendo configuración y scripts ==="
-    cat <<'INNER_JSON' > /opt/ingestion/urls.json
-    ${file("${path.module}/urls.json")}
-    INNER_JSON
-
-    cat <<'INNER_PY' > /opt/ingestion/process_and_upload.py
-    ${file("${path.module}/scripts/process_and_upload.py")}
-    INNER_PY
-
+    echo "=== [2/4] Descargando configuración y scripts desde S3 ==="
+    aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/urls.json" /opt/ingestion/urls.json
+    aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/process_and_upload.py" /opt/ingestion/process_and_upload.py
     chmod +x /opt/ingestion/process_and_upload.py
 
     export RAW_BUCKET="${var.raw_bucket_name}"
