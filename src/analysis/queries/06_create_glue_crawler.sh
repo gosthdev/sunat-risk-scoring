@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Fase 3 - Crea (o actualiza) los crawlers de Glue sobre silver/ y gold/ y los ejecuta.
+# Puebla el Glue Data Catalog con una tabla por carpeta: silver_<tabla> y gold_<tabla>.
+#
+# Uso:
+#   BUCKET=mi-bucket GLUE_ROLE_ARN=arn:aws:iam::123456789012:role/glue-crawler ./06_create_glue_crawler.sh
+#
+# Requisito: silver/ y gold/ ya deben tener datos (corre antes los jobs 02 a 05).
+set -euo pipefail
+
+# Soporte multicanasta (infra/storage) o bucket único del datalake (plan.md)
+GLUE_DATABASE="${GLUE_DATABASE:-ssco_catalog}"
+ZONES=(silver gold)
+
+# Auto-descubrir rol IAM si no fue provisto explícitamente
+if [[ -z "${GLUE_ROLE_ARN:-}" ]]; then
+  GLUE_ROLE_ARN=$(aws iam get-role --role-name sunat-ssco-glue-crawler-role --query 'Role.Arn' --output text 2>/dev/null || true)
+fi
+: "${GLUE_ROLE_ARN:?Define GLUE_ROLE_ARN (o asegúrate de que exista sunat-ssco-glue-crawler-role)}"
+
+ensure_database() {
+  if ! aws glue get-database --name "$GLUE_DATABASE" >/dev/null 2>&1; then
+    echo "Creando base de datos Glue: $GLUE_DATABASE"
+    aws glue create-database --database-input "Name=${GLUE_DATABASE}"
+  fi
+}
+
+upsert_crawler() {
+  local zone="$1"
+  local name="ssco-${zone}-crawler"
+  local target_path
+  local level_cfg
+
+  if [[ "$zone" == "silver" && -n "${SILVER_BUCKET:-}" ]]; then
+    target_path="s3://${SILVER_BUCKET}/"
+    level_cfg=2
+  elif [[ "$zone" == "gold" && -n "${GOLD_BUCKET:-}" ]]; then
+    target_path="s3://${GOLD_BUCKET}/"
+    level_cfg=2
+  else
+    : "${BUCKET:?Define BUCKET o (SILVER_BUCKET y GOLD_BUCKET)}"
+    target_path="s3://${BUCKET}/${zone}/"
+    level_cfg=3
+  fi
+
+  local config="{\"Version\":1.0,\"Grouping\":{\"TableLevelConfiguration\":${level_cfg}}}"
+  local targets="{\"S3Targets\":[{\"Path\":\"${target_path}\"}]}"
+  local args=(
+    --name "$name"
+    --role "$GLUE_ROLE_ARN"
+    --database-name "$GLUE_DATABASE"
+    --table-prefix "${zone}_"
+    --targets "$targets"
+    --schema-change-policy "UpdateBehavior=UPDATE_IN_DATABASE,DeleteBehavior=LOG"
+    --configuration "$config"
+  )
+
+  if aws glue get-crawler --name "$name" >/dev/null 2>&1; then
+    echo "Actualizando crawler: $name ($target_path)"
+    aws glue update-crawler "${args[@]}"
+  else
+    echo "Creando crawler: $name ($target_path)"
+    aws glue create-crawler "${args[@]}"
+  fi
+}
+
+run_crawler() {
+  local name="$1"
+  echo "Iniciando crawler: $name"
+  aws glue start-crawler --name "$name"
+
+  while true; do
+    state=$(aws glue get-crawler --name "$name" --query 'Crawler.State' --output text)
+    [[ "$state" == "READY" ]] && break
+    echo "  $name -> $state"
+    sleep 15
+  done
+
+  status=$(aws glue get-crawler --name "$name" --query 'Crawler.LastCrawl.Status' --output text)
+  echo "Crawler $name terminó con estado: $status"
+  [[ "$status" == "SUCCEEDED" ]] || { echo "Revisa los logs del crawler en CloudWatch" >&2; exit 1; }
+}
+
+ensure_database
+for zone in "${ZONES[@]}"; do upsert_crawler "$zone"; done
+for zone in "${ZONES[@]}"; do run_crawler "ssco-${zone}-crawler"; done
+
+echo
+echo "Tablas en el catálogo ($GLUE_DATABASE):"
+aws glue get-tables --database-name "$GLUE_DATABASE" --query 'TableList[].Name' --output table
