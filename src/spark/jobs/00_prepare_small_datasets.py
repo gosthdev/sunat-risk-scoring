@@ -43,7 +43,7 @@ INGRESOS_TRIBUTARIOS_ARCHIVO = "cdrA13_tabular.csv"
 # 04_regional_gold.py (mismo principio de "no dejar inferir tipos" que en
 # schema_definitions.py para los jobs de Spark).
 EPEN_DTYPES = {
-    "CCDD": "int64",
+    "CCDD": "Int64",
     "OCUP300": "float64",
     "Informal_P": "float64",
     "FAC300_ANUAL": "float64",
@@ -161,9 +161,20 @@ def prepare_ingresos_tributarios():
 
 
 def prepare_epen():
-    df = wr.s3.read_csv(f"{RAW_EPEN}/anio=2025/", dataset=True, dtype=EPEN_DTYPES)
-    df = df.dropna(subset=["FAC300_ANUAL"])
+    cols = list(EPEN_DTYPES.keys())
+    df = wr.s3.read_csv(
+        f"{RAW_EPEN}/anio=2025/",
+        dataset=True,
+        usecols=cols,
+        dtype=EPEN_DTYPES,
+    )
+    df = df[cols].copy()
+    df = df.dropna(subset=["CCDD", "FAC300_ANUAL"])
+    df["CCDD"] = df["CCDD"].astype("int64")
     wr.s3.to_parquet(df, path=SILVER_EPEN, dataset=True, mode="overwrite")
+    print(
+        f"[prepare_epen] EPEN procesado y guardado en {SILVER_EPEN} ({len(df):,} filas)."
+    )
 
 
 def prepare_ssco():
