@@ -1,0 +1,736 @@
+name: Continuous Deployment (Idempotent Pipeline)
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: "Forzar ejecución completa de todas las etapas"
+        required: false
+        type: boolean
+        default: false
+      force_ingest:
+        description: "Forzar re-ingesta en EC2 (Raw)"
+        required: false
+        type: boolean
+        default: false
+      force_small:
+        description: "Forzar Job 00 (Small Datasets)"
+        required: false
+        type: boolean
+        default: false
+      force_bronze:
+        description: "Forzar Job 01 (Bronze)"
+        required: false
+        type: boolean
+        default: false
+      force_silver:
+        description: "Forzar Job 02 (Silver)"
+        required: false
+        type: boolean
+        default: false
+      force_gold_ruc:
+        description: "Forzar Job 03 (Gold RUC)"
+        required: false
+        type: boolean
+        default: false
+      force_gold_regional:
+        description: "Forzar Job 04 (Gold Regional)"
+        required: false
+        type: boolean
+        default: false
+      force_scoring:
+        description: "Forzar Job 05 (Scoring Dataset)"
+        required: false
+        type: boolean
+        default: false
+      force_analytics:
+        description: "Forzar Crawlers y Athena Queries"
+        required: false
+        type: boolean
+        default: false
+      emr_application_id:
+        description: "ID de la aplicación EMR Serverless (dejar vacío para auto-detectar)"
+        required: false
+        type: string
+        default: ""
+      datalake_bucket:
+        description: "Nombre del bucket DataLake"
+        required: false
+        type: string
+        default: ""
+      artifacts_bucket:
+        description: "Nombre del bucket de artefactos"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+  DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring' }}
+  ARTIFACTS_BUCKET: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+  RAW_BUCKET: ${{ vars.RAW_BUCKET || secrets.RAW_BUCKET || 'sunat-risk-scoring-raw' }}
+  BRONZE_BUCKET: ${{ vars.BRONZE_BUCKET || secrets.BRONZE_BUCKET || 'sunat-risk-scoring-bronze' }}
+  SILVER_BUCKET: ${{ vars.SILVER_BUCKET || secrets.SILVER_BUCKET || 'sunat-risk-scoring-silver' }}
+  GOLD_BUCKET: ${{ vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
+  EMR_APPLICATION_ID: ${{ inputs.emr_application_id != '' && inputs.emr_application_id || vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
+  EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
+  GLUE_ROLE_ARN: ${{ vars.GLUE_ROLE_ARN || secrets.GLUE_ROLE_ARN || '' }}
+
+jobs:
+  # ============================================================================
+  # ETAPA 0: Ingesta Raw (EC2 Efímera con Terraform)
+  # ============================================================================
+  check-raw:
+    name: Check Ingesta Raw
+    runs-on: ubuntu-latest
+    outputs:
+      needs_ingestion: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Raw
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_ingest }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage raw \
+            --marker-uri "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --files infra/ingestion_ec2/urls.json infra/ingestion_ec2/scripts/process_and_upload.py \
+            --check-raw-data \
+            --raw-bucket "${RAW_BUCKET}" \
+            --force "$FORCE_VAL"
+
+  ingest-raw:
+    name: Execute EC2 Ephemeral Ingestion
+    needs: [check-raw]
+    if: needs.check-raw.outputs.needs_ingestion == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run EC2 Ingestion and Destroy
+        env:
+          RAW_BUCKET_NAME: ${{ env.RAW_BUCKET }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          TF_VAR_aws_profile: ""
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_raw_bucket_name: ${{ env.RAW_BUCKET }}
+        run: |
+          bash infra/ingestion_ec2/run_and_destroy.sh
+
+  # ============================================================================
+  # ETAPA 0: Small Datasets (Job 00 -> Silver)
+  # ============================================================================
+  check-small:
+    name: Check Small Datasets
+    needs: [check-raw, ingest-raw]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_small: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Job 00
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_small }}" == "true" || "${{ needs.ingest-raw.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage small \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --force "$FORCE_VAL"
+
+  process-small:
+    name: Process Small Datasets (Runner)
+    needs: [check-small]
+    if: needs.check-small.outputs.needs_small == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+
+      - name: Run prepare small datasets
+        env:
+          PYTHONPATH: src/spark/common
+        run: |
+          python3 src/spark/jobs/00_prepare_small_datasets.py
+
+      - name: Write completion marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage small \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+
+  # ============================================================================
+  # ETAPA 1: Bronze (Job 01 -> Bronze)
+  # ============================================================================
+  check-bronze:
+    name: Check Bronze
+    needs: [check-raw, ingest-raw, check-small, process-small]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_bronze: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Bronze
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_bronze }}" == "true" || "${{ needs.ingest-raw.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage bronze \
+            --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --force "$FORCE_VAL"
+
+  process-bronze:
+    name: Process Bronze (EMR Step 1)
+    needs: [check-bronze]
+    if: needs.check-bronze.outputs.needs_bronze == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Shared Common Modules
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        run: |
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Clean Bronze Layer
+        run: |
+          bash scripts/clean_layer.sh bronze
+
+      - name: Submit Job 01 to EMR Serverless
+        run: |
+          bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 01_ingest_bronze
+
+      - name: Write Bronze Marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage bronze \
+            --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+
+  # ============================================================================
+  # ETAPA 2: Silver (Job 02 -> Silver)
+  # ============================================================================
+  check-silver:
+    name: Check Silver
+    needs: [check-bronze, process-bronze]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_silver: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Silver
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_silver }}" == "true" || "${{ needs.process-bronze.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage silver \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --force "$FORCE_VAL"
+
+  process-silver:
+    name: Process Silver (EMR Step 2)
+    needs: [check-silver]
+    if: needs.check-silver.outputs.needs_silver == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Shared Common Modules
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        run: |
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Clean Silver Layer
+        run: |
+          bash scripts/clean_layer.sh silver
+
+      - name: Submit Job 02 to EMR Serverless
+        run: |
+          bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 02_clean_silver
+
+      - name: Write Silver Marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage silver \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json"
+
+  # ============================================================================
+  # ETAPA 3: Gold RUC Features (Job 03)
+  # ============================================================================
+  check-gold-ruc:
+    name: Check Gold RUC
+    needs: [check-silver, process-silver]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_gold_ruc: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Gold RUC
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_gold_ruc }}" == "true" || "${{ needs.process-silver.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage gold_ruc \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --force "$FORCE_VAL"
+
+  process-gold-ruc:
+    name: Process Gold RUC (EMR Step 3)
+    needs: [check-gold-ruc]
+    if: needs.check-gold-ruc.outputs.needs_gold_ruc == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Shared Common Modules
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        run: |
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Clean Gold RUC Layer
+        run: |
+          bash scripts/clean_layer.sh gold_ruc
+
+      - name: Submit Job 03 to EMR Serverless
+        run: |
+          bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 03_feature_gold
+
+      - name: Write Gold RUC Marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage gold_ruc \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json"
+
+  # ============================================================================
+  # ETAPA 4: Gold Regional Summary (Job 04)
+  # ============================================================================
+  check-gold-regional:
+    name: Check Gold Regional
+    needs: [check-silver, process-silver, check-small, process-small]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_gold_regional: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Gold Regional
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_gold_regional }}" == "true" || "${{ needs.process-silver.result }}" == "success" || "${{ needs.process-small.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage gold_regional \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --files src/spark/jobs/04_regional_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --force "$FORCE_VAL"
+
+  process-gold-regional:
+    name: Process Gold Regional (EMR Step 4)
+    needs: [check-gold-regional]
+    if: needs.check-gold-regional.outputs.needs_gold_regional == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Shared Common Modules
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        run: |
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Clean Gold Regional Layer
+        run: |
+          bash scripts/clean_layer.sh gold_regional
+
+      - name: Submit Job 04 to EMR Serverless
+        run: |
+          bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 04_regional_gold
+
+      - name: Write Gold Regional Marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage gold_regional \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --files src/spark/jobs/04_regional_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job00_complete.json"
+
+  # ============================================================================
+  # ETAPA 5: Gold Scoring Dataset (Job 05)
+  # ============================================================================
+  check-scoring:
+    name: Check Scoring Dataset
+    needs: [check-gold-ruc, process-gold-ruc, check-gold-regional, process-gold-regional]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_scoring: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Scoring
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_scoring }}" == "true" || "${{ needs.process-gold-ruc.result }}" == "success" || "${{ needs.process-gold-regional.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage scoring \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --files src/spark/jobs/05_scoring_dataset_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --force "$FORCE_VAL"
+
+  process-scoring:
+    name: Process Scoring Dataset (EMR Step 5)
+    needs: [check-scoring]
+    if: needs.check-scoring.outputs.needs_scoring == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Shared Common Modules
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        run: |
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Clean Gold Scoring Layer
+        run: |
+          bash scripts/clean_layer.sh gold_scoring
+
+      - name: Submit Job 05 to EMR Serverless
+        run: |
+          bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 05_scoring_dataset_gold
+
+      - name: Write Scoring Marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage scoring \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --files src/spark/jobs/05_scoring_dataset_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json"
+
+  # ============================================================================
+  # ETAPA 6: Analytics (Glue Crawlers + Athena Workgroup + Queries)
+  # ============================================================================
+  check-analytics:
+    name: Check Analytics
+    needs: [check-scoring, process-scoring]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    outputs:
+      needs_analytics: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Evaluar condición de salto para Analytics
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force_all || inputs.force_analytics }}" == "true" || "${{ needs.process-scoring.result }}" == "success" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage analytics \
+            --marker-uri "s3://${ARTIFACTS_BUCKET}/_markers/analytics_complete.json" \
+            --files "src/analysis/queries/*.sql" "src/analysis/queries/*.sh" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --force "$FORCE_VAL"
+
+  run-analytics:
+    name: Execute Glue Crawlers and Athena Analytics
+    needs: [check-analytics]
+    if: needs.check-analytics.outputs.needs_analytics == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run Glue Crawlers (Silver & Gold)
+        run: |
+          bash src/analysis/queries/06_create_glue_crawler.sh
+
+      - name: Ensure Athena Workgroup
+        run: |
+          bash src/analysis/queries/07_create_athena_workgroup.sh
+
+      - name: Run Athena Analytical Queries
+        run: |
+          bash src/analysis/queries/08_run_athena_query.sh \
+            src/analysis/queries/concentracion_pricos.sql \
+            src/analysis/queries/informalidad_vs_ruc_activos.sql \
+            src/analysis/queries/ruc_activos_por_departamento.sql
+
+      - name: Write Analytics Marker
+        run: |
+          bash scripts/write_marker.sh \
+            --stage analytics \
+            --marker-uri "s3://${ARTIFACTS_BUCKET}/_markers/analytics_complete.json" \
+            --files "src/analysis/queries/*.sql" "src/analysis/queries/*.sh" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job05_complete.json"
