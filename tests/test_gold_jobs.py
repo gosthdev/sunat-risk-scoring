@@ -1,0 +1,157 @@
+import os
+import shutil
+import sys
+import unittest
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch
+
+# Asegurar que los módulos de src/spark estén en sys.path tanto para pytest como unittest
+_ROOT = Path(__file__).resolve().parent.parent
+_COMMON_PATH = str(_ROOT / "src" / "spark" / "common")
+_JOBS_PATH = str(_ROOT / "src" / "spark" / "jobs")
+if _COMMON_PATH not in sys.path:
+    sys.path.insert(0, _COMMON_PATH)
+if _JOBS_PATH not in sys.path:
+    sys.path.insert(0, _JOBS_PATH)
+
+from region_normalizer import normalize_department
+
+HAS_JAVA = shutil.which("java") is not None
+
+
+class TestGoldJobs(unittest.TestCase):
+    spark = None
+
+    @classmethod
+    def setUpClass(cls):
+        if HAS_JAVA:
+            from pyspark.sql import SparkSession
+
+            cls.spark = (
+                SparkSession.builder.master("local[1]")
+                .appName("test-gold-jobs")
+                .getOrCreate()
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.spark is not None:
+            cls.spark.stop()
+
+    def test_normalize_department(self):
+        self.assertEqual(normalize_department("LIMA"), "LIMA")
+        self.assertEqual(normalize_department("  arequipa "), "AREQUIPA")
+
+    def test_antiguedad_reference_date_logic(self):
+        """Verifica que el cálculo de antigüedad mensual sea determinista."""
+        first_order = date(2025, 1, 15)
+
+        # Enero 2025: corte 2025-01-31
+        cutoff_jan = date(2025, 1, 31)
+        antiguedad_jan = (cutoff_jan - first_order).days
+        self.assertEqual(antiguedad_jan, 16)
+
+        # Febrero 2025: corte 2025-02-28
+        cutoff_feb = date(2025, 2, 28)
+        antiguedad_feb = (cutoff_feb - first_order).days
+        self.assertEqual(antiguedad_feb, 44)
+
+        # Diciembre 2025: corte 2025-12-31
+        cutoff_dec = date(2025, 12, 31)
+        antiguedad_dec = (cutoff_dec - first_order).days
+        self.assertEqual(antiguedad_dec, 350)
+
+        # Orden posterior al mes de referencia -> debe ser None
+        first_order_future = date(2025, 6, 1)
+        diff = (cutoff_jan - first_order_future).days
+        antiguedad = None if diff < 0 else diff
+        self.assertIsNone(antiguedad)
+
+    @unittest.skipIf(not HAS_JAVA, "Requiere Java para PySpark")
+    def test_obtener_padron_mes_referencia_with_env_vars(self):
+        """Verifica que obtener_padron_mes_referencia respete las variables de entorno."""
+        from importlib import import_module
+
+        regional_mod = import_module("04_regional_gold")
+
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [(2025, 1, "ACTIVO", "LIMA"), (2025, 6, "ACTIVO", "LIMA")],
+            ["anio", "mes", "Estado", "Departamento"],
+        )
+
+        with patch.dict(
+            os.environ,
+            {
+                "ANIO_REFERENCIA_REGIONAL": "2025",
+                "MES_REFERENCIA_REGIONAL": "1",
+            },
+        ):
+            padron_filtrado, anio_ref, mes_ref = (
+                regional_mod.obtener_padron_mes_referencia(spark=self.spark, padron=df)
+            )
+            self.assertEqual(anio_ref, 2025)
+            self.assertEqual(mes_ref, 1)
+            self.assertEqual(padron_filtrado.count(), 1)
+
+    @unittest.skipIf(not HAS_JAVA, "Requiere Java para PySpark")
+    def test_obtener_padron_mes_referencia_auto_detect_latest(self):
+        """Verifica que se seleccione el último snapshot cuando no hay variables de entorno."""
+        from importlib import import_module
+
+        regional_mod = import_module("04_regional_gold")
+
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [
+                (2025, 1, "ACTIVO", "LIMA"),
+                (2025, 12, "ACTIVO", "LIMA"),
+                (2025, 6, "ACTIVO", "LIMA"),
+            ],
+            ["anio", "mes", "Estado", "Departamento"],
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            padron_filtrado, anio_ref, mes_ref = (
+                regional_mod.obtener_padron_mes_referencia(spark=self.spark, padron=df)
+            )
+            self.assertEqual(anio_ref, 2025)
+            self.assertEqual(mes_ref, 12)
+            self.assertEqual(padron_filtrado.count(), 1)
+
+    @unittest.skipIf(not HAS_JAVA, "Requiere Java para Spark local")
+    def test_pyspark_integration(self):
+        """Test de integración cuando Java está disponible (e.g. en GitHub Actions)."""
+        from pyspark.sql.functions import (
+            col,
+            concat,
+            datediff,
+            format_string,
+            last_day,
+            lit,
+            to_date,
+        )
+
+        assert self.spark is not None
+        df = self.spark.createDataFrame([(2025, 1), (2025, 2)], ["anio", "mes"])
+        df = df.withColumn(
+            "mes_referencia",
+            format_string("%d%02d", col("anio"), col("mes")),
+        )
+        df = df.withColumn(
+            "fecha_ref",
+            last_day(to_date(concat(col("mes_referencia"), lit("01")), "yyyyMMdd")),
+        )
+        df = df.withColumn("primera_orden", to_date(lit("2025-01-15"), "yyyy-MM-dd"))
+        df = df.withColumn(
+            "antiguedad", datediff(col("fecha_ref"), col("primera_orden"))
+        )
+
+        rows = {r["mes_referencia"]: r["antiguedad"] for r in df.collect()}
+        self.assertEqual(rows["202501"], 16)
+        self.assertEqual(rows["202502"], 44)
+
+
+if __name__ == "__main__":
+    unittest.main()

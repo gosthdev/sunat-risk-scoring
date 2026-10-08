@@ -4,12 +4,15 @@ el Objetivo 3 del proyecto (brecha formalidad/informalidad por región).
 
 Combina, por departamento normalizado:
 
-  - ruc_activos: conteo de RUC en estado ACTIVO (Padrón RUC).
+  - ruc_activos: conteo de RUC en estado ACTIVO en el mes de referencia
+    (por defecto la última foto mensual del Padrón RUC disponible en el
+    dataset, evitando sumar las 12 fotos mensuales completas).
   - pct_informalidad: % de informalidad laboral ponderado por el factor de
     expansión FAC300_ANUAL (EPEN), solo entre personas OCUPADAS.
   - recaudacion_soles: recaudación total en soles (Ingresos Tributarios).
   - concentracion_pricos: cantidad de RUC PRICOS en el departamento. PRICOS
-    no trae Departamento, así que se obtiene cruzando PRICOS con Padrón RUC.
+    no trae Departamento, así que se obtiene cruzando PRICOS con el Padrón
+    RUC del mes de referencia.
 
 DEPENDENCIA: este job necesita que silver/epen, silver/ingresos_tributarios
 y silver/pricos ya existan. Esos tres los produce 00_prepare_small_datasets.py
@@ -20,6 +23,7 @@ No se particiona (tabla chica, ~25 filas).
 Uso: spark-submit --py-files common.zip 04_regional_gold.py
 """
 
+import os
 import sys
 
 from pyspark.sql.functions import col, count, udf, when
@@ -38,10 +42,54 @@ from spark_session_factory import create_spark_session
 department_from_ccdd_udf = udf(department_from_ccdd, StringType())
 
 
-def ruc_activos_por_departamento(spark):
-    padron = spark.read.parquet(SILVER_PADRON_RUC)
+def obtener_padron_mes_referencia(spark, padron=None, anio_ref=None, mes_ref=None):
+    """Filtra el Padrón RUC a un único mes de referencia.
+
+    Como silver/padron_ruc almacena 12 fotos mensuales completas (no
+    incrementales), es crítico fijar una foto mensual de referencia (por
+    defecto la última disponible en el dataset) para no multiplicar el
+    conteo de contribuyentes activos por ~12.
+    """
+    if padron is None:
+        padron = spark.read.parquet(SILVER_PADRON_RUC)
+
+    if anio_ref is None:
+        env_anio = os.environ.get("ANIO_REFERENCIA_REGIONAL")
+        if env_anio:
+            anio_ref = int(env_anio)
+
+    if mes_ref is None:
+        env_mes = os.environ.get("MES_REFERENCIA_REGIONAL")
+        if env_mes:
+            mes_ref = int(env_mes)
+
+    if anio_ref is None or mes_ref is None:
+        ultimo = (
+            padron.select(col("anio").cast("int"), col("mes").cast("int"))
+            .distinct()
+            .orderBy(col("anio").desc(), col("mes").desc())
+            .first()
+        )
+        if ultimo:
+            anio_ref = anio_ref if anio_ref is not None else int(ultimo["anio"])
+            mes_ref = mes_ref if mes_ref is not None else int(ultimo["mes"])
+
+    if anio_ref is not None and mes_ref is not None:
+        padron_filtrado = padron.filter(
+            (col("anio").cast("int") == int(anio_ref))
+            & (col("mes").cast("int") == int(mes_ref))
+        )
+    else:
+        padron_filtrado = padron
+
+    return padron_filtrado, anio_ref, mes_ref
+
+
+def ruc_activos_por_departamento(spark, padron_snapshot=None):
+    if padron_snapshot is None:
+        padron_snapshot, _, _ = obtener_padron_mes_referencia(spark)
     return (
-        padron.filter(col("Estado") == "ACTIVO")
+        padron_snapshot.filter(col("Estado") == "ACTIVO")
         .groupBy(col("Departamento"))
         .agg(count("*").alias("ruc_activos"))
     )
@@ -77,11 +125,11 @@ def recaudacion_por_departamento(spark):
     )
 
 
-def concentracion_pricos_por_departamento(spark):
+def concentracion_pricos_por_departamento(spark, padron_snapshot=None):
     pricos = spark.read.parquet(SILVER_PRICOS)
-    padron = (
-        spark.read.parquet(SILVER_PADRON_RUC).select("RUC", "Departamento").distinct()
-    )
+    if padron_snapshot is None:
+        padron_snapshot, _, _ = obtener_padron_mes_referencia(spark)
+    padron = padron_snapshot.select("RUC", "Departamento").distinct()
 
     return (
         pricos.join(padron, on="RUC", how="inner")
@@ -93,10 +141,15 @@ def concentracion_pricos_por_departamento(spark):
 def main():
     spark = create_spark_session("04_regional_gold")
     try:
-        ruc_activos = ruc_activos_por_departamento(spark)
+        padron_ref, anio_ref, mes_ref = obtener_padron_mes_referencia(spark)
+        print(
+            f"[04_regional_gold] Padrón RUC filtrado a mes de referencia: anio={anio_ref}, mes={mes_ref}"
+        )
+
+        ruc_activos = ruc_activos_por_departamento(spark, padron_ref)
         informalidad = informalidad_por_departamento(spark)
         recaudacion = recaudacion_por_departamento(spark)
-        pricos = concentracion_pricos_por_departamento(spark)
+        pricos = concentracion_pricos_por_departamento(spark, padron_ref)
 
         resumen = (
             ruc_activos.join(informalidad, on="Departamento", how="outer")

@@ -4,11 +4,13 @@ EMR Step 3 — Feature engineering a nivel RUC (capa Gold: gold/ruc_features).
 Construye, por RUC, las features de entrada para el modelo de scoring SSCO:
 
   - antiguedad_contratacion_estado_dias: días desde la primera orden de
-    compra registrada para ese RUC.
+    compra registrada para ese RUC hasta el fin del mes_referencia (corte
+    mensual determinista).
     LIMITACIÓN CONOCIDA (ver README.md): el Padrón RUC no trae fecha de
     inscripción, así que esto NO es la antigüedad real del RUC — es un
     proxy de "hace cuánto contrata con el Estado", y queda nulo para los
-    RUC que nunca contrataron con el Estado.
+    RUC que nunca contrataron con el Estado o cuya primera contratación
+    sea posterior al mes_referencia.
   - actividad_economica_principal: pasada directamente del Padrón RUC.
   - monto_total_contratado_estado / cantidad_contratos_estado: agregados
     desde Órdenes de Compra.
@@ -26,10 +28,13 @@ import sys
 
 from pyspark.sql.functions import (
     col,
+    concat,
     count,
-    current_date,
     datediff,
     format_string,
+    last_day,
+    lit,
+    to_date,
     when,
 )
 from pyspark.sql.functions import (
@@ -55,20 +60,10 @@ def build_contratacion_estado_features(spark):
     # son RUC y no deben entrar al join de la capa de features.
     ordenes = ordenes.filter(col("RUC").isNotNull())
 
-    return (
-        ordenes.groupBy("RUC")
-        .agg(
-            spark_sum("monto_total_orden_original").alias(
-                "monto_total_contratado_estado"
-            ),
-            count("*").alias("cantidad_contratos_estado"),
-            spark_min("fecha_de_emision").alias("fecha_primera_orden"),
-        )
-        .withColumn(
-            "antiguedad_contratacion_estado_dias",
-            datediff(current_date(), col("fecha_primera_orden")),
-        )
-        .drop("fecha_primera_orden")
+    return ordenes.groupBy("RUC").agg(
+        spark_sum("monto_total_orden_original").alias("monto_total_contratado_estado"),
+        count("*").alias("cantidad_contratos_estado"),
+        spark_min("fecha_de_emision").alias("fecha_primera_orden"),
     )
 
 
@@ -88,6 +83,13 @@ def main():
         contratacion = build_contratacion_estado_features(spark)
         pricos = build_prico_flag(spark)
 
+        # Fecha de referencia determinista por mes (último día del mes_referencia).
+        # Evita usar current_date() para que el pipeline sea reproducible y para
+        # que cada partición mensual refleje la antigüedad a su fecha de corte.
+        fecha_ref_mes = last_day(
+            to_date(concat(col("mes_referencia"), lit("01")), "yyyyMMdd")
+        )
+
         features = (
             padron.select(
                 col("RUC"),
@@ -102,6 +104,17 @@ def main():
             )
             .join(contratacion, on="RUC", how="left")
             .join(pricos, on="RUC", how="left")
+            .withColumn(
+                "antiguedad_contratacion_estado_dias",
+                datediff(fecha_ref_mes, col("fecha_primera_orden")),
+            )
+            .withColumn(
+                "antiguedad_contratacion_estado_dias",
+                when(col("antiguedad_contratacion_estado_dias") < 0, None).otherwise(
+                    col("antiguedad_contratacion_estado_dias")
+                ),
+            )
+            .drop("fecha_primera_orden")
             .withColumn(
                 "es_prico",
                 when(col("es_prico").isNull(), False).otherwise(col("es_prico")),
