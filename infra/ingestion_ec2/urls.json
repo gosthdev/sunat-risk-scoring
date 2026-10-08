@@ -14,18 +14,18 @@
     "2025-12": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202512.zip"
   },
   "ordenes_compra": {
-    "2025-01": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBRU5FUk8yMDI1XzAueGxzeA==",
-    "2025-02": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBRkVCUkVSTzIwMjVfMC54bHN4",
-    "2025-03": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBTUFSWk8yMDI1XzAueGxzeA==",
-    "2025-04": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBQUJSSUwyMDI1XzAueGxzeA==",
-    "2025-05": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBTUFZTzIwMjVfMC54bHN4",
-    "2025-06": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBSlVOSU8yMDI1XzAueGxzeA==",
-    "2025-07": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBSlVMSU8yMDI1XzAueGxzeA==",
-    "2025-08": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBQUdPU1RPMjAyNV8wLnhsc3g=",
-    "2025-09": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBU0VQVElFTUJSRTIwMjVfMC54bHN4",
-    "2025-10": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBT0NUVUJSRTIwMjVfMC54bHN4",
-    "2025-11": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBTk9WSUVNQlJFMjAyNV8wLnhsc3g=",
-    "2025-12": "https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal/redirect.html/content?userid=public&password=key&url=aHR0cHM6Ly9jb25vc2NlLm9zY2UuZ29iLnBlL2J1c2NhZG9yL2Fzc2V0cy82N2FlNmM0YS9yZXBvcnRlcy9vcmRlbmVzLzIwMjUvQ09OT1NDRV9PUkRFTkVTQ09NUFJBRElDSUVNQlJFMjAyNV8wLnhsc3g="
+    "2025-01": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAENERO2025_0.xlsx",
+    "2025-02": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAFEBRERO2025_0.xlsx",
+    "2025-03": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAMARZO2025_0.xlsx",
+    "2025-04": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAABRIL2025_0.xlsx",
+    "2025-05": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAMAYO2025_0.xlsx",
+    "2025-06": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAJUNIO2025_0.xlsx",
+    "2025-07": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAJULIO2025_0.xlsx",
+    "2025-08": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAAGOSTO2025_0.xlsx",
+    "2025-09": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRASEPTIEMBRE2025_0.xlsx",
+    "2025-10": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAOCTUBRE2025_0.xlsx",
+    "2025-11": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRANOVIEMBRE2025_0.xlsx",
+    "2025-12": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRADICIEMBRE2025_0.xlsx"
   },
   "small_datasets": {
     "pricos": "https://www.sunat.gob.pe/padronesnotificaciones/pricos/principalesContrib-PRICOS.xlsx",
