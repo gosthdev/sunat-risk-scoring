@@ -3,20 +3,31 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-AWS_PROFILE="${AWS_PROFILE:-bigdata}"
-export AWS_PROFILE
+if [[ -n "${CI:-}" ]]; then
+  AWS_PROFILE="${AWS_PROFILE:-}"
+else
+  AWS_PROFILE="${AWS_PROFILE:-bigdata}"
+fi
+if [[ -n "$AWS_PROFILE" ]]; then
+  export AWS_PROFILE
+fi
 
 echo "Directorio de trabajo: $SCRIPT_DIR"
-echo "Perfil de AWS:         $AWS_PROFILE"
+echo "Perfil de AWS:         ${AWS_PROFILE:-'(por variables de entorno / OIDC)'}"
 
 # 1. Validar que urls.json no esté completamente vacío
 if ! grep -q 'http' urls.json; then
   echo "ADVERTENCIA: No se detectaron enlaces 'http' en $SCRIPT_DIR/urls.json."
   echo "Por favor edita urls.json con las URLs de descarga antes de continuar."
-  read -p "¿Deseas continuar de todos modos? (s/N): " -r CONFIRM
-  if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
-    echo "Operación cancelada."
-    exit 0
+  if [ -t 0 ]; then
+    read -p "¿Deseas continuar de todos modos? (s/N): " -r CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
+      echo "Operación cancelada."
+      exit 0
+    fi
+  else
+    echo "Entorno no interactivo detectado; abortando porque urls.json no tiene URLs http."
+    exit 1
   fi
 fi
 
@@ -158,6 +169,32 @@ if [ "$SUCCESS" -eq 1 ]; then
 
   echo "-----------------------------------------------------------------"
   aws s3 ls "s3://$RAW_BUCKET/" --human-readable --summarize --recursive 2>/dev/null | tail -n 2 || true
+
+  # Registrar marcador de finalización exitosa en S3 (idempotencia)
+  echo -e "\nRegistrando marcador de ingesta en s3://$RAW_BUCKET/_markers/ingestion_complete.json..."
+  if [ -f "$SCRIPT_DIR/../../scripts/write_marker.sh" ]; then
+    bash "$SCRIPT_DIR/../../scripts/write_marker.sh" \
+      --stage raw \
+      --marker-uri "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+      --files "$SCRIPT_DIR/urls.json" "$SCRIPT_DIR/scripts/process_and_upload.py"
+  else
+    URLS_HASH=$(sha256sum "$SCRIPT_DIR/urls.json" | awk '{print $1}')
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    MARKER_TMP=$(mktemp)
+    cat <<EOF > "$MARKER_TMP"
+{
+  "stage": "raw",
+  "timestamp": "${TIMESTAMP}",
+  "marker_uri": "s3://${RAW_BUCKET}/_markers/ingestion_complete.json",
+  "job_hash": "sha256:${URLS_HASH}",
+  "urls_json_hash": "sha256:${URLS_HASH}",
+  "upstream_markers": {}
+}
+EOF
+    aws s3 cp "$MARKER_TMP" "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+    rm -f "$MARKER_TMP"
+    echo "✓ Marcador de ingesta registrado exitosamente."
+  fi
 fi
 
 # 5. Destrucción total garantizada
