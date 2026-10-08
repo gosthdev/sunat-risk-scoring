@@ -18,9 +18,21 @@ variable "raw_bucket_arn" {
   type        = string
 }
 
+variable "bronze_bucket_arn" {
+  description = "ARN del bucket de la zona bronze."
+  type        = string
+  default     = ""
+}
+
 variable "silver_bucket_arn" {
   description = "ARN del bucket de la zona silver."
   type        = string
+}
+
+variable "gold_bucket_arn" {
+  description = "ARN del bucket de la zona gold."
+  type        = string
+  default     = ""
 }
 
 variable "emr_application_arn" {

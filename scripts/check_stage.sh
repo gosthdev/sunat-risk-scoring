@@ -152,6 +152,20 @@ if [[ "${CHECK_RAW_DATA}" == "true" || "${STAGE}" == "raw" ]]; then
   if [[ -z "$ORDENES_EXISTS" ]]; then
     emit_result "true" "No se detectaron archivos crudos en s3://${RAW_BUCKET}/ordenes_compra/"
   fi
+
+  # Si los datos crudos existen físicamente pero no había marcador registrado,
+  # registrarlo automáticamente y omitir la EC2 (los datos ya están en Raw).
+  if ! aws s3 ls "${MARKER_URI}" >/dev/null 2>&1; then
+    echo "INFO [check_stage:raw]: Datasets crudos presentes en S3 pero marcador ausente. Auto-sincronizando marcador..." >&2
+    SCRIPT_BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "${SCRIPT_BASE_DIR}/write_marker.sh" ]]; then
+      bash "${SCRIPT_BASE_DIR}/write_marker.sh" \
+        --stage raw \
+        --marker-uri "${MARKER_URI}" \
+        --files "${FILES[@]}" 2>&1 >&2 || true
+    fi
+    emit_result "false" "Datasets crudos ya presentes físicamente en S3 (marcador auto-registrado)"
+  fi
 fi
 
 # ------------------------------------------------------------------------------
