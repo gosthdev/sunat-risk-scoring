@@ -24,7 +24,6 @@ import sys
 
 import awswrangler as wr
 import pandas as pd
-from region_normalizer import normalize_department
 from s3_paths import (
     RAW_EPEN,
     RAW_INGRESOS_TRIBUTARIOS,

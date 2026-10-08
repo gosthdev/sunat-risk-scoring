@@ -1,7 +1,7 @@
-import os
 import sys
 import unittest
 from pathlib import Path
+
 import openpyxl
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -26,7 +26,21 @@ class TestIngresosTransformer(unittest.TestCase):
         ws.cell(row=4, column=16, value=2025)  # Typo simulado de SUNAT
 
         # Fila 5: Meses
-        months = ["Ene.", "Feb.", "Mar.", "Abr.", "May.", "Jun.", "Jul.", "Ago.", "Sep.", "Oct.", "Nov.", "Dic.", "Total"]
+        months = [
+            "Ene.",
+            "Feb.",
+            "Mar.",
+            "Abr.",
+            "May.",
+            "Jun.",
+            "Jul.",
+            "Ago.",
+            "Sep.",
+            "Oct.",
+            "Nov.",
+            "Dic.",
+            "Total",
+        ]
         for idx, m in enumerate(months):
             ws.cell(row=5, column=3 + idx, value=m)
         for idx, m in enumerate(months[:8]):
@@ -62,7 +76,9 @@ class TestIngresosTransformer(unittest.TestCase):
         self.assertEqual(len(total_row), 1)
         self.assertAlmostEqual(total_row.iloc[0]["Monto_Recaudado"], 2254206996.38)
 
-    @unittest.skipIf(not TRASH_EXCEL.exists(), "Archivo real cdro_A13.xlsx no encontrado en Trash")
+    @unittest.skipIf(
+        not TRASH_EXCEL.exists(), "Archivo real cdro_A13.xlsx no encontrado en Trash"
+    )
     def test_real_excel_transformation(self):
         """Prueba de integracion con el archivo real cdro_A13.xlsx."""
         df_monto, df_var = process_both_ingresos(str(TRASH_EXCEL))
@@ -72,10 +88,16 @@ class TestIngresosTransformer(unittest.TestCase):
         self.assertEqual(len(df_var), 7280)
 
         # Verificar muestra de Total 2005_Ene.
-        monto_row = df_monto[(df_monto["Departamento"] == "Total") & (df_monto["Periodo"] == "2005_Ene.")]
-        self.assertAlmostEqual(monto_row.iloc[0]["Monto_Recaudado"], 2254206996.38, places=2)
+        monto_row = df_monto[
+            (df_monto["Departamento"] == "Total") & (df_monto["Periodo"] == "2005_Ene.")
+        ]
+        self.assertAlmostEqual(
+            monto_row.iloc[0]["Monto_Recaudado"], 2254206996.38, places=2
+        )
 
-        var_row = df_var[(df_var["Departamento"] == "Total") & (df_var["Periodo"] == "2005_Ene.")]
+        var_row = df_var[
+            (df_var["Departamento"] == "Total") & (df_var["Periodo"] == "2005_Ene.")
+        ]
         self.assertAlmostEqual(var_row.iloc[0]["Monto_Recaudado"], 8.84228, places=4)
 
 

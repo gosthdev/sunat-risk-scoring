@@ -135,9 +135,8 @@ def recaudacion_por_departamento(spark, anio_ref=None):
         "Departamento", normalize_dept_udf(col("Departamento"))
     )
 
-    return (
-        ingresos_normalizados.groupBy(col("Departamento"))
-        .agg(spark_sum("Monto_Recaudado").alias("recaudacion_soles"))
+    return ingresos_normalizados.groupBy(col("Departamento")).agg(
+        spark_sum("Monto_Recaudado").alias("recaudacion_soles")
     )
 
 

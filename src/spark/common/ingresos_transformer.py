@@ -11,7 +11,6 @@ con el formato estandarizado:
   - Monto_Recaudado (float64)
 """
 
-from typing import Optional, Tuple, Union
 import openpyxl
 import pandas as pd
 
@@ -45,7 +44,7 @@ MONTH_MAP = {
 }
 
 
-def get_dept_name(c1: Optional[object], c2: Optional[object]) -> Optional[str]:
+def get_dept_name(c1: object | None, c2: object | None) -> str | None:
     """Extrae y normaliza la denominacion de departamento/jurisdiccion."""
     raw = c1 if c1 is not None and str(c1).strip() != "" else c2
     if raw is None:
@@ -123,8 +122,8 @@ def transform_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet) -> pd.DataFra
 
 
 def process_both_ingresos(
-    excel_path_or_file: Union[str, openpyxl.Workbook]
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    excel_path_or_file: str | openpyxl.Workbook,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Lee el archivo Excel de Ingresos Tributarios y devuelve (df_tabular, df_var_tabular)."""
     if isinstance(excel_path_or_file, str):
         wb = openpyxl.load_workbook(excel_path_or_file, data_only=True)
