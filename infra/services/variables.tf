@@ -64,11 +64,11 @@ variable "athena_bytes_scanned_cutoff" {
 }
 
 variable "github_repo" {
-  description = "Repositorio de GitHub autorizado a asumir el rol de CI, formato organización/repositorio."
+  description = "Repositorio de GitHub autorizado a asumir el rol de CI."
   type        = string
 
   validation {
-    condition     = can(regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", var.github_repo))
-    error_message = "github_repo debe tener formato organizacion/repositorio. Reemplaza el placeholder en terraform.tfvars."
+    condition     = can(regex("^[A-Za-z0-9._@-]+/[A-Za-z0-9._@-]+$", var.github_repo))
+    error_message = "github_repo debe tener formato owner[@id]/repositorio[@id]."
   }
 }
