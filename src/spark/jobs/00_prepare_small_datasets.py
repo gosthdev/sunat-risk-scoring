@@ -58,17 +58,94 @@ def prepare_pricos():
     wr.s3.to_parquet(df, path=SILVER_PRICOS, dataset=True, mode="overwrite")
 
 
+REQUIRED_INGRESOS_COLUMNS = {
+    "Departamento",
+    "Periodo",
+    "Anio",
+    "Mes",
+    "Monto_Recaudado",
+}
+SUNAT_CDRO_A13_URL = (
+    "https://www.sunat.gob.pe/estadisticasestudios/nota_tributaria/cdro_A13.xlsx"
+)
+
+
 def prepare_ingresos_tributarios():
     raw_path = f"{RAW_INGRESOS_TRIBUTARIOS}/{INGRESOS_TRIBUTARIOS_ARCHIVO}"
+    df = None
     try:
-        df = wr.s3.read_csv(raw_path)
-    except Exception:  # noqa: BLE001
-        # Fallback si el archivo raw es cdro_A13.xlsx en lugar de CSV
+        cand_df = wr.s3.read_csv(raw_path)
+        if REQUIRED_INGRESOS_COLUMNS.issubset(cand_df.columns):
+            df = cand_df
+        else:
+            print(
+                "[prepare_ingresos_tributarios] CSV en S3 no contiene las columnas requeridas. "
+                "Activando transformador desde el origen..."
+            )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[prepare_ingresos_tributarios] Archivo CSV no disponible en S3 ({exc}). "
+            "Activando transformador desde el origen..."
+        )
+
+    if df is None:
         from ingresos_transformer import process_both_ingresos
 
         tmp_excel = "/tmp/cdro_A13.xlsx"
-        wr.s3.download(f"{RAW_INGRESOS_TRIBUTARIOS}/cdro_A13.xlsx", tmp_excel)
-        df, _ = process_both_ingresos(tmp_excel)
+        downloaded = False
+
+        # 1. Intentar descargar cdro_A13.xlsx de S3
+        try:
+            wr.s3.download(f"{RAW_INGRESOS_TRIBUTARIOS}/cdro_A13.xlsx", tmp_excel)
+            downloaded = True
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+        # 2. Si no estaba como .xlsx, intentar si cdrA13_tabular.csv en S3 era en realidad un binario Excel
+        if not downloaded:
+            try:
+                wr.s3.download(raw_path, tmp_excel)
+                process_both_ingresos(tmp_excel)
+                downloaded = True
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        # 3. Si aún no está disponible o el archivo en S3 no es Excel válido,
+        # descargar el Excel oficial directamente desde SUNAT
+        if not downloaded:
+            print(
+                "[prepare_ingresos_tributarios] Descargando cdro_A13.xlsx oficial desde SUNAT..."
+            )
+            import urllib.request
+
+            req = urllib.request.Request(
+                SUNAT_CDRO_A13_URL,
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"},
+            )
+            with (
+                urllib.request.urlopen(req, timeout=60) as resp,
+                open(tmp_excel, "wb") as f_out,
+            ):
+                f_out.write(resp.read())
+
+        df_monto, df_var = process_both_ingresos(tmp_excel)
+        df = df_monto
+
+        # Reparar/actualizar la capa RAW en S3 con los CSVs estandarizados
+        try:
+            wr.s3.to_csv(df_monto, raw_path, index=False)
+            wr.s3.to_csv(
+                df_var,
+                f"{RAW_INGRESOS_TRIBUTARIOS}/cdrA13_Var_tabular.csv",
+                index=False,
+            )
+            print(
+                "[prepare_ingresos_tributarios] Capa RAW sincronizada con los nuevos CSVs estandarizados."
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[prepare_ingresos_tributarios] Advertencia al sincronizar CSVs en RAW ({exc})."
+            )
 
     # Validar tipado y columnas estandarizadas
     df["Departamento"] = df["Departamento"].astype("string")
