@@ -39,7 +39,9 @@ jobs:
 
       - name: Run prepare small datasets
         env:
-          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring-raw' }}
+          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring' }}
+          RAW_BUCKET: ${{ vars.RAW_BUCKET || secrets.RAW_BUCKET || 'sunat-risk-scoring-raw' }}
+          SILVER_BUCKET: ${{ vars.SILVER_BUCKET || secrets.SILVER_BUCKET || 'sunat-risk-scoring-silver' }}
           PYTHONPATH: src/spark/common
         run: |
           if [ -z "$DATALAKE_BUCKET" ]; then

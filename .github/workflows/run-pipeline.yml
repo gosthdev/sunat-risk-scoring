@@ -62,6 +62,10 @@ jobs:
           EMR_APPLICATION_ID: ${{ inputs.emr_application_id != '' && inputs.emr_application_id || vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
           EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
           ARTIFACTS_BUCKET: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
-          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring-raw' }}
+          DATALAKE_BUCKET: ${{ inputs.datalake_bucket != '' && inputs.datalake_bucket || vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring' }}
+          RAW_BUCKET: ${{ vars.RAW_BUCKET || secrets.RAW_BUCKET || 'sunat-risk-scoring-raw' }}
+          BRONZE_BUCKET: ${{ vars.BRONZE_BUCKET || secrets.BRONZE_BUCKET || 'sunat-risk-scoring-bronze' }}
+          SILVER_BUCKET: ${{ vars.SILVER_BUCKET || secrets.SILVER_BUCKET || 'sunat-risk-scoring-silver' }}
+          GOLD_BUCKET: ${{ vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
         run: |
           bash src/spark/jobs/05_submit_spark_steps.sh

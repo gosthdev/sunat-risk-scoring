@@ -7,9 +7,6 @@ silver_bucket_name    = "sunat-risk-scoring-silver"
 gold_bucket_name      = "sunat-risk-scoring-gold"
 artifacts_bucket_name = "sunat-risk-scoring-artifacts"
 
-# Cambiar a true solo cuando quieras desmontar todo con terraform destroy.
-force_destroy_buckets = true
-
 emr_release_label        = "emr-7.13.0"
 emr_max_cpu              = "16 vCPU"
 emr_max_memory           = "64 GB"

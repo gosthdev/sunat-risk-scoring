@@ -36,9 +36,12 @@ jobs:
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
-      - name: Terraform Init & Validate (dev)
+      - name: Terraform Init & Validate (storage & services)
         run: |
-          cd environments/dev
+          cd storage
+          terraform init -backend=false
+          terraform validate
+          cd ../services
           terraform init -backend=false
           terraform validate
 

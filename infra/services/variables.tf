@@ -1,5 +1,5 @@
 variable "aws_region" {
-  description = "Región de AWS donde se despliega todo."
+  description = "Región de AWS donde se despliegan los servicios."
   type        = string
 }
 
@@ -9,33 +9,28 @@ variable "project_tag" {
 }
 
 variable "raw_bucket_name" {
-  description = "Bucket de la zona raw (nombre globalmente único)."
+  description = "Nombre del bucket S3 zona Raw."
   type        = string
 }
 
 variable "bronze_bucket_name" {
-  description = "Bucket de la zona bronze (incluye el prefijo quarantine/)."
+  description = "Nombre del bucket S3 zona Bronze."
   type        = string
 }
 
 variable "silver_bucket_name" {
-  description = "Bucket de la zona silver."
+  description = "Nombre del bucket S3 zona Silver."
   type        = string
 }
 
 variable "gold_bucket_name" {
-  description = "Bucket de la zona gold."
+  description = "Nombre del bucket S3 zona Gold."
   type        = string
 }
 
 variable "artifacts_bucket_name" {
-  description = "Bucket de soporte: código de los jobs (jobs/), logs de EMR (emr-logs/) y resultados de Athena (athena-results/)."
+  description = "Nombre del bucket S3 zona Artifacts."
   type        = string
-}
-
-variable "force_destroy_buckets" {
-  description = "true permite que terraform destroy borre buckets con datos. Mantener false salvo al desmontar el proyecto."
-  type        = bool
 }
 
 variable "emr_release_label" {
