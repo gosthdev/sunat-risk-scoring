@@ -49,7 +49,7 @@ def download_file(url: str, dest_path: Path):
         str(dest_path),
         url,
     ]
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    res = subprocess.run(cmd, capture_output=True, check=False)
     if res.returncode != 0:
         log(f"curl falló ({res.stderr.decode()}). Reintentando con urllib...")
         req = urllib.request.Request(
@@ -162,7 +162,7 @@ def process_ordenes_compra(key: str, url: str):
         is_excel = True
         log(f"Detectado formato Excel (.xlsx). Filas: {len(df)}. Convirtiendo a CSV...")
         df.to_csv(out_csv, index=False, encoding="utf-8")
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Si falla, es CSV crudo
         is_excel = False
 
@@ -203,7 +203,7 @@ def process_small_datasets(small_dict: dict):
             )
             df.to_csv(dest_csv, index=False, encoding="utf-8")
             temp_file.unlink(missing_ok=True)
-        except Exception:
+        except Exception:  # noqa: BLE001
             shutil.move(str(temp_file), str(dest_csv))
         log(f"✓ Ingresos Tributarios guardado en: {dest_csv}")
 
@@ -260,7 +260,7 @@ def process_small_datasets(small_dict: dict):
                 log("EPEN detectado como Excel (.xlsx). Convirtiendo a CSV...")
                 df.to_csv(out_csv, index=False, encoding="utf-8")
                 temp_file.unlink(missing_ok=True)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 shutil.move(str(temp_file), str(out_csv))
 
         log(f"✓ EPEN guardado en partición: {out_csv}")
@@ -356,7 +356,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         log(f"ERROR CRÍTICO: {e}")
         import traceback
 
