@@ -170,6 +170,8 @@ for step in "${STEPS[@]}"; do
 --conf spark.executor.cores=4 \
 --conf spark.executor.memory=14g \
 --conf spark.dynamicAllocation.maxExecutors=3 \
+--conf spark.sql.parquet.datetimeRebaseModeInWrite=CORRECTED \
+--conf spark.sql.parquet.datetimeRebaseModeInRead=CORRECTED \
 --conf spark.emr-serverless.driverEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} \
 --conf spark.executorEnv.DATALAKE_BUCKET=${DATALAKE_BUCKET} \
 --conf spark.emr-serverless.driverEnv.RAW_BUCKET=${RAW_BUCKET} \
