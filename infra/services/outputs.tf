@@ -32,3 +32,8 @@ output "github_actions_role_arn" {
   value       = module.iam_github_actions_role.role_arn
   description = "ARN del rol OIDC para GitHub Actions."
 }
+
+output "glue_crawler_role_arn" {
+  value       = module.iam_glue_crawler_role.role_arn
+  description = "ARN del rol de ejecución IAM para Glue Crawler."
+}

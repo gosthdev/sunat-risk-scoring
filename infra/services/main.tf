@@ -48,6 +48,7 @@ module "iam_github_actions_role" {
   gold_bucket_arn        = data.aws_s3_bucket.gold.arn
   emr_application_arn    = module.emr_serverless_app.application_arn
   emr_execution_role_arn = module.iam_emr_execution_role.role_arn
+  glue_crawler_role_arn  = module.iam_glue_crawler_role.role_arn
 }
 
 ############ EMR Serverless ############
