@@ -194,3 +194,50 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertIn("top_departamentos", stats)
         self.assertIsInstance(stats["top_ciiu"], list)
         self.assertIsInstance(stats["top_departamentos"], list)
+
+    def test_top_k_desempate_deterministico(self):
+        """Verifica que categorías con conteos empatados se desempaten de forma determinista y alfabética."""
+        assert self.spark is not None
+        rows = [
+            (20100000001, "4659", "ZULIA", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (20100000002, "4659", "AMAZONAS", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (20100000003, "4659", "ANCASH", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (20100000004, "4659", "CUSCO", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+        ]
+        schema = StructType(
+            [
+                StructField("RUC", LongType(), False),
+                StructField("ciiu_principal", StringType(), True),
+                StructField("departamento", StringType(), True),
+                StructField("nro_trabajadores", DoubleType(), True),
+                StructField("sin_trabajadores", IntegerType(), True),
+                StructField("monto_total_soles", DoubleType(), True),
+                StructField("n_ordenes", IntegerType(), True),
+                StructField("Estado", StringType(), True),
+                StructField("Condicion", StringType(), True),
+            ]
+        )
+        padron = self.spark.createDataFrame(rows, schema)
+        ssco = self.spark.createDataFrame(
+            [(20100000001, True)],
+            StructType(
+                [
+                    StructField("RUC", LongType(), False),
+                    StructField("es_ssco", StringType(), True),
+                ]
+            ),
+        )
+        pricos = self.spark.createDataFrame(
+            [],
+            StructType(
+                [
+                    StructField("RUC", LongType(), False),
+                ]
+            ),
+        )
+
+        _, stats = job06.curar_dataset(
+            padron, ssco, pricos, semilla=42, return_stats=True, top_dept_limit=2
+        )
+        # AMAZONAS y ANCASH deben ser los elegidos porque tienen count=1 pero van primero lexicográficamente
+        self.assertEqual(stats["top_departamentos"][:2], ["AMAZONAS", "ANCASH"])

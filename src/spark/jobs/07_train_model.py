@@ -99,6 +99,13 @@ NUM_COLS_CON_NULOS_DEFAULT = [
     "informalidad_epen_departamento",
 ]
 
+COLS_MONETARIAS_LOG1P = [
+    "monto_total_soles",
+    "monto_mediano_soles",
+    "monto_maximo_soles",
+    "monto_por_trabajador",
+]
+
 
 def construir_pipeline(
     df,
@@ -135,6 +142,20 @@ def construir_pipeline(
         )
         stages.append(imputer)
 
+    # 2.5. Transformación log1p para montos monetarios de colas pesadas (Regla D10)
+    cols_monetarias = [c for c in num_cols if c in COLS_MONETARIAS_LOG1P]
+    if cols_monetarias:
+        log_exprs = [
+            f"ln(1.0 + CASE WHEN {c}_imp < 0.0 THEN 0.0 ELSE {c}_imp END) AS {c}_log"
+            for c in cols_monetarias
+        ]
+        sql_log_expr = f"SELECT *, {', '.join(log_exprs)} FROM __THIS__"
+        stages.append(SQLTransformer(statement=sql_log_expr))
+
+    num_assembler_cols = [
+        f"{c}_log" if c in cols_monetarias else f"{c}_imp" for c in num_cols
+    ]
+
     # 3. Tratamiento de variables categóricas
     indexed_cat_cols = []
     for c in cat_cols:
@@ -159,13 +180,13 @@ def construir_pipeline(
             encoded_cat_cols = [f"{c}_ohe" for c in cat_cols]
 
         assembler_inputs = (
-            [f"{c}_imp" for c in num_cols]
+            num_assembler_cols
             + [f"{c}_es_nulo" for c in num_cols_con_nulos]
             + encoded_cat_cols
         )
     else:  # DT: Solo StringIndexer
         assembler_inputs = (
-            [f"{c}_imp" for c in num_cols]
+            num_assembler_cols
             + [f"{c}_es_nulo" for c in num_cols_con_nulos]
             + indexed_cat_cols
         )
@@ -177,25 +198,29 @@ def construir_pipeline(
     )
     stages.append(assembler)
 
-    # 4. Clasificador
+    # 4. Clasificador (construcción dinámica de kwargs para evitar weightCol=None en Py4J)
     if model_name == "LR":
-        estimator = LogisticRegression(
-            labelCol="label",
-            featuresCol="features",
-            weightCol=weight_col,
-            maxIter=100,
-            probabilityCol="probability",
-        )
+        lr_kwargs = {
+            "labelCol": "label",
+            "featuresCol": "features",
+            "maxIter": 100,
+            "probabilityCol": "probability",
+        }
+        if weight_col:
+            lr_kwargs["weightCol"] = weight_col
+        estimator = LogisticRegression(**lr_kwargs)
 
     elif model_name == "DT":
-        estimator = DecisionTreeClassifier(
-            labelCol="label",
-            featuresCol="features",
-            weightCol=weight_col,
-            seed=semilla,
-            maxBins=max_bins,
-            probabilityCol="probability",
-        )
+        dt_kwargs = {
+            "labelCol": "label",
+            "featuresCol": "features",
+            "seed": semilla,
+            "maxBins": max_bins,
+            "probabilityCol": "probability",
+        }
+        if weight_col:
+            dt_kwargs["weightCol"] = weight_col
+        estimator = DecisionTreeClassifier(**dt_kwargs)
     else:
         raise ValueError(f"Modelo desconocido: {model_name}")
 
@@ -518,7 +543,14 @@ def main():
     spark = create_spark_session(f"07_train_{run_id}")
     try:
         input_path = f"{GOLD_MODEL_INPUTS}/dataset_version={dataset_version}/"
-        all_data = spark.read.parquet(input_path)
+        try:
+            all_data = spark.read.parquet(GOLD_MODEL_INPUTS).filter(
+                col("dataset_version") == dataset_version
+            )
+        except Exception:  # noqa: BLE001
+            all_data = spark.read.parquet(input_path)
+            if "dataset_version" not in all_data.columns:
+                all_data = all_data.withColumn("dataset_version", lit(dataset_version))
 
         train_df = all_data.filter(col("split") == "train")
         test_df = all_data.filter(col("split") == "test")
@@ -647,7 +679,6 @@ def main():
             "grilla_probada": grilla_probada,
             "metricas_cv": {
                 "pr_auc_por_param_grid": [float(x) for x in cv_model.avgMetrics],
-                "pr_auc_por_fold": [float(x) for x in cv_model.avgMetrics],
                 "pr_auc_promedio": float(max(cv_model.avgMetrics)),
             },
             "n_train": n_train,

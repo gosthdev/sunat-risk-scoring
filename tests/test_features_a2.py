@@ -64,6 +64,39 @@ class TestFeaturesA2(unittest.TestCase):
         self.assertAlmostEqual(row["pct_ordenes_anuladas"], 1.0 / 3.0, places=4)
         # Concentración con MINEDU: 3000 / 3000 = 1.0 (porque la orden de MINSA fue anulada)
         self.assertAlmostEqual(row["pct_monto_en_entidad_principal"], 1.0)
+        # monto_mediano_soles en órdenes válidas
+        self.assertGreaterEqual(row["monto_mediano_soles"], 1000.0)
+        self.assertLessEqual(row["monto_mediano_soles"], 2000.0)
+
+    def test_monto_mediano_soles_excluye_anuladas_estricto(self):
+        """Verifica que órdenes anuladas se traten como NULL y no desplacen la mediana hacia abajo."""
+        assert self.spark is not None
+        schema = StructType(
+            [
+                StructField("ruc_contratista", StringType(), True),
+                StructField("monto_total_orden_original", DoubleType(), True),
+                StructField("estadocontratacion", StringType(), True),
+                StructField("ruc_entidad", LongType(), True),
+                StructField("entidad", StringType(), True),
+                StructField("fecha_de_emision", StringType(), True),
+            ]
+        )
+        # 3 órdenes vigentes (2000, 4000, 6000) -> mediana = 4000.
+        # 1 orden anulada (10000). Si fuera 0.0, los valores serían (0, 2000, 4000, 6000) y la mediana caería a 2000.
+        data = [
+            ("20100000002", 2000.0, "Vigente", 20500000001, "MINEDU", "2025-02-01"),
+            ("20100000002", 4000.0, "Vigente", 20500000001, "MINEDU", "2025-03-01"),
+            ("20100000002", 6000.0, "Vigente", 20500000001, "MINEDU", "2025-04-01"),
+            ("20100000002", 10000.0, "Anulada", 20500000002, "MINSA", "2025-05-01"),
+        ]
+        df = self.spark.createDataFrame(data, schema)
+        res = job03.build_contratacion_estado_features(self.spark, ordenes_df=df)
+        row = res.filter(col("RUC") == 20100000002).first()
+        assert row is not None
+
+        # La mediana debe ser 4000.0 (de los vigentes 2000, 4000, 6000), no 2000.0 (distorsionada por 0.0)
+        self.assertEqual(row["monto_mediano_soles"], 4000.0)
+        self.assertAlmostEqual(row["monto_total_soles"], 12000.0)
 
     def test_monto_por_trabajador_cero_o_nulo(self):
         """RUC con 0 o nulo trabajadores debe tener monto_por_trabajador = None, sin dividir por 0."""

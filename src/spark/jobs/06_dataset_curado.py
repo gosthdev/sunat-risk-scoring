@@ -168,13 +168,15 @@ def curar_dataset(
         )
     )
 
+    train_part = train_part.persist()
+
     top_ciiu_list = []
     if col_ciiu:
         top_ciiu_rows = (
             train_part.filter(col(col_ciiu).isNotNull() & (trim(col(col_ciiu)) != ""))
             .groupBy(col_ciiu)
             .count()
-            .orderBy(col("count").desc())
+            .orderBy(col("count").desc(), col(col_ciiu).asc())
             .limit(top_ciiu_limit)
             .collect()
         )
@@ -197,7 +199,7 @@ def curar_dataset(
             )
             .groupBy("departamento")
             .count()
-            .orderBy(col("count").desc())
+            .orderBy(col("count").desc(), col("departamento").asc())
             .limit(top_dept_limit)
             .collect()
         )
@@ -280,9 +282,13 @@ def main():
         )
 
         dataset = dataset.withColumn("dataset_version", lit(dataset_version))
+        dataset = dataset.persist()
 
-        out_path = f"{GOLD_MODEL_INPUTS}/dataset_version={dataset_version}/"
-        (dataset.write.mode("overwrite").parquet(out_path))
+        (
+            dataset.write.mode("overwrite")
+            .partitionBy("dataset_version")
+            .parquet(GOLD_MODEL_INPUTS)
+        )
 
         reporte = generar_reporte_curado(dataset, dataset_version=dataset_version)
         print("[06_dataset_curado] Reporte de Curado e Invariantes:")

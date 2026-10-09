@@ -78,10 +78,10 @@ def build_contratacion_estado_features(spark, ordenes_df=None, fecha_corte=None)
     )
     es_anulada = lower(estado_col) == "anulada"
 
-    # Monto válido solo para órdenes vigentes
-    monto_valido = when(es_anulada, 0.0).otherwise(
-        coalesce(col("monto_total_orden_original"), lit(0.0))
-    )
+    # Monto válido solo para órdenes vigentes (NULL para órdenes anuladas para no distorsionar la mediana ni el máximo)
+    monto_valido = when(
+        ~es_anulada, coalesce(col("monto_total_orden_original"), lit(0.0))
+    ).otherwise(lit(None))
     ordenes = ordenes.withColumn("_monto_valido", monto_valido)
     ordenes = ordenes.withColumn("_es_anulada_flag", when(es_anulada, 1).otherwise(0))
 
@@ -95,7 +95,7 @@ def build_contratacion_estado_features(spark, ordenes_df=None, fecha_corte=None)
 
     # 1. Agregación principal por RUC
     resumen_ordenes = ordenes.groupBy("RUC").agg(
-        spark_sum("_monto_valido").alias("monto_total_soles"),
+        coalesce(spark_sum("_monto_valido"), lit(0.0)).alias("monto_total_soles"),
         count("*").alias("n_ordenes"),
         expr("percentile_approx(_monto_valido, 0.5)").alias("monto_mediano_soles"),
         spark_max("_monto_valido").alias("monto_maximo_soles"),

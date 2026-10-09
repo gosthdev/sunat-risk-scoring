@@ -1,7 +1,7 @@
 import importlib
 import unittest
 
-from pyspark.ml.feature import OneHotEncoder, StandardScaler
+from pyspark.ml.feature import OneHotEncoder, SQLTransformer, StandardScaler
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit
 from pyspark.sql.types import (
@@ -122,6 +122,90 @@ class TestJob07Train(unittest.TestCase):
         has_ohe = any(isinstance(s, OneHotEncoder) for s in stages)
         self.assertFalse(has_ohe, "El pipeline de DT no debe incluir OneHotEncoder")
 
+    def test_etapa_log1p_montos_monetarios(self):
+        """Verifica que el pipeline incluya SQLTransformer con log1p para montos de colas pesadas."""
+        df = self._crear_datos_sinteticos(n_filas=20)
+        pipeline, _, assembler_inputs = job07.construir_pipeline(
+            df=df,
+            model_name="LR",
+            variant="V2",
+            weight_col=None,
+        )
+        stages = pipeline.getStages()
+        sql_transformers = [s for s in stages if isinstance(s, SQLTransformer)]
+        log_transformers = [
+            s for s in sql_transformers if "ln(1.0 +" in s.getStatement()
+        ]
+        self.assertTrue(len(log_transformers) > 0, "Debe existir transformación log1p")
+        # Verificar que assembler_inputs use las columnas transformadas con _log
+        self.assertIn("monto_total_soles_log", assembler_inputs)
+        self.assertNotIn("monto_total_soles_imp", assembler_inputs)
+
+    def test_pipeline_sin_pesos_no_lanza_npe(self):
+        """Verifica que usa_pesos=False (weight_col=None) no lance NullPointerException en Spark MLlib."""
+        df = self._crear_datos_sinteticos(n_filas=30)
+        train_df = df.filter(col("split") == "train")
+
+        # Probar LR con weight_col=None
+        pipeline_lr, estimator_lr, _ = job07.construir_pipeline(
+            df=train_df,
+            model_name="LR",
+            variant="V2",
+            weight_col=None,
+        )
+        self.assertFalse(estimator_lr.isDefined(estimator_lr.weightCol))
+        model_lr = pipeline_lr.fit(train_df)
+        self.assertIsNotNone(model_lr)
+
+        # Probar DT con weight_col=None
+        pipeline_dt, estimator_dt, _ = job07.construir_pipeline(
+            df=train_df,
+            model_name="DT",
+            variant="V2",
+            weight_col=None,
+        )
+        self.assertFalse(estimator_dt.isDefined(estimator_dt.weightCol))
+        model_dt = pipeline_dt.fit(train_df)
+        self.assertIsNotNone(model_dt)
+
+    def test_smoke_fit_cv_dt_y_contrato_c2(self):
+        """Smoke test de punta a punta para Decision Tree con CrossValidator y generación C2."""
+        df = self._crear_datos_sinteticos(n_filas=40)
+        train_df = df.filter(col("split") == "train").withColumn(
+            "class_weight", lit(1.0)
+        )
+
+        pipeline, estimator, _inputs = job07.construir_pipeline(
+            df=train_df,
+            model_name="DT",
+            variant="V2",
+            weight_col="class_weight",
+            semilla=42,
+        )
+
+        cv_model = job07.entrenar_modelo_cv(
+            train_df=train_df,
+            pipeline=pipeline,
+            estimator=estimator,
+            model_name="DT",
+            semilla=42,
+            num_folds=3,
+            fast_dev_run=True,
+            parallelism=1,
+        )
+        best_model = cv_model.bestModel
+        self.assertIsNotNone(best_model)
+
+        c2_df = job07.generar_predicciones_c2(
+            best_model=best_model,
+            all_data_df=df,
+            model_name="DT",
+            variant="V2",
+            dataset_version="v1",
+        )
+        self.assertEqual(c2_df.count(), df.count())
+        self.assertEqual(c2_df.filter(col("score").isNull()).count(), 0)
+
     def test_smoke_fit_cv_y_contrato_c2(self):
         """Smoke test de punta a punta: entrenamiento rápido con CV y producción de C2."""
         df = self._crear_datos_sinteticos(n_filas=40)
@@ -241,7 +325,6 @@ class TestJob07Train(unittest.TestCase):
             "grilla_probada": [{"regParam": 0.01, "elasticNetParam": 0.0}],
             "metricas_cv": {
                 "pr_auc_por_param_grid": [0.85],
-                "pr_auc_por_fold": [0.85],
                 "pr_auc_promedio": 0.85,
             },
             "n_train": 100,
