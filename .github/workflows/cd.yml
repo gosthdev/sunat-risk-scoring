@@ -81,6 +81,8 @@ env:
   EMR_APPLICATION_ID: ${{ inputs.emr_application_id != '' && inputs.emr_application_id || vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
   EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
   GLUE_ROLE_ARN: ${{ vars.GLUE_ROLE_ARN || secrets.GLUE_ROLE_ARN || '' }}
+  GLUE_DATABASE: ${{ vars.GLUE_DATABASE || secrets.GLUE_DATABASE || '' }}
+  ATHENA_WORKGROUP: ${{ vars.ATHENA_WORKGROUP || secrets.ATHENA_WORKGROUP || '' }}
 
 jobs:
   # ============================================================================
