@@ -201,7 +201,9 @@ def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path):
         candidate_urls.append(url_or_key)
 
     # Agregar candidatos según variantes de nombre del mes
-    base_osce = f"https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/{anio}/"
+    base_osce = (
+        f"https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/{anio}/"
+    )
     variantes = MONTH_VARIANTS.get(mes, [f"MES{mes}"])
     for var in variantes:
         candidate_urls.append(f"{base_osce}CONOSCE_ORDENESCOMPRA{var}{anio}_0.xlsx")
@@ -217,7 +219,9 @@ def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path):
                 # Leer primeros bytes para validar que sea zip/xlsx (PK)
                 magic = resp.read(2)
                 if magic != b"PK":
-                    log(f"Respuesta no es Excel válido (magic bytes: {magic}). Saltando {candidate}...")
+                    log(
+                        f"Respuesta no es Excel válido (magic bytes: {magic}). Saltando {candidate}..."
+                    )
                     continue
 
                 # Escribir contenido completo
@@ -276,7 +280,9 @@ def process_ordenes_compra(key: str, url: str):
 
     # Limpiar archivo temporal .xlsx para liberar espacio en disco
     temp_xlsx.unlink(missing_ok=True)
-    log(f"✓ Guardado en partición ({out_csv.stat().st_size / (1024 * 1024):.2f} MB): {out_csv}")
+    log(
+        f"✓ Guardado en partición ({out_csv.stat().st_size / (1024 * 1024):.2f} MB): {out_csv}"
+    )
 
 
 def process_small_datasets(small_dict: dict):
@@ -285,7 +291,9 @@ def process_small_datasets(small_dict: dict):
         s3_pricos = f"s3://{RAW_BUCKET}/pricos/principalesContrib-PRICOS.xlsx"
         size_p = s3_object_size(s3_pricos)
         if size_p > 1024 * 10:
-            log(f"✓ PRICOS ya existe en S3 ({size_p / 1024:.2f} KB). Omitiendo descarga.")
+            log(
+                f"✓ PRICOS ya existe en S3 ({size_p / 1024:.2f} KB). Omitiendo descarga."
+            )
         else:
             dest = BASE_DIR / "pricos" / "principalesContrib-PRICOS.xlsx"
             download_file(small_dict["pricos"], dest)
@@ -305,7 +313,9 @@ def process_small_datasets(small_dict: dict):
         s3_ing = f"s3://{RAW_BUCKET}/ingresos_tributarios/cdrA13_tabular.csv"
         size_i = s3_object_size(s3_ing)
         if size_i > 1024 * 10:
-            log(f"✓ Ingresos Tributarios ya existe en S3 ({size_i / 1024:.2f} KB). Omitiendo descarga.")
+            log(
+                f"✓ Ingresos Tributarios ya existe en S3 ({size_i / 1024:.2f} KB). Omitiendo descarga."
+            )
         else:
             url = small_dict["ingresos_tributarios"].strip()
             out_dir = BASE_DIR / "ingresos_tributarios"
