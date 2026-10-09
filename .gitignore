@@ -79,3 +79,7 @@ spark-warehouse/
 *.swo
 .DS_Store
 Thumbs.db
+
+# ── Local Scratch & Agent ─────────────────────────────────────
+.antigravity/
+verificar_ssco.py
