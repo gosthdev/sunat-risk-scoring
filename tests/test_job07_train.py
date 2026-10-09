@@ -221,3 +221,148 @@ class TestJob07Train(unittest.TestCase):
 
         self.assertIn("reglas_arbol_debug", exp_dt)
         self.assertIn("importancia_features", exp_dt)
+
+    def test_guardar_artefactos_schema_c3_completo(self):
+        """Verifica que guardar_artefactos_entrenamiento genere todos los archivos y campos de C3."""
+        import json
+        import os
+
+        run_id = "test_run_c3_001"
+        run_record = {
+            "run_id": run_id,
+            "fecha": "2026-10-09T00:00:00Z",
+            "git_commit": "abcdef123456",
+            "dataset_version": "v1",
+            "variant": "V2",
+            "model_name": "LR",
+            "usa_pesos": True,
+            "semilla": 42,
+            "hiperparametros_ganadores": {"regParam": 0.01, "elasticNetParam": 0.0},
+            "grilla_probada": [{"regParam": 0.01, "elasticNetParam": 0.0}],
+            "metricas_cv": {
+                "pr_auc_por_param_grid": [0.85],
+                "pr_auc_por_fold": [0.85],
+                "pr_auc_promedio": 0.85,
+            },
+            "n_train": 100,
+            "n_test": 25,
+            "n_positivos_train": 5,
+            "n_positivos_test": 1,
+            "duracion_segundos": 12.5,
+            "vcpu_horas": 0.02,
+            "gb_horas": 0.04,
+            "ruta_modelo": f"/tmp/{run_id}/model/",
+            "ruta_predicciones": f"/tmp/{run_id}/predictions/",
+        }
+        prep_stats = {
+            "top_ciiu": ["4659", "4100"],
+            "top_departamentos": ["LIMA", "AREQUIPA"],
+            "medianas_imputacion": {"monto_total_soles": 15000.0},
+            "dataset_version": "v1",
+            "fecha": "2026-10-09T00:00:00Z",
+        }
+        exp = {
+            "model_name": "LR",
+            "top_factores_riesgo": [
+                {"feature": "monto_total_soles", "coef_scaled": 1.2}
+            ],
+        }
+        narrativa = "# Narrativa de prueba"
+
+        job07.guardar_artefactos_entrenamiento(
+            run_id=run_id,
+            run_record=run_record,
+            preprocessing_stats=prep_stats,
+            explicabilidad=exp,
+            narrativa=narrativa,
+            model_name="LR",
+        )
+
+        art_dir = f"/tmp/sunat_model_artifacts/{run_id}"
+        self.assertTrue(os.path.exists(f"{art_dir}/run_record.json"))
+        self.assertTrue(os.path.exists(f"{art_dir}/preprocessing_stats.json"))
+        self.assertTrue(
+            os.path.exists(f"{art_dir}/explicabilidad/narrativa_negocio.md")
+        )
+        self.assertTrue(
+            os.path.exists(f"{art_dir}/explicabilidad/importancias_lr.json")
+        )
+
+        # Validar campos obligatorios de C3
+        with open(f"{art_dir}/run_record.json") as f:
+            saved_record = json.load(f)
+
+        c3_required = [
+            "run_id",
+            "fecha",
+            "git_commit",
+            "dataset_version",
+            "variant",
+            "model_name",
+            "usa_pesos",
+            "semilla",
+            "hiperparametros_ganadores",
+            "grilla_probada",
+            "metricas_cv",
+            "n_train",
+            "n_test",
+            "n_positivos_train",
+            "n_positivos_test",
+            "duracion_segundos",
+            "vcpu_horas",
+            "gb_horas",
+            "ruta_modelo",
+            "ruta_predicciones",
+        ]
+        for field in c3_required:
+            self.assertIn(
+                field, saved_record, f"Campo {field} ausente en run_record.json"
+            )
+
+    def test_determinismo_semilla_cv(self):
+        """Dos corridas de CV con la misma semilla deben producir idéntica PR-AUC."""
+        df = self._crear_datos_sinteticos(n_filas=40)
+        train_df = df.filter(col("split") == "train").withColumn(
+            "class_weight", lit(1.0)
+        )
+
+        p1, e1, _ = job07.construir_pipeline(
+            df=train_df,
+            model_name="LR",
+            variant="V2",
+            weight_col="class_weight",
+            semilla=42,
+        )
+        cv1 = job07.entrenar_modelo_cv(
+            train_df=train_df,
+            pipeline=p1,
+            estimator=e1,
+            model_name="LR",
+            semilla=42,
+            num_folds=3,
+            fast_dev_run=True,
+            parallelism=1,
+        )
+
+        p2, e2, _ = job07.construir_pipeline(
+            df=train_df,
+            model_name="LR",
+            variant="V2",
+            weight_col="class_weight",
+            semilla=42,
+        )
+        cv2 = job07.entrenar_modelo_cv(
+            train_df=train_df,
+            pipeline=p2,
+            estimator=e2,
+            model_name="LR",
+            semilla=42,
+            num_folds=3,
+            fast_dev_run=True,
+            parallelism=1,
+        )
+
+        m1 = cv1.avgMetrics
+        m2 = cv2.avgMetrics
+        for v1, v2 in zip(m1, m2):
+            self.assertAlmostEqual(v1, v2, places=4)

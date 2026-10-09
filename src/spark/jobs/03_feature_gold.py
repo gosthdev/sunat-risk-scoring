@@ -299,21 +299,15 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
         .withColumn(
             "monto_por_trabajador",
             when(
-                col("nro_trabajadores").isNull() | (col("nro_trabajadores") <= 0.0),
+                col("nro_trabajadores").isNull()
+                | (col("nro_trabajadores") <= 0.0)
+                | col("monto_total_soles").isNull(),
                 lit(None).cast("double"),
-            ).otherwise(
-                coalesce(col("monto_total_soles"), lit(0.0)) / col("nro_trabajadores")
-            ),
-        )
-        .withColumn(
-            "monto_total_soles",
-            when(col("monto_total_soles").isNull(), 0.0).otherwise(
-                col("monto_total_soles")
-            ),
+            ).otherwise(col("monto_total_soles") / col("nro_trabajadores")),
         )
         .withColumn(
             "monto_total_contratado_estado",
-            col("monto_total_soles"),
+            coalesce(col("monto_total_soles"), lit(0.0)),
         )
         .withColumn(
             "cantidad_contratos_estado",

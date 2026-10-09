@@ -30,6 +30,7 @@ from pyspark.ml.classification import DecisionTreeClassifier, LogisticRegression
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.feature import (
     Imputer,
+    ImputerModel,
     OneHotEncoder,
     SQLTransformer,
     StringIndexer,
@@ -315,6 +316,12 @@ def extraer_explicabilidad(
 
     if model_name == "LR":
         coefs = last_stage.coefficients.toArray().tolist()
+        n_features = len(coefs)
+        if len(feature_names) != n_features:
+            feature_names = [
+                feature_names[i] if i < len(feature_names) else f"feature_{i}"
+                for i in range(n_features)
+            ]
 
         # Calcular desviaciones estándar de train para ponderar escala
         try:
@@ -324,10 +331,10 @@ def extraer_explicabilidad(
             stds = (
                 summary["stds"].toArray().tolist()
                 if summary and summary["stds"]
-                else [1.0] * len(coefs)
+                else [1.0] * n_features
             )
         except Exception:  # noqa: BLE001
-            stds = [1.0] * len(coefs)
+            stds = [1.0] * n_features
 
         importancias = []
         for name, coef, std in zip(feature_names, coefs, stds):
@@ -355,6 +362,12 @@ def extraer_explicabilidad(
         )
     elif model_name == "DT":
         importances = last_stage.featureImportances.toArray().tolist()
+        n_features = len(importances)
+        if len(feature_names) != n_features:
+            feature_names = [
+                feature_names[i] if i < len(feature_names) else f"feature_{i}"
+                for i in range(n_features)
+            ]
         imp_list = [
             {"feature": str(name), "importancia": float(imp)}
             for name, imp in zip(feature_names, importances)
@@ -403,6 +416,80 @@ def generar_narrativa_negocio(explicabilidad):
             )
 
     return "\n".join(lineas)
+
+
+def guardar_artefactos_entrenamiento(
+    run_id,
+    run_record,
+    preprocessing_stats,
+    explicabilidad,
+    narrativa,
+    model_name="LR",
+):
+    """Guarda run_record, preprocessing_stats y explicabilidad tanto en S3 como en disco local."""
+    # 1. Fallback / almacenamiento local siempre disponible
+    local_art = f"/tmp/sunat_model_artifacts/{run_id}"
+    os.makedirs(f"{local_art}/explicabilidad", exist_ok=True)
+    with open(f"{local_art}/run_record.json", "w") as f:
+        json.dump(run_record, f, indent=2)
+    with open(f"{local_art}/preprocessing_stats.json", "w") as f:
+        json.dump(preprocessing_stats, f, indent=2)
+    with open(f"{local_art}/explicabilidad/narrativa_negocio.md", "w") as f:
+        f.write(narrativa)
+
+    if model_name == "LR":
+        with open(f"{local_art}/explicabilidad/importancias_lr.json", "w") as f:
+            json.dump(explicabilidad, f, indent=2)
+    elif model_name == "DT":
+        with open(f"{local_art}/explicabilidad/reglas_dt.txt", "w") as f:
+            f.write(explicabilidad.get("reglas_arbol_debug", ""))
+        with open(f"{local_art}/explicabilidad/importancias_dt.json", "w") as f:
+            json.dump(explicabilidad.get("importancia_features", []), f, indent=2)
+
+    # 2. Subida a AWS S3 si el cliente boto3 está autenticado
+    try:
+        import boto3  # type: ignore[import-not-found,import-untyped]
+        from s3_paths import GOLD_BUCKET
+
+        s3 = boto3.client("s3")
+        prefix = GOLD_MODEL_ARTIFACTS.replace(f"s3://{GOLD_BUCKET}/", "").strip("/")
+
+        s3.put_object(
+            Bucket=GOLD_BUCKET,
+            Key=f"{prefix}/{run_id}/run_record.json",
+            Body=json.dumps(run_record, indent=2),
+        )
+        s3.put_object(
+            Bucket=GOLD_BUCKET,
+            Key=f"{prefix}/{run_id}/preprocessing_stats.json",
+            Body=json.dumps(preprocessing_stats, indent=2),
+        )
+        s3.put_object(
+            Bucket=GOLD_BUCKET,
+            Key=f"{prefix}/{run_id}/explicabilidad/narrativa_negocio.md",
+            Body=narrativa,
+        )
+        if model_name == "LR":
+            s3.put_object(
+                Bucket=GOLD_BUCKET,
+                Key=f"{prefix}/{run_id}/explicabilidad/importancias_lr.json",
+                Body=json.dumps(explicabilidad, indent=2),
+            )
+        elif model_name == "DT":
+            s3.put_object(
+                Bucket=GOLD_BUCKET,
+                Key=f"{prefix}/{run_id}/explicabilidad/reglas_dt.txt",
+                Body=explicabilidad.get("reglas_arbol_debug", ""),
+            )
+            s3.put_object(
+                Bucket=GOLD_BUCKET,
+                Key=f"{prefix}/{run_id}/explicabilidad/importancias_dt.json",
+                Body=json.dumps(
+                    explicabilidad.get("importancia_features", []), indent=2
+                ),
+            )
+    except Exception:  # noqa: BLE001, S110
+        pass
 
 
 def get_git_commit():
@@ -504,7 +591,7 @@ def main():
 
         tiempo_total = time.time() - t_start
 
-        # Hiperparámetros ganadores
+        # Hiperparámetros ganadores y grilla probada
         best_estimator = best_pipeline_model.stages[-1]
         hiperparametros = {}
         if model_name == "LR":
@@ -512,11 +599,40 @@ def main():
                 "regParam": float(best_estimator.getRegParam()),
                 "elasticNetParam": float(best_estimator.getElasticNetParam()),
             }
+            grilla_probada = (
+                [{"regParam": 0.01, "elasticNetParam": 0.0}]
+                if fast_dev_run
+                else [
+                    {"regParam": 0.001, "elasticNetParam": 0.0},
+                    {"regParam": 0.001, "elasticNetParam": 0.5},
+                    {"regParam": 0.01, "elasticNetParam": 0.0},
+                    {"regParam": 0.01, "elasticNetParam": 0.5},
+                    {"regParam": 0.1, "elasticNetParam": 0.0},
+                    {"regParam": 0.1, "elasticNetParam": 0.5},
+                ]
+            )
         elif model_name == "DT":
             hiperparametros = {
                 "maxDepth": int(best_estimator.getMaxDepth()),
                 "minInstancesPerNode": int(best_estimator.getMinInstancesPerNode()),
             }
+            grilla_probada = (
+                [{"maxDepth": 3, "minInstancesPerNode": 50}]
+                if fast_dev_run
+                else [
+                    {"maxDepth": 3, "minInstancesPerNode": 50},
+                    {"maxDepth": 3, "minInstancesPerNode": 200},
+                    {"maxDepth": 5, "minInstancesPerNode": 50},
+                    {"maxDepth": 5, "minInstancesPerNode": 200},
+                    {"maxDepth": 6, "minInstancesPerNode": 50},
+                    {"maxDepth": 6, "minInstancesPerNode": 200},
+                ]
+            )
+        else:
+            grilla_probada = []
+
+        vcpu_horas = round((tiempo_total / 3600.0) * 6.0, 4)
+        gb_horas = round((tiempo_total / 3600.0) * 12.0, 4)
 
         run_record = {
             "run_id": run_id,
@@ -528,7 +644,9 @@ def main():
             "usa_pesos": usa_pesos,
             "semilla": semilla,
             "hiperparametros_ganadores": hiperparametros,
+            "grilla_probada": grilla_probada,
             "metricas_cv": {
+                "pr_auc_por_param_grid": [float(x) for x in cv_model.avgMetrics],
                 "pr_auc_por_fold": [float(x) for x in cv_model.avgMetrics],
                 "pr_auc_promedio": float(max(cv_model.avgMetrics)),
             },
@@ -537,34 +655,73 @@ def main():
             "n_positivos_train": n_pos_train,
             "n_positivos_test": n_pos_test,
             "duracion_segundos": round(tiempo_total, 2),
+            "vcpu_horas": vcpu_horas,
+            "gb_horas": gb_horas,
             "ruta_modelo": model_path,
             "ruta_predicciones": pred_path,
         }
 
-        # Guardar artefactos JSON y markdown
-        try:
-            import boto3  # type: ignore[import-not-found,import-untyped]
-            from s3_paths import GOLD_BUCKET
+        # Extraer estadísticas de preprocesamiento (mediana de imputación y categorías)
+        imputer_models = [
+            s for s in best_pipeline_model.stages if isinstance(s, ImputerModel)
+        ]
+        medianas_imp = {}
+        if imputer_models:
+            surrogate_row = imputer_models[0].surrogateDF.first()
+            if surrogate_row:
+                medianas_imp = {
+                    k: float(v)
+                    for k, v in surrogate_row.asDict().items()
+                    if v is not None
+                }
 
-            s3 = boto3.client("s3")
-            s3.put_object(
-                Bucket=GOLD_BUCKET,
-                Key=f"gold/model_artifacts/{run_id}/run_record.json",
-                Body=json.dumps(run_record, indent=2),
-            )
-            s3.put_object(
-                Bucket=GOLD_BUCKET,
-                Key=f"gold/model_artifacts/{run_id}/explicabilidad/narrativa_negocio.md",
-                Body=narrativa,
-            )
-        except Exception:  # noqa: BLE001
-            # Fallback en disco local si no hay credenciales AWS S3 en runtime local
-            local_art = f"/tmp/sunat_model_artifacts/{run_id}"
-            os.makedirs(f"{local_art}/explicabilidad", exist_ok=True)
-            with open(f"{local_art}/run_record.json", "w") as f:
-                json.dump(run_record, f, indent=2)
-            with open(f"{local_art}/explicabilidad/narrativa_negocio.md", "w") as f:
-                f.write(narrativa)
+        top_ciiu = []
+        if "ciiu_principal" in train_df.columns:
+            top_ciiu = [
+                r["ciiu_principal"]
+                for r in train_df.filter(
+                    col("ciiu_principal").isNotNull()
+                    & (col("ciiu_principal") != "OTROS")
+                )
+                .groupBy("ciiu_principal")
+                .count()
+                .orderBy(col("count").desc())
+                .limit(30)
+                .collect()
+            ]
+
+        top_dept = []
+        if "departamento" in train_df.columns:
+            top_dept = [
+                r["departamento"]
+                for r in train_df.filter(
+                    col("departamento").isNotNull()
+                    & (col("departamento") != "DESCONOCIDO")
+                )
+                .groupBy("departamento")
+                .count()
+                .orderBy(col("count").desc())
+                .limit(25)
+                .collect()
+            ]
+
+        preprocessing_stats = {
+            "top_ciiu": top_ciiu,
+            "top_departamentos": top_dept,
+            "medianas_imputacion": medianas_imp,
+            "dataset_version": dataset_version,
+            "fecha": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Guardar todos los artefactos
+        guardar_artefactos_entrenamiento(
+            run_id=run_id,
+            run_record=run_record,
+            preprocessing_stats=preprocessing_stats,
+            explicabilidad=explicabilidad,
+            narrativa=narrativa,
+            model_name=model_name,
+        )
 
         print("[07_train_model] Entrenado con éxito. Run Record:")
         print(json.dumps(run_record, indent=2))

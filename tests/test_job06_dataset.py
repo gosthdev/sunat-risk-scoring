@@ -155,7 +155,7 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertEqual(list1, list2)
 
     def test_reporte_invariantes(self):
-        """Verifica que la generación de reporte contenga todas las claves requeridas."""
+        """Verifica que la generación de reporte contenga todas las claves requeridas y prevalencia controlada."""
         padron, ssco, pricos = self._crear_datos_sinteticos()
         curado = job06.curar_dataset(padron, ssco, pricos, semilla=42)
         rep = job06.generar_reporte_curado(curado, dataset_version="v1")
@@ -165,3 +165,32 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertIn("prevalencia_test", rep)
         self.assertIn("positivos_por_fold", rep)
         self.assertEqual(len(rep["positivos_por_fold"]), 5)
+
+        # Invariante contractual: diferencia relativa de prevalencia < 10%
+        self.assertLess(
+            rep["diferencia_relativa_prevalencia"],
+            0.10,
+            f"Prevalencia difiere más de 10%: {rep['diferencia_relativa_prevalencia']}",
+        )
+
+        # Cada fold debe recibir positivos de forma homogénea (cíclica)
+        conteos = list(rep["positivos_por_fold"].values())
+        self.assertTrue(
+            all(c > 0 for c in conteos), "Cada fold debe tener al menos un positivo"
+        )
+        self.assertLessEqual(
+            max(conteos) - min(conteos),
+            1,
+            "La distribución cíclica debe diferir a lo sumo en 1",
+        )
+
+    def test_return_stats_preprocessing(self):
+        """Verifica que curar_dataset retorne el diccionario de categorías raras cuando return_stats=True."""
+        padron, ssco, pricos = self._crear_datos_sinteticos()
+        _curado, stats = job06.curar_dataset(
+            padron, ssco, pricos, semilla=42, return_stats=True
+        )
+        self.assertIn("top_ciiu", stats)
+        self.assertIn("top_departamentos", stats)
+        self.assertIsInstance(stats["top_ciiu"], list)
+        self.assertIsInstance(stats["top_departamentos"], list)

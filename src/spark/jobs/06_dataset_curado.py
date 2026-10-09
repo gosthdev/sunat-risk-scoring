@@ -27,13 +27,19 @@ from pyspark.sql.functions import (
     concat,
     format_string,
     lit,
+    row_number,
     trim,
     when,
 )
 from pyspark.sql.functions import (
+    count as spark_count,
+)
+from pyspark.sql.functions import (
     hash as spark_hash,
 )
+from pyspark.sql.window import Window
 from s3_paths import (
+    GOLD_BUCKET,
     GOLD_MODEL_INPUTS,
     GOLD_RUC_FEATURES,
     SILVER_PRICOS,
@@ -51,6 +57,7 @@ def curar_dataset(
     semilla=SEMILLA_DEFAULT,
     top_ciiu_limit=30,
     top_dept_limit=25,
+    return_stats=False,
 ):
     """Ejecuta la lógica completa de curado, exclusión, split y folds sobre DataFrames.
 
@@ -116,45 +123,41 @@ def curar_dataset(
     if "RUC" in dataset.columns:
         dataset = dataset.drop("RUC")
 
-    # 5. Split determinista y estratificado 80% train / 20% test
-    # Incluir label en el hash garantiza que la distribución se estratifica para ambas clases
-    dataset = dataset.withColumn(
-        "_split_hash",
-        (
-            spark_abs(
-                spark_hash(
-                    concat(col("ruc"), lit(f"_salt_{semilla}_split_"), col("label"))
-                )
-            )
-            % 100
-        ).cast("int"),
+    # 5. Split determinista y estrictamente estratificado 80% train / 20% test
+    # Ordenar por hash determinista del RUC dentro de cada clase (label) y enviar el 20% con hash menor a test
+    w_split = Window.partitionBy("label").orderBy(
+        spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla}_split")))),
+        col("ruc"),
+    )
+    w_label_cnt = Window.partitionBy("label")
+
+    dataset = (
+        dataset.withColumn("_rn", row_number().over(w_split))
+        .withColumn("_n_label", spark_count("*").over(w_label_cnt))
+        .withColumn(
+            "split",
+            when(col("_rn") <= (col("_n_label") * 0.2), "test").otherwise("train"),
+        )
+        .drop("_rn", "_n_label")
     )
 
-    dataset = dataset.withColumn(
-        "split",
-        when(col("_split_hash") < 20, "test").otherwise("train"),
-    ).drop("_split_hash")
-
-    # 6. Asignar fold (0 a 4) estratificado exclusivamente para filas de train
-    dataset = dataset.withColumn(
-        "fold",
-        when(col("split") == "test", lit(None).cast("int")).otherwise(
-            (
-                spark_abs(
-                    spark_hash(
-                        concat(
-                            col("ruc"), lit(f"_salt_{semilla + 1}_fold_"), col("label")
-                        )
-                    )
-                )
-                % 5
-            ).cast("int")
-        ),
+    # 6. Asignar fold (0 a 4) estratificado cíclicamente exclusivamente para filas de train
+    w_fold = Window.partitionBy("label").orderBy(
+        spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla + 1}_fold")))),
+        col("ruc"),
     )
+    train_part = (
+        dataset.filter(col("split") == "train")
+        .withColumn("_rn_fold", row_number().over(w_fold))
+        .withColumn("fold", ((col("_rn_fold") - 1) % 5).cast("int"))
+        .drop("_rn_fold")
+    )
+    test_part = dataset.filter(col("split") == "test").withColumn(
+        "fold", lit(None).cast("int")
+    )
+    dataset = train_part.unionByName(test_part)
 
     # 7. Categorías raras calculadas ESTRICTAMENTE sobre train
-    train_df = dataset.filter(col("split") == "train")
-
     col_ciiu = (
         "ciiu_principal"
         if "ciiu_principal" in dataset.columns
@@ -165,9 +168,10 @@ def curar_dataset(
         )
     )
 
+    top_ciiu_list = []
     if col_ciiu:
         top_ciiu_rows = (
-            train_df.filter(col(col_ciiu).isNotNull() & (trim(col(col_ciiu)) != ""))
+            train_part.filter(col(col_ciiu).isNotNull() & (trim(col(col_ciiu)) != ""))
             .groupBy(col_ciiu)
             .count()
             .orderBy(col("count").desc())
@@ -185,9 +189,10 @@ def curar_dataset(
         if col_ciiu != "ciiu_principal":
             dataset = dataset.drop(col_ciiu)
 
+    top_dept_list = []
     if "departamento" in dataset.columns:
         top_dept_rows = (
-            train_df.filter(
+            train_part.filter(
                 col("departamento").isNotNull() & (trim(col("departamento")) != "")
             )
             .groupBy("departamento")
@@ -205,6 +210,13 @@ def curar_dataset(
             ).otherwise(lit("DESCONOCIDO")),
         )
 
+    stats = {
+        "top_ciiu": top_ciiu_list,
+        "top_departamentos": top_dept_list,
+    }
+
+    if return_stats:
+        return dataset, stats
     return dataset
 
 
@@ -245,6 +257,8 @@ def generar_reporte_curado(dataset_df, dataset_version="v1"):
 
 
 def main():
+    from datetime import datetime, timezone
+
     dataset_version = os.environ.get("DATASET_VERSION", "v1")
     mes_padron = "202506" if dataset_version == "v1" else "202512"
     semilla = int(os.environ.get("SEMILLA", str(SEMILLA_DEFAULT)))
@@ -257,11 +271,12 @@ def main():
         ssco = spark.read.parquet(SILVER_SSCO)
         pricos = spark.read.parquet(SILVER_PRICOS)
 
-        dataset = curar_dataset(
+        dataset, stats = curar_dataset(
             padron_features_df=padron_features,
             ssco_df=ssco,
             pricos_df=pricos,
             semilla=semilla,
+            return_stats=True,
         )
 
         dataset = dataset.withColumn("dataset_version", lit(dataset_version))
@@ -272,6 +287,32 @@ def main():
         reporte = generar_reporte_curado(dataset, dataset_version=dataset_version)
         print("[06_dataset_curado] Reporte de Curado e Invariantes:")
         print(json.dumps(reporte, indent=2))
+
+        prep_data = {
+            "top_ciiu": stats["top_ciiu"],
+            "top_departamentos": stats["top_departamentos"],
+            "dataset_version": dataset_version,
+            "fecha": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Guardar preprocessing_stats preliminar para reproducibilidad
+        try:
+            import boto3  # type: ignore[import-not-found,import-untyped]
+
+            s3 = boto3.client("s3")
+            prefix = GOLD_MODEL_INPUTS.replace(f"s3://{GOLD_BUCKET}/", "").strip("/")
+            s3.put_object(
+                Bucket=GOLD_BUCKET,
+                Key=f"{prefix}/dataset_version={dataset_version}/preprocessing_stats.json",
+                Body=json.dumps(prep_data, indent=2),
+            )
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+        local_art = f"/tmp/sunat_model_artifacts/dataset_version={dataset_version}"
+        os.makedirs(local_art, exist_ok=True)
+        with open(f"{local_art}/preprocessing_stats.json", "w") as f:
+            json.dump(prep_data, f, indent=2)
 
     finally:
         spark.stop()

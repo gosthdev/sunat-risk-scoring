@@ -161,7 +161,9 @@ class TestFeaturesA2(unittest.TestCase):
         assert row is not None
 
         self.assertEqual(row["contrata_con_estado"], 0)
-        self.assertEqual(row["monto_total_soles"], 0.0)
+        self.assertIsNone(row["monto_total_soles"])
+        self.assertIsNone(row["monto_por_trabajador"])
+        self.assertEqual(row["monto_total_contratado_estado"], 0.0)
         self.assertEqual(row["cantidad_contratos_estado"], 0)
         self.assertIsNone(row["antiguedad_contratacion_estado_dias"])
 
