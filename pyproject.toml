@@ -6,9 +6,11 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = [
     "awswrangler",
+    "boto3",
     "openpyxl",
 ]
 ignore_missing_imports = true
+
 
 [tool.pytest.ini_options]
 pythonpath = [
