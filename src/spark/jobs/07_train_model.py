@@ -46,6 +46,9 @@ from pyspark.sql.functions import (
     when,
 )
 from pyspark.sql.functions import (
+    count as spark_count,
+)
+from pyspark.sql.functions import (
     rank as spark_rank,
 )
 from pyspark.sql.window import Window
@@ -134,10 +137,37 @@ def construir_pipeline(
         stages.append(SQLTransformer(statement=sql_expr))
 
     # 2. Imputación con mediana (aprende solo de train)
-    if num_cols:
+    # Proteger contra columnas con 100% nulos en train: Spark Imputer falla con IllegalArgumentException si una columna carece de valores no nulos
+    active_num_cols = []
+    all_null_cols = []
+    if num_cols and df is not None:
+        try:
+            counts_row = df.select(
+                [spark_count(col(c)).alias(c) for c in num_cols]
+            ).first()
+            if counts_row:
+                for c in num_cols:
+                    if (counts_row[c] or 0) == 0:
+                        all_null_cols.append(c)
+                    else:
+                        active_num_cols.append(c)
+            else:
+                active_num_cols = num_cols
+        except Exception:  # noqa: BLE001
+            active_num_cols = num_cols
+    else:
+        active_num_cols = num_cols
+
+    if all_null_cols:
+        zero_exprs = [f"CAST(0.0 AS double) AS {c}_imp" for c in all_null_cols]
+        stages.append(
+            SQLTransformer(statement=f"SELECT *, {', '.join(zero_exprs)} FROM __THIS__")
+        )
+
+    if active_num_cols:
         imputer = Imputer(
-            inputCols=num_cols,
-            outputCols=[f"{c}_imp" for c in num_cols],
+            inputCols=active_num_cols,
+            outputCols=[f"{c}_imp" for c in active_num_cols],
             strategy="median",
         )
         stages.append(imputer)
@@ -293,7 +323,7 @@ def generar_predicciones_c2(
     raw_preds = best_model.transform(all_data_df)
     preds = raw_preds.withColumn("score", vector_to_array(col("probability"))[1])
 
-    w = Window.orderBy(col("score").desc())
+    w = Window.orderBy(col("score").desc(), col("ruc").asc())
     preds = preds.withColumn("rank_global", spark_rank().over(w))
 
     dept_col = (

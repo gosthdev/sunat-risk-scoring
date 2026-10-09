@@ -76,7 +76,7 @@ def build_contratacion_estado_features(spark, ordenes_df=None, fecha_corte=None)
         if "estadocontratacion" in ordenes.columns
         else (col("estado_orden") if "estado_orden" in ordenes.columns else lit(""))
     )
-    es_anulada = lower(estado_col) == "anulada"
+    es_anulada = lower(coalesce(estado_col, lit(""))) == "anulada"
 
     # Monto válido solo para órdenes vigentes (NULL para órdenes anuladas para no distorsionar la mediana ni el máximo)
     monto_valido = when(

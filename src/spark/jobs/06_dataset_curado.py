@@ -212,6 +212,16 @@ def curar_dataset(
             ).otherwise(lit("DESCONOCIDO")),
         )
 
+    if "tipo_contribuyente" in dataset.columns:
+        dataset = dataset.withColumn(
+            "tipo_contribuyente",
+            when(
+                col("tipo_contribuyente").isNull()
+                | (trim(col("tipo_contribuyente")) == ""),
+                lit("DESCONOCIDO"),
+            ).otherwise(col("tipo_contribuyente")),
+        )
+
     stats = {
         "top_ciiu": top_ciiu_list,
         "top_departamentos": top_dept_list,
@@ -224,24 +234,36 @@ def curar_dataset(
 
 def generar_reporte_curado(dataset_df, dataset_version="v1"):
     """Genera diccionario de resumen de estadísticas de calidad del dataset curado."""
-    total_filas = dataset_df.count()
-    train_filas = dataset_df.filter(col("split") == "train").count()
-    test_filas = dataset_df.filter(col("split") == "test").count()
+    split_label_counts = dataset_df.groupBy("split", "label").count().collect()
+    counts_map = {
+        (r["split"], int(r["label"])): int(r["count"]) for r in split_label_counts
+    }
 
-    pos_total = dataset_df.filter(col("label") == 1).count()
-    pos_train = dataset_df.filter(
-        (col("split") == "train") & (col("label") == 1)
-    ).count()
-    pos_test = dataset_df.filter((col("split") == "test") & (col("label") == 1)).count()
+    pos_train = counts_map.get(("train", 1), 0)
+    neg_train = counts_map.get(("train", 0), 0)
+    train_filas = pos_train + neg_train
+
+    pos_test = counts_map.get(("test", 1), 0)
+    neg_test = counts_map.get(("test", 0), 0)
+    test_filas = pos_test + neg_test
+
+    total_filas = train_filas + test_filas
+    pos_total = pos_train + pos_test
 
     prev_train = (pos_train / train_filas) if train_filas > 0 else 0.0
     prev_test = (pos_test / test_filas) if test_filas > 0 else 0.0
     dif_relativa = abs(prev_train - prev_test) / prev_train if prev_train > 0 else 0.0
 
-    folds_pos = {}
-    for f in range(5):
-        cnt = dataset_df.filter((col("fold") == f) & (col("label") == 1)).count()
-        folds_pos[f"fold_{f}"] = cnt
+    fold_counts = (
+        dataset_df.filter((col("split") == "train") & (col("label") == 1))
+        .groupBy("fold")
+        .count()
+        .collect()
+    )
+    fold_map = {
+        int(r["fold"]): int(r["count"]) for r in fold_counts if r["fold"] is not None
+    }
+    folds_pos = {f"fold_{f}": fold_map.get(f, 0) for f in range(5)}
 
     return {
         "dataset_version": dataset_version,
@@ -267,6 +289,7 @@ def main():
 
     spark = create_spark_session("06_dataset_curado")
     try:
+        spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
         padron_features = spark.read.parquet(GOLD_RUC_FEATURES).filter(
             col("mes_referencia") == mes_padron
         )

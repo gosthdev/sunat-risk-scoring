@@ -234,3 +234,31 @@ class TestFeaturesA2(unittest.TestCase):
         assert row is not None
         self.assertEqual(row["n_ordenes"], 1)
         self.assertAlmostEqual(row["monto_total_soles"], 1000.0)
+
+    def test_ordenes_con_estado_nulo_no_se_anulan(self):
+        """Órdenes con estado NULL no deben ser tratadas como anuladas ni perder su monto."""
+        assert self.spark is not None
+        schema = StructType(
+            [
+                StructField("ruc_contratista", StringType(), True),
+                StructField("monto_total_orden_original", DoubleType(), True),
+                StructField("estadocontratacion", StringType(), True),
+                StructField("ruc_entidad", LongType(), True),
+                StructField("entidad", StringType(), True),
+                StructField("fecha_de_emision", StringType(), True),
+            ]
+        )
+        data = [
+            ("20100000003", 5000.0, None, 20500000001, "MINEDU", "2025-03-01"),
+            ("20100000003", 3000.0, "Vigente", 20500000001, "MINEDU", "2025-04-01"),
+        ]
+        df = self.spark.createDataFrame(data, schema)
+        res = job03.build_contratacion_estado_features(self.spark, ordenes_df=df)
+        row = res.filter(col("RUC") == 20100000003).first()
+
+        assert row is not None
+        self.assertEqual(row["n_ordenes"], 2)
+        # La orden con estado NULL debe sumar y contar como válida
+        self.assertAlmostEqual(row["monto_total_soles"], 8000.0)
+        self.assertEqual(row["pct_ordenes_anuladas"], 0.0)
+        self.assertAlmostEqual(row["monto_maximo_soles"], 5000.0)

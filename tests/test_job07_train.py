@@ -449,3 +449,25 @@ class TestJob07Train(unittest.TestCase):
         m2 = cv2.avgMetrics
         for v1, v2 in zip(m1, m2):
             self.assertAlmostEqual(v1, v2, places=4)
+
+    def test_columna_numerica_100pct_nulos_no_colapsa_imputer(self):
+        """Verifica que el pipeline gestione defensivamente columnas numéricas con 100% de nulos sin colapsar."""
+        df = self._crear_datos_sinteticos(n_filas=30)
+        # Sobrescribir una columna numérica con 100% nulos
+        df_con_nulos = df.withColumn(
+            "monto_por_trabajador", lit(None).cast(DoubleType())
+        )
+        train_df = df_con_nulos.filter(col("split") == "train")
+
+        pipeline, _estimator, _ = job07.construir_pipeline(
+            df=train_df,
+            model_name="LR",
+            variant="V2",
+            weight_col=None,
+        )
+        # Debe ajustar sin lanzar IllegalArgumentException de Spark Imputer
+        model = pipeline.fit(train_df)
+        self.assertIsNotNone(model)
+
+        preds = model.transform(df_con_nulos)
+        self.assertEqual(preds.filter(col("prediction").isNull()).count(), 0)

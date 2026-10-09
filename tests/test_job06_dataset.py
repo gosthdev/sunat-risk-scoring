@@ -241,3 +241,51 @@ class TestJob06Dataset(unittest.TestCase):
         )
         # AMAZONAS y ANCASH deben ser los elegidos porque tienen count=1 pero van primero lexicográficamente
         self.assertEqual(stats["top_departamentos"][:2], ["AMAZONAS", "ANCASH"])
+
+    def test_tipo_contribuyente_imputacion_desconocido(self):
+        """Verifica que valores nulos o vacíos en tipo_contribuyente sean imputados a DESCONOCIDO (Contrato C1)."""
+        assert self.spark is not None
+        rows = [
+            (20100000001, "4659", "LIMA", None, 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (20100000002, "4659", "LIMA", "  ", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (
+                20100000003,
+                "4659",
+                "LIMA",
+                "SOCIEDAD ANONIMA",
+                1.0,
+                0,
+                100.0,
+                1,
+                "ACTIVO",
+                "HABIDO",
+            ),
+        ]
+        schema = StructType(
+            [
+                StructField("RUC", LongType(), False),
+                StructField("ciiu_principal", StringType(), True),
+                StructField("departamento", StringType(), True),
+                StructField("tipo_contribuyente", StringType(), True),
+                StructField("nro_trabajadores", DoubleType(), True),
+                StructField("sin_trabajadores", IntegerType(), True),
+                StructField("monto_total_soles", DoubleType(), True),
+                StructField("n_ordenes", IntegerType(), True),
+                StructField("Estado", StringType(), True),
+                StructField("Condicion", StringType(), True),
+            ]
+        )
+        padron = self.spark.createDataFrame(rows, schema)
+        ssco = self.spark.createDataFrame(
+            [], StructType([StructField("RUC", LongType(), False)])
+        )
+        pricos = self.spark.createDataFrame(
+            [], StructType([StructField("RUC", LongType(), False)])
+        )
+
+        curado = job06.curar_dataset(padron, ssco, pricos, semilla=42)
+        res = {r["ruc"]: r["tipo_contribuyente"] for r in curado.collect()}
+
+        self.assertEqual(res["20100000001"], "DESCONOCIDO")
+        self.assertEqual(res["20100000002"], "DESCONOCIDO")
+        self.assertEqual(res["20100000003"], "SOCIEDAD ANONIMA")
