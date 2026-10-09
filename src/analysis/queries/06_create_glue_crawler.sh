@@ -79,9 +79,19 @@ upsert_crawler() {
     --configuration "$config"
   )
 
+  local update_args=(
+    --name "$name"
+    --database-name "$GLUE_DATABASE"
+    --table-prefix "${zone}_"
+    --targets "$targets"
+    --schema-change-policy "UpdateBehavior=UPDATE_IN_DATABASE,DeleteBehavior=LOG"
+    --recrawl-policy "{\"RecrawlBehavior\":\"CRAWL_EVERYTHING\"}"
+    --configuration "$config"
+  )
+
   if aws glue get-crawler --name "$name" >/dev/null 2>&1; then
     echo "Actualizando crawler: $name ($target_path, TableLevelConfiguration=${level_cfg})"
-    aws glue update-crawler "${args[@]}"
+    aws glue update-crawler "${update_args[@]}"
   else
     echo "Creando crawler: $name ($target_path, TableLevelConfiguration=${level_cfg})"
     aws glue create-crawler "${args[@]}"
