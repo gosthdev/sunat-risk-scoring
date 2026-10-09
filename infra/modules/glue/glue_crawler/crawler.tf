@@ -5,7 +5,8 @@ resource "aws_glue_crawler" "this" {
   table_prefix  = var.table_prefix
 
   s3_target {
-    path = var.s3_target_path
+    path       = var.s3_target_path
+    exclusions = ["_markers/**", "**/_markers/**"]
   }
 
   schema_change_policy {

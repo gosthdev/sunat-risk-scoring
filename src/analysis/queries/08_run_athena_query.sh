@@ -11,8 +11,21 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
-GLUE_DATABASE="${GLUE_DATABASE:-ssco_catalog}"
-ATHENA_WORKGROUP="${ATHENA_WORKGROUP:-ssco-workgroup}"
+if [[ -z "${GLUE_DATABASE:-}" ]]; then
+  if aws glue get-database --name "sunat_ssco" >/dev/null 2>&1; then
+    GLUE_DATABASE="sunat_ssco"
+  else
+    GLUE_DATABASE="ssco_catalog"
+  fi
+fi
+
+if [[ -z "${ATHENA_WORKGROUP:-}" ]]; then
+  if aws athena get-work-group --work-group "sunat-ssco" >/dev/null 2>&1; then
+    ATHENA_WORKGROUP="sunat-ssco"
+  else
+    ATHENA_WORKGROUP="ssco-workgroup"
+  fi
+fi
 OUT_DIR="${OUT_DIR:-data/results}"
 mkdir -p "$OUT_DIR"
 

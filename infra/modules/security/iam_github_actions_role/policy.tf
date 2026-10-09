@@ -103,7 +103,8 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Resource = [
           "arn:aws:iam::*:role/sunat-ingestion-ec2-role",
           "arn:aws:iam::*:policy/sunat-ingestion-ec2-s3-policy",
-          "arn:aws:iam::*:instance-profile/sunat-ingestion-ec2-profile"
+          "arn:aws:iam::*:instance-profile/sunat-ingestion-ec2-profile",
+          "arn:aws:iam::*:role/sunat-ssco-glue-crawler-role"
         ]
       },
       {
@@ -152,10 +153,22 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         }
       },
       {
+        Sid      = "PassGlueCrawlerRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = [var.glue_crawler_role_arn != "" ? var.glue_crawler_role_arn : "arn:aws:iam::*:role/sunat-ssco-glue-crawler-role"]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "glue.amazonaws.com"
+          }
+        }
+      },
+      {
         Sid    = "GlueAndAthenaAnalytics"
         Effect = "Allow"
         Action = [
           "glue:GetDatabase",
+          "glue:GetDatabases",
           "glue:CreateDatabase",
           "glue:GetCrawler",
           "glue:CreateCrawler",
@@ -163,12 +176,16 @@ resource "aws_iam_role_policy" "deploy_jobs" {
           "glue:StartCrawler",
           "glue:GetTables",
           "glue:GetTable",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:BatchGetPartition",
           "athena:GetWorkGroup",
           "athena:CreateWorkGroup",
           "athena:StartQueryExecution",
           "athena:GetQueryExecution",
           "athena:GetQueryResults",
-          "athena:StopQueryExecution"
+          "athena:StopQueryExecution",
+          "athena:GetDataCatalog"
         ]
         Resource = ["*"]
       }

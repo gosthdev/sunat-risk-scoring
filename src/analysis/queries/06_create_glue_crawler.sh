@@ -9,12 +9,25 @@
 set -euo pipefail
 
 # Soporte multicanasta (infra/storage) o bucket único del datalake (plan.md)
-GLUE_DATABASE="${GLUE_DATABASE:-ssco_catalog}"
+if [[ -z "${GLUE_DATABASE:-}" ]]; then
+  if aws glue get-database --name "sunat_ssco" >/dev/null 2>&1; then
+    GLUE_DATABASE="sunat_ssco"
+  else
+    GLUE_DATABASE="ssco_catalog"
+  fi
+fi
 ZONES=(silver gold)
 
 # Auto-descubrir rol IAM si no fue provisto explícitamente
 if [[ -z "${GLUE_ROLE_ARN:-}" ]]; then
-  GLUE_ROLE_ARN=$(aws iam get-role --role-name sunat-ssco-glue-crawler-role --query 'Role.Arn' --output text 2>/dev/null || true)
+  echo "INFO: 'GLUE_ROLE_ARN' no provista. Infiriendo rol desde caller-identity..."
+  ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text 2>/dev/null || true)
+  if [[ -n "$ACCOUNT_ID" && "$ACCOUNT_ID" != "None" ]]; then
+    GLUE_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/sunat-ssco-glue-crawler-role"
+    echo "✓ Rol Glue Crawler inferido: $GLUE_ROLE_ARN"
+  else
+    GLUE_ROLE_ARN=$(aws iam get-role --role-name sunat-ssco-glue-crawler-role --query 'Role.Arn' --output text 2>/dev/null || true)
+  fi
 fi
 : "${GLUE_ROLE_ARN:?Define GLUE_ROLE_ARN (o asegúrate de que exista sunat-ssco-glue-crawler-role)}"
 
@@ -25,9 +38,19 @@ ensure_database() {
   fi
 }
 
+get_crawler_name() {
+  local zone="$1"
+  if aws glue get-crawler --name "sunat-ssco-${zone}-crawler" >/dev/null 2>&1; then
+    echo "sunat-ssco-${zone}-crawler"
+  else
+    echo "ssco-${zone}-crawler"
+  fi
+}
+
 upsert_crawler() {
   local zone="$1"
-  local name="ssco-${zone}-crawler"
+  local name
+  name=$(get_crawler_name "$zone")
   local target_path
   local level_cfg
 
@@ -44,7 +67,7 @@ upsert_crawler() {
   fi
 
   local config="{\"Version\":1.0,\"Grouping\":{\"TableLevelConfiguration\":${level_cfg}}}"
-  local targets="{\"S3Targets\":[{\"Path\":\"${target_path}\"}]}"
+  local targets="{\"S3Targets\":[{\"Path\":\"${target_path}\",\"Exclusions\":[\"_markers/**\",\"**/_markers/**\"]}]}"
   local args=(
     --name "$name"
     --role "$GLUE_ROLE_ARN"
@@ -78,12 +101,23 @@ run_crawler() {
 
   status=$(aws glue get-crawler --name "$name" --query 'Crawler.LastCrawl.Status' --output text)
   echo "Crawler $name terminó con estado: $status"
-  [[ "$status" == "SUCCEEDED" ]] || { echo "Revisa los logs del crawler en CloudWatch" >&2; exit 1; }
+  if [[ "$status" != "SUCCEEDED" ]]; then
+    error_msg=$(aws glue get-crawler --name "$name" --query 'Crawler.LastCrawl.ErrorMessage' --output text 2>/dev/null || true)
+    if [[ -n "$error_msg" && "$error_msg" != "None" ]]; then
+      echo "ERROR en Crawler $name: $error_msg" >&2
+    else
+      echo "Revisa los logs del crawler en CloudWatch" >&2
+    fi
+    exit 1
+  fi
 }
 
 ensure_database
 for zone in "${ZONES[@]}"; do upsert_crawler "$zone"; done
-for zone in "${ZONES[@]}"; do run_crawler "ssco-${zone}-crawler"; done
+for zone in "${ZONES[@]}"; do
+  crawler_name=$(get_crawler_name "$zone")
+  run_crawler "$crawler_name"
+done
 
 echo
 echo "Tablas en el catálogo ($GLUE_DATABASE):"

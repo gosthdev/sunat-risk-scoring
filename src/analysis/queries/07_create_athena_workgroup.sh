@@ -7,7 +7,13 @@ set -euo pipefail
 
 RESULTS_BUCKET="${BUCKET:-${ARTIFACTS_BUCKET:-}}"
 : "${RESULTS_BUCKET:?Define BUCKET o ARTIFACTS_BUCKET (bucket para almacenar resultados de Athena)}"
-ATHENA_WORKGROUP="${ATHENA_WORKGROUP:-ssco-workgroup}"
+if [[ -z "${ATHENA_WORKGROUP:-}" ]]; then
+  if aws athena get-work-group --work-group "sunat-ssco" >/dev/null 2>&1; then
+    ATHENA_WORKGROUP="sunat-ssco"
+  else
+    ATHENA_WORKGROUP="ssco-workgroup"
+  fi
+fi
 # Los resultados van fuera de las zonas raw/bronze/silver/gold.
 RESULTS_LOCATION="s3://${RESULTS_BUCKET}/athena-results/"
 # Tope de seguridad por consulta: 10 GB escaneados (evita sustos de costo).
