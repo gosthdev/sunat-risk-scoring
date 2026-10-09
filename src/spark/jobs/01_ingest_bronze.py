@@ -23,6 +23,7 @@ Uso: spark-submit --py-files common.zip 01_ingest_bronze.py
 import sys
 
 from pyspark.sql.functions import col, lit, year
+from pyspark.sql.types import StringType, StructField, StructType
 from s3_paths import (
     BRONZE_ORDENES_COMPRA,
     BRONZE_ORDENES_COMPRA_QUARANTINE,
@@ -42,6 +43,15 @@ from spark_session_factory import create_spark_session
 CORRUPT_COLUMN = "_corrupt_record"
 
 
+def _schema_with_corrupt(schema: StructType) -> StructType:
+    """Retorna una copia del esquema incluyendo la columna corrupta sin mutar el original."""
+    if CORRUPT_COLUMN in schema.fieldNames():
+        return schema
+    return StructType(
+        list(schema.fields) + [StructField(CORRUPT_COLUMN, StringType(), True)]
+    )
+
+
 def _read_raw(spark, path, schema):
     """Lee CSV crudo en modo PERMISSIVE, agregando columna de registro corrupto.
 
@@ -53,7 +63,7 @@ def _read_raw(spark, path, schema):
         spark.read.option("header", "true")
         .option("mode", "PERMISSIVE")
         .option("columnNameOfCorruptRecord", CORRUPT_COLUMN)
-        .schema(schema.add(CORRUPT_COLUMN, "string"))
+        .schema(_schema_with_corrupt(schema))
         .csv(path)
     )
 
@@ -66,12 +76,18 @@ def _split_schema_quarantine(df):
 
 
 def _split_date_range_quarantine(df, date_columns):
-    """Separa filas con año fuera de VALID_YEAR_RANGE en cualquiera de date_columns."""
+    """Separa filas con año fuera de VALID_YEAR_RANGE en cualquiera de date_columns.
+
+    Usa c.isNotNull() para asegurar que la condición sea estrictamente booleana
+    y no trivaluada (SQL NULL), evitando que filas con fechas nulas sean descartadas
+    tanto de clean como de quarantined.
+    """
     min_year, max_year = VALID_YEAR_RANGE
     bad_year_condition = lit(False)
     for date_col in date_columns:
+        c = col(date_col)
         bad_year_condition = bad_year_condition | (
-            (year(col(date_col)) < min_year) | (year(col(date_col)) > max_year)
+            c.isNotNull() & ((year(c) < min_year) | (year(c) > max_year))
         )
     quarantined = df.filter(bad_year_condition)
     clean = df.filter(~bad_year_condition)

@@ -14,5 +14,6 @@ ignore_missing_imports = true
 pythonpath = [
     "src/spark/common",
     "src/spark/jobs",
+    "perf/spark",
 ]
 
