@@ -69,6 +69,20 @@ def download_file(url: str, dest_path: Path):
     )
 
 
+def s3_object_size(s3_uri: str) -> int:
+    """Retorna el tamaño en bytes del objeto en S3 si existe, o 0 si no existe."""
+    cmd = ["aws", "s3", "ls", s3_uri]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if res.returncode == 0 and res.stdout.strip():
+        parts = res.stdout.strip().split()
+        if len(parts) >= 3:
+            try:
+                return int(parts[2])
+            except ValueError:
+                pass
+    return 0
+
+
 def process_padron_ruc(key: str, url: str):
     if not url:
         return
@@ -77,6 +91,15 @@ def process_padron_ruc(key: str, url: str):
     partes = key.split("-")
     anio = partes[0]
     mes = partes[1].zfill(2) if len(partes) > 1 else "01"
+
+    # Verificar si ya existe en S3 con datos reales (> 1 MB)
+    s3_target = f"s3://{RAW_BUCKET}/padron_ruc/anio={anio}/mes={mes}/padron.csv"
+    existing_size = s3_object_size(s3_target)
+    if existing_size > 1024 * 1024:
+        log(
+            f"✓ Padrón RUC {key} ya existe en S3 ({existing_size / (1024 * 1024):.2f} MB). Omitiendo descarga."
+        )
+        return
 
     out_dir = BASE_DIR / "padron_ruc" / f"anio={anio}" / f"mes={mes}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -137,6 +160,82 @@ def process_padron_ruc(key: str, url: str):
     shutil.rmtree(extract_dir, ignore_errors=True)
 
 
+MONTH_VARIANTS = {
+    "01": ["ENERO"],
+    "02": ["FEBRERO"],
+    "03": ["MARZO"],
+    "04": ["ABRIL"],
+    "05": ["MAYO"],
+    "06": ["JUNIO"],
+    "07": ["JULIO"],
+    "08": ["AGOSTO"],
+    "09": ["SEPTIEMBRE", "SETIEMBRE"],
+    "10": ["OCTUBRE"],
+    "11": ["NOVIEMBRE"],
+    "12": ["DICIEMBRE"],
+}
+
+
+def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path):
+    """Descarga el .xlsx de OSCE validando que el archivo comience con b'PK'."""
+    import base64
+    import urllib.parse
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Referer": "https://conosce.osce.gob.pe/",
+    }
+
+    candidate_urls = []
+    # Si viene una URL de Pentaho redirect, extraer la URL en base64
+    if "redirect.html" in url_or_key and "url=" in url_or_key:
+        parsed = urllib.parse.urlparse(url_or_key)
+        qs = urllib.parse.parse_qs(parsed.query)
+        b64_val = qs.get("url", [""])[0]
+        if b64_val:
+            candidate_urls.append(base64.b64decode(b64_val).decode("utf-8"))
+    elif url_or_key.startswith("http"):
+        candidate_urls.append(url_or_key)
+
+    # Agregar candidatos según variantes de nombre del mes
+    base_osce = f"https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/{anio}/"
+    variantes = MONTH_VARIANTS.get(mes, [f"MES{mes}"])
+    for var in variantes:
+        candidate_urls.append(f"{base_osce}CONOSCE_ORDENESCOMPRA{var}{anio}_0.xlsx")
+
+    # Intentar descargar de cada candidato hasta encontrar un XLSX válido (ZIP: magic bytes 'PK')
+    for candidate in candidate_urls:
+        log(f"Probando descarga OSCE: {candidate}")
+        try:
+            req = urllib.request.Request(candidate, headers=headers)
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                if resp.status != 200:
+                    continue
+                # Leer primeros bytes para validar que sea zip/xlsx (PK)
+                magic = resp.read(2)
+                if magic != b"PK":
+                    log(f"Respuesta no es Excel válido (magic bytes: {magic}). Saltando {candidate}...")
+                    continue
+
+                # Escribir contenido completo
+                with open(dest_path, "wb") as out_f:
+                    out_f.write(magic)
+                    shutil.copyfileobj(resp, out_f)
+
+                size_mb = dest_path.stat().st_size / (1024 * 1024)
+                log(f"✓ Excel descargado exitosamente ({size_mb:.2f} MB): {candidate}")
+                return
+        except Exception as e:
+            log(f"Fallo al intentar {candidate}: {e}")
+
+    raise RuntimeError(
+        f"No se pudo descargar un archivo Excel válido (.xlsx) para {anio}-{mes} tras probar variantes."
+    )
+
+
 def process_ordenes_compra(key: str, url: str):
     if not url:
         return
@@ -145,139 +244,164 @@ def process_ordenes_compra(key: str, url: str):
     anio = partes[0]
     mes = partes[1].zfill(2) if len(partes) > 1 else "01"
 
+    # Verificar si ya existe en S3 con datos reales (> 5 MB)
+    s3_target = f"s3://{RAW_BUCKET}/ordenes_compra/anio={anio}/mes={mes}/ordenes.csv"
+    existing_size = s3_object_size(s3_target)
+    if existing_size > 5 * 1024 * 1024:
+        log(
+            f"✓ Órdenes de Compra {key} ya existe en S3 ({existing_size / (1024 * 1024):.2f} MB). Omitiendo descarga."
+        )
+        return
+
     out_dir = BASE_DIR / "ordenes_compra" / f"anio={anio}" / f"mes={mes}"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = out_dir / "ordenes.csv"
 
-    temp_raw = BASE_DIR / "tmp" / f"ordenes_{anio}_{mes}.raw"
-    download_file(url, temp_raw)
+    temp_xlsx = BASE_DIR / "tmp" / f"ordenes_{anio}_{mes}.xlsx"
+    _download_osce_xlsx(url, anio, mes, temp_xlsx)
 
-    # Identificar formato (Excel vs CSV)
+    # Convertir Excel a CSV garantizando contenido real
     import pandas as pd
 
-    is_excel = False
-    try:
-        # Intento de lectura como Excel
-        df = pd.read_excel(temp_raw)
-        is_excel = True
-        log(f"Detectado formato Excel (.xlsx). Filas: {len(df)}. Convirtiendo a CSV...")
-        df.to_csv(out_csv, index=False, encoding="utf-8")
-    except Exception:  # noqa: BLE001
-        # Si falla, es CSV crudo
-        is_excel = False
+    log(f"Leyendo Excel {temp_xlsx.name} con pandas...")
+    df = pd.read_excel(temp_xlsx)
+    log(f"Convertiendo a CSV (filas: {len(df)})...")
+    df.to_csv(out_csv, index=False, encoding="utf-8")
 
-    if not is_excel:
-        shutil.move(str(temp_raw), str(out_csv))
-    else:
-        temp_raw.unlink(missing_ok=True)
+    # Validar que no sea un archivo vacío o corrupto
+    if out_csv.stat().st_size < 1024 * 50:
+        raise ValueError(
+            f"El CSV generado ({out_csv.stat().st_size} bytes) es anormalmente pequeño para {key}."
+        )
 
-    log(f"✓ Guardado en partición: {out_csv}")
+    # Limpiar archivo temporal .xlsx para liberar espacio en disco
+    temp_xlsx.unlink(missing_ok=True)
+    log(f"✓ Guardado en partición ({out_csv.stat().st_size / (1024 * 1024):.2f} MB): {out_csv}")
 
 
 def process_small_datasets(small_dict: dict):
     # PRICOS
     if small_dict.get("pricos"):
-        dest = BASE_DIR / "pricos" / "principalesContrib-PRICOS.xlsx"
-        download_file(small_dict["pricos"], dest)
+        s3_pricos = f"s3://{RAW_BUCKET}/pricos/principalesContrib-PRICOS.xlsx"
+        size_p = s3_object_size(s3_pricos)
+        if size_p > 1024 * 10:
+            log(f"✓ PRICOS ya existe en S3 ({size_p / 1024:.2f} KB). Omitiendo descarga.")
+        else:
+            dest = BASE_DIR / "pricos" / "principalesContrib-PRICOS.xlsx"
+            download_file(small_dict["pricos"], dest)
 
     # SSCO
     if small_dict.get("ssco"):
-        dest = BASE_DIR / "ssco" / "sujesincapacidadOperativa.xlsx"
-        download_file(small_dict["ssco"], dest)
+        s3_ssco = f"s3://{RAW_BUCKET}/ssco/sujesincapacidadOperativa.xlsx"
+        size_s = s3_object_size(s3_ssco)
+        if size_s > 1024 * 10:
+            log(f"✓ SSCO ya existe en S3 ({size_s / 1024:.2f} KB). Omitiendo descarga.")
+        else:
+            dest = BASE_DIR / "ssco" / "sujesincapacidadOperativa.xlsx"
+            download_file(small_dict["ssco"], dest)
 
     # Ingresos Tributarios
     if small_dict.get("ingresos_tributarios"):
-        url = small_dict["ingresos_tributarios"].strip()
-        out_dir = BASE_DIR / "ingresos_tributarios"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        dest_csv = out_dir / "cdrA13_tabular.csv"
-        dest_var_csv = out_dir / "cdrA13_Var_tabular.csv"
-        temp_file = BASE_DIR / "tmp" / "ingresos_tributarios.raw"
-        download_file(url, temp_file)
+        s3_ing = f"s3://{RAW_BUCKET}/ingresos_tributarios/cdrA13_tabular.csv"
+        size_i = s3_object_size(s3_ing)
+        if size_i > 1024 * 10:
+            log(f"✓ Ingresos Tributarios ya existe en S3 ({size_i / 1024:.2f} KB). Omitiendo descarga.")
+        else:
+            url = small_dict["ingresos_tributarios"].strip()
+            out_dir = BASE_DIR / "ingresos_tributarios"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            dest_csv = out_dir / "cdrA13_tabular.csv"
+            dest_var_csv = out_dir / "cdrA13_Var_tabular.csv"
+            temp_file = BASE_DIR / "tmp" / "ingresos_tributarios.raw"
+            download_file(url, temp_file)
 
-        try:
-            # Intentar des-pivoteado estandarizado con ingresos_transformer
-            common_dir = str(
-                Path(__file__).resolve().parent.parent.parent.parent
-                / "src"
-                / "spark"
-                / "common"
-            )
-            if common_dir not in sys.path:
-                sys.path.insert(0, common_dir)
-            from ingresos_transformer import process_both_ingresos
+            try:
+                # Intentar des-pivoteado estandarizado con ingresos_transformer
+                common_dir = str(
+                    Path(__file__).resolve().parent.parent.parent.parent
+                    / "src"
+                    / "spark"
+                    / "common"
+                )
+                if common_dir not in sys.path:
+                    sys.path.insert(0, common_dir)
+                from ingresos_transformer import process_both_ingresos
 
-            df_monto, df_var = process_both_ingresos(str(temp_file))
-            df_monto.to_csv(dest_csv, index=False, encoding="utf-8")
-            df_var.to_csv(dest_var_csv, index=False, encoding="utf-8")
-            log(
-                "✓ Ingresos Tributarios des-pivoteados exitosamente en cdrA13_tabular.csv y cdrA13_Var_tabular.csv"
-            )
-            temp_file.unlink(missing_ok=True)
-        except Exception as err:  # noqa: BLE001
-            log(
-                f"Advertencia: Falló des-pivoteo de Ingresos Tributarios ({err}). Guardando respaldo..."
-            )
-            shutil.move(str(temp_file), str(dest_csv))
-        log(f"✓ Ingresos Tributarios guardados en: {dest_csv}")
+                df_monto, df_var = process_both_ingresos(str(temp_file))
+                df_monto.to_csv(dest_csv, index=False, encoding="utf-8")
+                df_var.to_csv(dest_var_csv, index=False, encoding="utf-8")
+                log(
+                    "✓ Ingresos Tributarios des-pivoteados exitosamente en cdrA13_tabular.csv y cdrA13_Var_tabular.csv"
+                )
+                temp_file.unlink(missing_ok=True)
+            except Exception as err:  # noqa: BLE001
+                log(
+                    f"Advertencia: Falló des-pivoteo de Ingresos Tributarios ({err}). Guardando respaldo..."
+                )
+                shutil.move(str(temp_file), str(dest_csv))
+            log(f"✓ Ingresos Tributarios guardados en: {dest_csv}")
 
     # EPEN
     if small_dict.get("epen"):
-        url = small_dict["epen"].strip()
-        out_dir = BASE_DIR / "epen" / "anio=2025"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_csv = out_dir / "epen.csv"
-        temp_file = BASE_DIR / "tmp" / "epen_download.raw"
-        download_file(url, temp_file)
-
-        # Chequear si es un archivo ZIP
-        if zipfile.is_zipfile(temp_file):
-            log("EPEN detectado como archivo ZIP. Descomprimiendo...")
-            extract_dir = BASE_DIR / "tmp" / "epen_extract"
-            extract_dir.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(temp_file, "r") as z:
-                z.extractall(extract_dir)
-
-            # Buscar archivo de datos principal (el más pesado o de datos)
-            candidates = [
-                f
-                for f in extract_dir.rglob("*")
-                if f.is_file() and not f.name.startswith(".")
-            ]
-            if not candidates:
-                raise FileNotFoundError(
-                    "No se encontraron archivos dentro del ZIP de EPEN"
-                )
-            candidates.sort(key=lambda f: f.stat().st_size, reverse=True)
-            chosen = candidates[0]
-            log(
-                f"Archivo de datos detectado en EPEN: {chosen.name} ({chosen.stat().st_size / (1024 * 1024):.2f} MB)"
-            )
-
-            if chosen.suffix.lower() in [".xlsx", ".xls"]:
-                log("Convirtiendo Excel de EPEN a CSV...")
-                import pandas as pd
-
-                df = pd.read_excel(chosen)
-                df.to_csv(out_csv, index=False, encoding="utf-8")
-            else:
-                shutil.move(str(chosen), str(out_csv))
-
-            shutil.rmtree(extract_dir, ignore_errors=True)
-            temp_file.unlink(missing_ok=True)
+        s3_epen = f"s3://{RAW_BUCKET}/epen/anio=2025/epen.csv"
+        size_e = s3_object_size(s3_epen)
+        if size_e > 1024 * 100:
+            log(f"✓ EPEN ya existe en S3 ({size_e / 1024:.2f} KB). Omitiendo descarga.")
         else:
-            # Si se descargó directo (no ZIP)
-            try:
-                import pandas as pd
+            url = small_dict["epen"].strip()
+            out_dir = BASE_DIR / "epen" / "anio=2025"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_csv = out_dir / "epen.csv"
+            temp_file = BASE_DIR / "tmp" / "epen_download.raw"
+            download_file(url, temp_file)
 
-                df = pd.read_excel(temp_file)
-                log("EPEN detectado como Excel (.xlsx). Convirtiendo a CSV...")
-                df.to_csv(out_csv, index=False, encoding="utf-8")
+            # Chequear si es un archivo ZIP
+            if zipfile.is_zipfile(temp_file):
+                log("EPEN detectado como archivo ZIP. Descomprimiendo...")
+                extract_dir = BASE_DIR / "tmp" / "epen_extract"
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(temp_file, "r") as z:
+                    z.extractall(extract_dir)
+
+                # Buscar archivo de datos principal (el más pesado o de datos)
+                candidates = [
+                    f
+                    for f in extract_dir.rglob("*")
+                    if f.is_file() and not f.name.startswith(".")
+                ]
+                if not candidates:
+                    raise FileNotFoundError(
+                        "No se encontraron archivos dentro del ZIP de EPEN"
+                    )
+                candidates.sort(key=lambda f: f.stat().st_size, reverse=True)
+                chosen = candidates[0]
+                log(
+                    f"Archivo de datos detectado en EPEN: {chosen.name} ({chosen.stat().st_size / (1024 * 1024):.2f} MB)"
+                )
+
+                if chosen.suffix.lower() in [".xlsx", ".xls"]:
+                    log("Convirtiendo Excel de EPEN a CSV...")
+                    import pandas as pd
+
+                    df = pd.read_excel(chosen)
+                    df.to_csv(out_csv, index=False, encoding="utf-8")
+                else:
+                    shutil.move(str(chosen), str(out_csv))
+                shutil.rmtree(extract_dir, ignore_errors=True)
                 temp_file.unlink(missing_ok=True)
-            except Exception:  # noqa: BLE001
-                shutil.move(str(temp_file), str(out_csv))
+            else:
+                # Si se descargó directo (no ZIP)
+                try:
+                    import pandas as pd
 
-        log(f"✓ EPEN guardado en partición: {out_csv}")
+                    df = pd.read_excel(temp_file)
+                    log("EPEN detectado como Excel (.xlsx). Convirtiendo a CSV...")
+                    df.to_csv(out_csv, index=False, encoding="utf-8")
+                    temp_file.unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    shutil.move(str(temp_file), str(out_csv))
+
+            log(f"✓ EPEN guardado en partición: {out_csv}")
 
 
 def upload_to_s3():

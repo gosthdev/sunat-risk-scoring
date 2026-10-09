@@ -10,7 +10,8 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Effect = "Allow"
         Action = [
           "s3:ListBucket",
-          "s3:GetBucketLocation"
+          "s3:GetBucketLocation",
+          "s3:GetBucketTagging"
         ]
         Resource = compact([
           var.artifacts_bucket_arn,
@@ -26,7 +27,14 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          "s3:GetObjectTagging",
+          "s3:PutObjectTagging",
+          "s3:DeleteObjectTagging",
+          "s3:GetObjectVersion",
+          "s3:DeleteObjectVersion",
+          "s3:GetObjectVersionTagging",
+          "s3:PutObjectVersionTagging"
         ]
         Resource = compact(flatten([
           "${var.artifacts_bucket_arn}/*",
@@ -61,24 +69,36 @@ resource "aws_iam_role_policy" "deploy_jobs" {
           "iam:CreateRole",
           "iam:DeleteRole",
           "iam:GetRole",
+          "iam:UpdateRole",
           "iam:TagRole",
           "iam:UntagRole",
+          "iam:ListRoleTags",
+          "iam:ListRolePolicies",
+          "iam:GetRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListInstanceProfilesForRole",
           "iam:CreatePolicy",
           "iam:DeletePolicy",
           "iam:GetPolicy",
           "iam:GetPolicyVersion",
+          "iam:CreatePolicyVersion",
+          "iam:DeletePolicyVersion",
+          "iam:ListPolicyVersions",
           "iam:TagPolicy",
           "iam:UntagPolicy",
-          "iam:AttachRolePolicy",
-          "iam:DetachRolePolicy",
-          "iam:ListAttachedRolePolicies",
+          "iam:ListPolicyTags",
           "iam:CreateInstanceProfile",
           "iam:DeleteInstanceProfile",
           "iam:GetInstanceProfile",
           "iam:AddRoleToInstanceProfile",
           "iam:RemoveRoleFromInstanceProfile",
           "iam:TagInstanceProfile",
-          "iam:UntagInstanceProfile"
+          "iam:UntagInstanceProfile",
+          "iam:ListInstanceProfileTags"
         ]
         Resource = [
           "arn:aws:iam::*:role/sunat-ingestion-ec2-role",
