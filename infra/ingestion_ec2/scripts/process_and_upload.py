@@ -232,7 +232,7 @@ def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path):
                 size_mb = dest_path.stat().st_size / (1024 * 1024)
                 log(f"✓ Excel descargado exitosamente ({size_mb:.2f} MB): {candidate}")
                 return
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log(f"Fallo al intentar {candidate}: {e}")
 
     raise RuntimeError(
