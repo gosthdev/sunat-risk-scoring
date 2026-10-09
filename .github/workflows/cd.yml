@@ -81,8 +81,8 @@ env:
   EMR_APPLICATION_ID: ${{ inputs.emr_application_id != '' && inputs.emr_application_id || vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
   EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
   GLUE_ROLE_ARN: ${{ vars.GLUE_ROLE_ARN || secrets.GLUE_ROLE_ARN || '' }}
-  GLUE_DATABASE: ${{ vars.GLUE_DATABASE || secrets.GLUE_DATABASE || '' }}
-  ATHENA_WORKGROUP: ${{ vars.ATHENA_WORKGROUP || secrets.ATHENA_WORKGROUP || '' }}
+  GLUE_DATABASE: ${{ vars.GLUE_DATABASE || secrets.GLUE_DATABASE || 'sunat_ssco' }}
+  ATHENA_WORKGROUP: ${{ vars.ATHENA_WORKGROUP || secrets.ATHENA_WORKGROUP || 'sunat-ssco' }}
 
 jobs:
   # ============================================================================
@@ -126,7 +126,7 @@ jobs:
   ingest-raw:
     name: Execute EC2 Ephemeral Ingestion
     needs: [check-raw]
-    if: needs.check-raw.outputs.needs_ingestion == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-raw.outputs.needs_ingestion == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -190,12 +190,14 @@ jobs:
             --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
             --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
             --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --silver-bucket "${SILVER_BUCKET}" \
+            --raw-bucket "${RAW_BUCKET}" \
             --force "$FORCE_VAL"
 
   process-small:
     name: Process Small Datasets (Runner)
     needs: [check-small]
-    if: needs.check-small.outputs.needs_small == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-small.outputs.needs_small == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -268,12 +270,14 @@ jobs:
             --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
             --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
             --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --bronze-bucket "${BRONZE_BUCKET}" \
+            --raw-bucket "${RAW_BUCKET}" \
             --force "$FORCE_VAL"
 
   process-bronze:
     name: Process Bronze (EMR Step 1)
     needs: [check-bronze]
-    if: needs.check-bronze.outputs.needs_bronze == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-bronze.outputs.needs_bronze == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -352,12 +356,14 @@ jobs:
             --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
             --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
             --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --silver-bucket "${SILVER_BUCKET}" \
+            --bronze-bucket "${BRONZE_BUCKET}" \
             --force "$FORCE_VAL"
 
   process-silver:
     name: Process Silver (EMR Step 2)
     needs: [check-silver]
-    if: needs.check-silver.outputs.needs_silver == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-silver.outputs.needs_silver == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -436,12 +442,14 @@ jobs:
             --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
             --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
             --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --gold-bucket "${GOLD_BUCKET}" \
+            --silver-bucket "${SILVER_BUCKET}" \
             --force "$FORCE_VAL"
 
   process-gold-ruc:
     name: Process Gold RUC (EMR Step 3)
     needs: [check-gold-ruc]
-    if: needs.check-gold-ruc.outputs.needs_gold_ruc == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-gold-ruc.outputs.needs_gold_ruc == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -521,12 +529,14 @@ jobs:
             --files src/spark/jobs/04_regional_gold.py "src/spark/common/*.py" \
             --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
             --upstream-marker "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --gold-bucket "${GOLD_BUCKET}" \
+            --silver-bucket "${SILVER_BUCKET}" \
             --force "$FORCE_VAL"
 
   process-gold-regional:
     name: Process Gold Regional (EMR Step 4)
     needs: [check-gold-regional]
-    if: needs.check-gold-regional.outputs.needs_gold_regional == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-gold-regional.outputs.needs_gold_regional == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -607,12 +617,13 @@ jobs:
             --files src/spark/jobs/05_scoring_dataset_gold.py "src/spark/common/*.py" \
             --upstream-marker "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
             --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --gold-bucket "${GOLD_BUCKET}" \
             --force "$FORCE_VAL"
 
   process-scoring:
     name: Process Scoring Dataset (EMR Step 5)
     needs: [check-scoring]
-    if: needs.check-scoring.outputs.needs_scoring == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-scoring.outputs.needs_scoring == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -692,12 +703,13 @@ jobs:
             --marker-uri "s3://${ARTIFACTS_BUCKET}/_markers/analytics_complete.json" \
             --files "src/analysis/queries/*.sql" "src/analysis/queries/*.sh" \
             --upstream-marker "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --glue-database "${GLUE_DATABASE}" \
             --force "$FORCE_VAL"
 
   run-analytics:
     name: Execute Glue Crawlers and Athena Analytics
     needs: [check-analytics]
-    if: needs.check-analytics.outputs.needs_analytics == 'true'
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-analytics.outputs.needs_analytics == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -736,3 +748,26 @@ jobs:
             --marker-uri "s3://${ARTIFACTS_BUCKET}/_markers/analytics_complete.json" \
             --files "src/analysis/queries/*.sql" "src/analysis/queries/*.sh" \
             --upstream-marker "s3://${GOLD_BUCKET}/_markers/job05_complete.json"
+
+  # ============================================================================
+  # ETAPA 7: Verificación de Salud e Integridad del Data Lake (Smoke Test)
+  # ============================================================================
+  verify-pipeline:
+    name: Verify Pipeline Health and Data Lake Integrity
+    needs: [check-analytics, run-analytics]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run Pipeline Health Verification
+        run: |
+          bash scripts/verify_pipeline_health.sh
+

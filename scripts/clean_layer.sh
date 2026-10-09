@@ -17,17 +17,41 @@
 
 set -euo pipefail
 
-LAYER="${1:-}"
-if [[ "$LAYER" =~ ^--layer=?(.*)$ ]]; then
-  if [[ "$LAYER" == "--layer" ]]; then
-    LAYER="${2:-}"
-  else
-    LAYER="${LAYER#--layer=}"
-  fi
-fi
+LAYER=""
+FORCE="false"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      FORCE="true"
+      shift 1
+      ;;
+    --force=*)
+      FORCE="${1#--force=}"
+      shift 1
+      ;;
+    --layer=*)
+      LAYER="${1#--layer=}"
+      shift 1
+      ;;
+    --layer)
+      LAYER="$2"
+      shift 2
+      ;;
+    *)
+      if [[ -z "$LAYER" && ! "$1" =~ ^-- ]]; then
+        LAYER="$1"
+        shift 1
+      else
+        echo "WARN: Parámetro desconocido: $1" >&2
+        shift 1
+      fi
+      ;;
+  esac
+done
 
 if [[ -z "${LAYER}" ]]; then
-  echo "Uso: $0 <bronze|silver|gold_ruc|gold_regional|gold_scoring>" >&2
+  echo "Uso: $0 <bronze|silver|gold_ruc|gold_regional|gold_scoring> [--force]" >&2
   exit 1
 fi
 
@@ -123,10 +147,17 @@ case "${LAYER}" in
     ;;
 esac
 
+if [[ "${FORCE}" != "true" ]]; then
+  echo "INFO: Omitiendo borrado previo destructivo para capa '${LAYER}'."
+  echo "INFO: Spark gestionará la sobreescritura de datos de forma no destructiva con .mode('overwrite')."
+  echo "INFO: Si requiere purgar los prefijos físicamente, ejecute con la bandera --force."
+  exit 0
+fi
+
 for path in "${TARGETS[@]}"; do
-  echo "INFO: Eliminando prefijo ${path}..."
+  echo "INFO: Eliminando prefijo ${path} (--force activo)..."
   aws s3 rm "${path}" --recursive 2>/dev/null || true
   echo "✓ Prefijo ${path} limpio."
 done
 
-echo "✓ Limpieza para '${LAYER}' completada exitosamente."
+echo "✓ Limpieza destructiva para '${LAYER}' completada exitosamente."

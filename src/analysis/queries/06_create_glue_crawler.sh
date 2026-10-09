@@ -56,14 +56,14 @@ upsert_crawler() {
 
   if [[ "$zone" == "silver" && -n "${SILVER_BUCKET:-}" ]]; then
     target_path="s3://${SILVER_BUCKET}/"
-    level_cfg=2
+    level_cfg=1
   elif [[ "$zone" == "gold" && -n "${GOLD_BUCKET:-}" ]]; then
     target_path="s3://${GOLD_BUCKET}/"
-    level_cfg=2
+    level_cfg=1
   else
     : "${BUCKET:?Define BUCKET o (SILVER_BUCKET y GOLD_BUCKET)}"
     target_path="s3://${BUCKET}/${zone}/"
-    level_cfg=3
+    level_cfg=2
   fi
 
   local config="{\"Version\":1.0,\"Grouping\":{\"TableLevelConfiguration\":${level_cfg}}}"
@@ -75,14 +75,15 @@ upsert_crawler() {
     --table-prefix "${zone}_"
     --targets "$targets"
     --schema-change-policy "UpdateBehavior=UPDATE_IN_DATABASE,DeleteBehavior=LOG"
+    --recrawl-policy "{\"RecrawlBehavior\":\"CRAWL_EVERYTHING\"}"
     --configuration "$config"
   )
 
   if aws glue get-crawler --name "$name" >/dev/null 2>&1; then
-    echo "Actualizando crawler: $name ($target_path)"
+    echo "Actualizando crawler: $name ($target_path, TableLevelConfiguration=${level_cfg})"
     aws glue update-crawler "${args[@]}"
   else
-    echo "Creando crawler: $name ($target_path)"
+    echo "Creando crawler: $name ($target_path, TableLevelConfiguration=${level_cfg})"
     aws glue create-crawler "${args[@]}"
   fi
 }
@@ -122,3 +123,12 @@ done
 echo
 echo "Tablas en el catálogo ($GLUE_DATABASE):"
 aws glue get-tables --database-name "$GLUE_DATABASE" --query 'TableList[].Name' --output table
+
+table_count=$(aws glue get-tables --database-name "$GLUE_DATABASE" --query 'length(TableList)' --output text 2>/dev/null || echo "0")
+echo "Total de tablas registradas en $GLUE_DATABASE: $table_count"
+
+if [[ -z "$table_count" || "$table_count" == "None" || "$table_count" -lt 1 ]]; then
+  echo "ERROR: Glue crawlers terminaron pero no crearon tablas en la base de datos '$GLUE_DATABASE'!" >&2
+  echo "Verifique que los datos en S3 contengan archivos Parquet válidos." >&2
+  exit 1
+fi

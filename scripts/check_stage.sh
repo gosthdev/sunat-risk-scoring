@@ -26,7 +26,13 @@ STAGE=""
 MARKER_URI=""
 FORCE="false"
 CHECK_RAW_DATA="false"
+DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring}"
 RAW_BUCKET="${RAW_BUCKET:-sunat-risk-scoring-raw}"
+BRONZE_BUCKET="${BRONZE_BUCKET:-sunat-risk-scoring-bronze}"
+SILVER_BUCKET="${SILVER_BUCKET:-sunat-risk-scoring-silver}"
+GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
+ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
+GLUE_DATABASE="${GLUE_DATABASE:-sunat_ssco}"
 FILES=()
 UPSTREAM_MARKERS=()
 
@@ -53,6 +59,30 @@ while [[ $# -gt 0 ]]; do
       ;;
     --raw-bucket)
       RAW_BUCKET="$2"
+      shift 2
+      ;;
+    --bronze-bucket)
+      BRONZE_BUCKET="$2"
+      shift 2
+      ;;
+    --silver-bucket)
+      SILVER_BUCKET="$2"
+      shift 2
+      ;;
+    --gold-bucket)
+      GOLD_BUCKET="$2"
+      shift 2
+      ;;
+    --artifacts-bucket)
+      ARTIFACTS_BUCKET="$2"
+      shift 2
+      ;;
+    --glue-database)
+      GLUE_DATABASE="$2"
+      shift 2
+      ;;
+    --datalake-bucket)
+      DATALAKE_BUCKET="$2"
       shift 2
       ;;
     --upstream-marker)
@@ -82,6 +112,28 @@ emit_result() {
   fi
   echo "${result}"
   exit 0
+}
+
+check_s3_prefix_has_data() {
+  local bucket="$1"
+  local prefix="$2"
+  bucket="${bucket#s3://}"
+  bucket="${bucket%%/*}"
+  prefix="${prefix#/}"
+
+  local first_key
+  first_key=$(aws s3api list-objects-v2 \
+    --bucket "$bucket" \
+    --prefix "$prefix" \
+    --max-items 1 \
+    --query "Contents[0].Key" \
+    --output text 2>/dev/null || true)
+
+  if [[ -n "$first_key" && "$first_key" != "None" ]]; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 # ------------------------------------------------------------------------------
@@ -292,6 +344,103 @@ else:
 fi
 
 # ------------------------------------------------------------------------------
-# 8. Todo coincide: omitir etapa
+# 8. Verificación de presencia física de datos en S3 / Glue
 # ------------------------------------------------------------------------------
-emit_result "false" "Código y dependencias upstream idénticos al último run exitoso"
+IS_SINGLE_BUCKET=0
+if [[ "$RAW_BUCKET" == "$BRONZE_BUCKET" && "$BRONZE_BUCKET" == "$SILVER_BUCKET" && "$SILVER_BUCKET" == "$GOLD_BUCKET" ]]; then
+  IS_SINGLE_BUCKET=1
+fi
+
+get_layer_prefix() {
+  local layer="$1"
+  local subpath="$2"
+  if [[ "$IS_SINGLE_BUCKET" -eq 1 ]]; then
+    echo "${layer}/${subpath}/"
+  else
+    echo "${subpath}/"
+  fi
+}
+
+case "${STAGE}" in
+  bronze|job01)
+    echo "INFO [check_stage:bronze]: Verificando presencia física de datos en Bronze..." >&2
+    p_padron=$(get_layer_prefix "bronze" "padron_ruc")
+    p_ordenes=$(get_layer_prefix "bronze" "ordenes_compra")
+    b_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$BRONZE_BUCKET")
+
+    if ! check_s3_prefix_has_data "$b_target" "$p_padron"; then
+      emit_result "true" "Datos físicos ausentes en Bronze (s3://${b_target}/${p_padron})"
+    fi
+    if ! check_s3_prefix_has_data "$b_target" "$p_ordenes"; then
+      emit_result "true" "Datos físicos ausentes en Bronze (s3://${b_target}/${p_ordenes})"
+    fi
+    ;;
+
+  small|job00)
+    echo "INFO [check_stage:small]: Verificando presencia física de small datasets en Silver..." >&2
+    s_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$SILVER_BUCKET")
+    for tbl in epen ingresos_tributarios pricos ssco; do
+      p_tbl=$(get_layer_prefix "silver" "$tbl")
+      if ! check_s3_prefix_has_data "$s_target" "$p_tbl"; then
+        emit_result "true" "Datos físicos ausentes en Silver (s3://${s_target}/${p_tbl})"
+      fi
+    done
+    ;;
+
+  silver|job02)
+    echo "INFO [check_stage:silver]: Verificando presencia física de datasets de Job 02 en Silver..." >&2
+    s_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$SILVER_BUCKET")
+    p_padron=$(get_layer_prefix "silver" "padron_ruc")
+    p_ordenes=$(get_layer_prefix "silver" "ordenes_compra")
+    if ! check_s3_prefix_has_data "$s_target" "$p_padron"; then
+      emit_result "true" "Datos físicos ausentes en Silver (s3://${s_target}/${p_padron})"
+    fi
+    if ! check_s3_prefix_has_data "$s_target" "$p_ordenes"; then
+      emit_result "true" "Datos físicos ausentes en Silver (s3://${s_target}/${p_ordenes})"
+    fi
+    ;;
+
+  gold_ruc|job03)
+    echo "INFO [check_stage:gold_ruc]: Verificando presencia física en Gold (ruc_features)..." >&2
+    g_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$GOLD_BUCKET")
+    p_ruc=$(get_layer_prefix "gold" "ruc_features")
+    if ! check_s3_prefix_has_data "$g_target" "$p_ruc"; then
+      emit_result "true" "Datos físicos ausentes en Gold (s3://${g_target}/${p_ruc})"
+    fi
+    ;;
+
+  gold_regional|job04)
+    echo "INFO [check_stage:gold_regional]: Verificando presencia física en Gold (regional_summary)..." >&2
+    g_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$GOLD_BUCKET")
+    p_reg=$(get_layer_prefix "gold" "regional_summary")
+    if ! check_s3_prefix_has_data "$g_target" "$p_reg"; then
+      emit_result "true" "Datos físicos ausentes en Gold (s3://${g_target}/${p_reg})"
+    fi
+    ;;
+
+  scoring|gold_scoring|job05)
+    echo "INFO [check_stage:scoring]: Verificando presencia física en Gold (scoring_dataset)..." >&2
+    g_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$GOLD_BUCKET")
+    p_score=$(get_layer_prefix "gold" "scoring_dataset")
+    if ! check_s3_prefix_has_data "$g_target" "$p_score"; then
+      emit_result "true" "Datos físicos ausentes en Gold (s3://${g_target}/${p_score})"
+    fi
+    ;;
+
+  analytics)
+    echo "INFO [check_stage:analytics]: Verificando tablas en catálogo AWS Glue (${GLUE_DATABASE})..." >&2
+    table_count=$(aws glue get-tables --database-name "${GLUE_DATABASE}" --query 'length(TableList)' --output text 2>/dev/null || echo "0")
+    if [[ -z "$table_count" || "$table_count" == "None" || "$table_count" -lt 1 ]]; then
+      table_count_alt=$(aws glue get-tables --database-name "ssco_catalog" --query 'length(TableList)' --output text 2>/dev/null || echo "0")
+      if [[ -z "$table_count_alt" || "$table_count_alt" == "None" || "$table_count_alt" -lt 1 ]]; then
+        emit_result "true" "Catálogo Glue vacío (0 tablas registradas en ${GLUE_DATABASE})"
+      fi
+    fi
+    ;;
+esac
+
+# ------------------------------------------------------------------------------
+# 9. Todo coincide y datos físicos presentes: omitir etapa
+# ------------------------------------------------------------------------------
+emit_result "false" "Código, dependencias y datos físicos íntegros respecto al último run"
+
