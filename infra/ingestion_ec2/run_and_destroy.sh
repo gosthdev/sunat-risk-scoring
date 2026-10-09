@@ -66,12 +66,6 @@ echo "  - Instancia: $INSTANCE_ID"
 echo "  - IP Efímera: $PUBLIC_IP"
 echo "  - Bucket Raw: s3://$RAW_BUCKET"
 
-# Función de limpieza garantizada ante cualquier salida o interrupción
-cleanup() {
-  echo "Ejecutando 'terraform destroy -auto-approve'..."
-  terraform destroy -auto-approve
-  echo -e "\n✓ Verificación: Toda la infraestructura efímera ha sido eliminada."
-}
 
 # 3. Monitoreo del proceso en S3
 echo -e "\n[3/4] Monitoreando progreso de descarga, conversión y subida a S3..."
