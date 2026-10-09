@@ -130,8 +130,8 @@ class TestJob06Dataset(unittest.TestCase):
         # No hay RUC en ambos conjuntos
         self.assertEqual(len(train_rucs.intersection(test_rucs)), 0)
 
-        # En test todos los folds deben ser nulos
-        self.assertEqual(test_df.filter(col("fold").isNotNull()).count(), 0)
+        # En test todos los folds deben ser -1 (PredefinedSplit de scikit-learn)
+        self.assertEqual(test_df.filter(col("fold") == -1).count(), test_df.count())
 
         # En train ningún fold debe ser nulo y debe estar entre 0 y 4
         self.assertEqual(train_df.filter(col("fold").isNull()).count(), 0)
@@ -195,8 +195,8 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertIsInstance(stats["top_ciiu"], list)
         self.assertIsInstance(stats["top_departamentos"], list)
 
-    def test_top_k_desempate_deterministico(self):
-        """Verifica que categorías con conteos empatados se desempaten de forma determinista y alfabética."""
+    def test_categorias_crudas_preservadas(self):
+        """Verifica que las categorías se conserven crudas sin agrupar en OTROS ni DESCONOCIDO (C1 v3/v4)."""
         assert self.spark is not None
         rows = [
             (20100000001, "4659", "ZULIA", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
@@ -236,18 +236,21 @@ class TestJob06Dataset(unittest.TestCase):
             ),
         )
 
-        _, stats = job06.curar_dataset(
-            padron, ssco, pricos, semilla=42, return_stats=True, top_dept_limit=2
-        )
-        # AMAZONAS y ANCASH deben ser los elegidos porque tienen count=1 pero van primero lexicográficamente
-        self.assertEqual(stats["top_departamentos"][:2], ["AMAZONAS", "ANCASH"])
+        curado = job06.curar_dataset(padron, ssco, pricos, semilla=42)
+        depts_en_curado = {r["departamento"] for r in curado.collect()}
 
-    def test_tipo_contribuyente_imputacion_desconocido(self):
-        """Verifica que valores nulos o vacíos en tipo_contribuyente sean imputados a DESCONOCIDO (Contrato C1)."""
+        # Todos los departamentos originales deben preservarse crudos sin ser convertidos a OTROS
+        self.assertIn("ZULIA", depts_en_curado)
+        self.assertIn("AMAZONAS", depts_en_curado)
+        self.assertIn("ANCASH", depts_en_curado)
+        self.assertIn("CUSCO", depts_en_curado)
+
+    def test_tipo_contribuyente_crudo_preservado(self):
+        """Verifica que valores crudos de tipo_contribuyente se preserven sin agrupar (Contrato C1)."""
         assert self.spark is not None
         rows = [
             (20100000001, "4659", "LIMA", None, 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
-            (20100000002, "4659", "LIMA", "  ", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (20100000002, "4659", "LIMA", "SOCIEDAD ANONIMA CERRADA", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
             (
                 20100000003,
                 "4659",
@@ -286,6 +289,7 @@ class TestJob06Dataset(unittest.TestCase):
         curado = job06.curar_dataset(padron, ssco, pricos, semilla=42)
         res = {r["ruc"]: r["tipo_contribuyente"] for r in curado.collect()}
 
-        self.assertEqual(res["20100000001"], "DESCONOCIDO")
-        self.assertEqual(res["20100000002"], "DESCONOCIDO")
+        self.assertIsNone(res["20100000001"])
+        self.assertEqual(res["20100000002"], "SOCIEDAD ANONIMA CERRADA")
         self.assertEqual(res["20100000003"], "SOCIEDAD ANONIMA")
+

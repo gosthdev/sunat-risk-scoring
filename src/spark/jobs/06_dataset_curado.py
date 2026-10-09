@@ -28,7 +28,6 @@ from pyspark.sql.functions import (
     format_string,
     lit,
     row_number,
-    trim,
     when,
 )
 from pyspark.sql.functions import (
@@ -39,7 +38,6 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.window import Window
 from s3_paths import (
-    GOLD_BUCKET,
     GOLD_MODEL_INPUTS,
     GOLD_RUC_FEATURES,
     SILVER_PRICOS,
@@ -141,7 +139,7 @@ def curar_dataset(
         .drop("_rn", "_n_label")
     )
 
-    # 6. Asignar fold (0 a 4) estratificado cíclicamente exclusivamente para filas de train
+    # 6. Asignar fold (0 a 4) estratificado cíclicamente exclusivamente para filas de train, y -1 para test
     w_fold = Window.partitionBy("label").orderBy(
         spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla + 1}_fold")))),
         col("ruc"),
@@ -153,78 +151,15 @@ def curar_dataset(
         .drop("_rn_fold")
     )
     test_part = dataset.filter(col("split") == "test").withColumn(
-        "fold", lit(None).cast("int")
+        "fold", lit(-1).cast("int")
     )
     dataset = train_part.unionByName(test_part)
 
-    # 7. Categorías raras calculadas ESTRICTAMENTE sobre train
-    col_ciiu = (
-        "ciiu_principal"
-        if "ciiu_principal" in dataset.columns
-        else (
-            "actividad_economica_principal"
-            if "actividad_economica_principal" in dataset.columns
-            else None
-        )
-    )
-
-    train_part = train_part.persist()
-
-    top_ciiu_list = []
-    if col_ciiu:
-        top_ciiu_rows = (
-            train_part.filter(col(col_ciiu).isNotNull() & (trim(col(col_ciiu)) != ""))
-            .groupBy(col_ciiu)
-            .count()
-            .orderBy(col("count").desc(), col(col_ciiu).asc())
-            .limit(top_ciiu_limit)
-            .collect()
-        )
-        top_ciiu_list = [r[col_ciiu] for r in top_ciiu_rows]
-
-        dataset = dataset.withColumn(
-            "ciiu_principal",
-            when(col(col_ciiu).isin(top_ciiu_list), col(col_ciiu)).otherwise(
-                lit("OTROS")
-            ),
-        )
-        if col_ciiu != "ciiu_principal":
-            dataset = dataset.drop(col_ciiu)
-
-    top_dept_list = []
-    if "departamento" in dataset.columns:
-        top_dept_rows = (
-            train_part.filter(
-                col("departamento").isNotNull() & (trim(col("departamento")) != "")
-            )
-            .groupBy("departamento")
-            .count()
-            .orderBy(col("count").desc(), col("departamento").asc())
-            .limit(top_dept_limit)
-            .collect()
-        )
-        top_dept_list = [r["departamento"] for r in top_dept_rows]
-
-        dataset = dataset.withColumn(
-            "departamento",
-            when(
-                col("departamento").isin(top_dept_list), col("departamento")
-            ).otherwise(lit("DESCONOCIDO")),
-        )
-
-    if "tipo_contribuyente" in dataset.columns:
-        dataset = dataset.withColumn(
-            "tipo_contribuyente",
-            when(
-                col("tipo_contribuyente").isNull()
-                | (trim(col("tipo_contribuyente")) == ""),
-                lit("DESCONOCIDO"),
-            ).otherwise(col("tipo_contribuyente")),
-        )
-
+    # 7. CAMBIO v3/v4 (Contrato C1): Las columnas categóricas se dejan CRUDAS sin agrupar.
+    # El agrupamiento de categorías raras se delega al Pipeline de scikit-learn (OneHotEncoder).
     stats = {
-        "top_ciiu": top_ciiu_list,
-        "top_departamentos": top_dept_list,
+        "top_ciiu": [],
+        "top_departamentos": [],
     }
 
     if return_stats:
@@ -281,8 +216,6 @@ def generar_reporte_curado(dataset_df, dataset_version="v1"):
 
 
 def main():
-    from datetime import datetime, timezone
-
     dataset_version = os.environ.get("DATASET_VERSION", "v1")
     mes_padron = "202506" if dataset_version == "v1" else "202512"
     semilla = int(os.environ.get("SEMILLA", str(SEMILLA_DEFAULT)))
@@ -296,7 +229,7 @@ def main():
         ssco = spark.read.parquet(SILVER_SSCO)
         pricos = spark.read.parquet(SILVER_PRICOS)
 
-        dataset, stats = curar_dataset(
+        dataset, _stats = curar_dataset(
             padron_features_df=padron_features,
             ssco_df=ssco,
             pricos_df=pricos,
@@ -316,33 +249,6 @@ def main():
         reporte = generar_reporte_curado(dataset, dataset_version=dataset_version)
         print("[06_dataset_curado] Reporte de Curado e Invariantes:")
         print(json.dumps(reporte, indent=2))
-
-        prep_data = {
-            "top_ciiu": stats["top_ciiu"],
-            "top_departamentos": stats["top_departamentos"],
-            "dataset_version": dataset_version,
-            "fecha": datetime.now(timezone.utc).isoformat(),
-        }
-
-        # Guardar preprocessing_stats preliminar para reproducibilidad
-        try:
-            import boto3  # type: ignore[import-not-found,import-untyped]
-
-            s3 = boto3.client("s3")
-            prefix = GOLD_MODEL_INPUTS.replace(f"s3://{GOLD_BUCKET}/", "").strip("/")
-            s3.put_object(
-                Bucket=GOLD_BUCKET,
-                Key=f"{prefix}/dataset_version={dataset_version}/preprocessing_stats.json",
-                Body=json.dumps(prep_data, indent=2),
-            )
-        except Exception:  # noqa: BLE001, S110
-            pass
-
-        local_art = f"/tmp/sunat_model_artifacts/dataset_version={dataset_version}"
-        os.makedirs(local_art, exist_ok=True)
-        with open(f"{local_art}/preprocessing_stats.json", "w") as f:
-            json.dump(prep_data, f, indent=2)
-
     finally:
         spark.stop()
 
