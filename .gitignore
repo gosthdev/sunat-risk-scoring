@@ -29,6 +29,9 @@ data/raw/*
 data/processed/*
 data/silver/*
 data/artifacts/*
+data/input/*
+data/output/*
+data/model/*
 *.csv
 *.parquet
 *.json.gz
@@ -37,11 +40,14 @@ data/artifacts/*
 common.zip
 
 # ── Models ────────────────────────────────────────────────────
-models/*.pkl
-models/*.joblib
-models/*.h5
-models/*.pt
-models/*.onnx
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.onnx
+*.tar.gz
+model.tar.gz
+models/
 
 # ── AWS ───────────────────────────────────────────────────────
 .aws/
@@ -80,6 +86,15 @@ spark-warehouse/
 .DS_Store
 Thumbs.db
 
+# ── Performance Experiments & Benchmarks ──────────────────────
+perf/
+tests/perf/
+infra/perf/
+**/perf/
+
 # ── Local Scratch & Agent ─────────────────────────────────────
 .antigravity/
-verificar_ssco.py
+verificar_*.py
+scratch/
+tmp/
+temp/
