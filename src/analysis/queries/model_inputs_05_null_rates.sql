@@ -18,18 +18,16 @@ SELECT
     ROUND(100.0 * COUNT(CASE WHEN split IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_split,
 
     -- Features del Padrón RUC
-    ROUND(100.0 * COUNT(CASE WHEN estado     IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_estado,
-    ROUND(100.0 * COUNT(CASE WHEN condicion  IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_condicion,
-    ROUND(100.0 * COUNT(CASE WHEN nro_trab   IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_nro_trab,
-    ROUND(100.0 * COUNT(CASE WHEN departamento IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_departamento,
-    ROUND(100.0 * COUNT(CASE WHEN ciiu_principal IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_ciiu_principal,
-    ROUND(100.0 * COUNT(CASE WHEN tipo_facturacion IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_tipo_facturacion,
-    ROUND(100.0 * COUNT(CASE WHEN comercio_exterior IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_comercio_exterior,
+    ROUND(100.0 * COUNT(CASE WHEN estado            IS NULL AND Estado IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_estado,
+    ROUND(100.0 * COUNT(CASE WHEN condicion         IS NULL AND Condicion IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_condicion,
+    ROUND(100.0 * COUNT(CASE WHEN nro_trabajadores  IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_nro_trabajadores,
+    ROUND(100.0 * COUNT(CASE WHEN departamento      IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_departamento,
+    ROUND(100.0 * COUNT(CASE WHEN ciiu_principal    IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_ciiu_principal,
+    ROUND(100.0 * COUNT(CASE WHEN sin_trabajadores  IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_sin_trabajadores,
 
     -- Features de Órdenes de Compra (nulos esperados para RUC sin contratos)
-    ROUND(100.0 * COUNT(CASE WHEN cantidad_contratos_estado IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_cantidad_contratos,
-    ROUND(100.0 * COUNT(CASE WHEN monto_total_contratado_estado IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_monto_contratado,
-    ROUND(100.0 * COUNT(CASE WHEN antiguedad_contratacion_estado_dias IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_antiguedad
+    ROUND(100.0 * COUNT(CASE WHEN n_ordenes         IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_n_ordenes,
+    ROUND(100.0 * COUNT(CASE WHEN monto_total_soles IS NULL THEN 1 END) / COUNT(*), 2) AS pct_null_monto_total_soles
 
 
 FROM sunat_ssco.model_inputs
