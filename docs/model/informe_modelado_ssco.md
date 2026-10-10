@@ -1,5 +1,5 @@
 # Documento Técnico Académico: Secciones 4.2.1 – 4.2.3
-## Proyecto de Big Data: Detección de Sujetos sin Capacidad Operativa (SSCO)
+## Proyecto de Big Data y Machine Learning: Detección de Sujetos sin Capacidad Operativa (SSCO)
 ### Autor: Desarrollador A (Ingeniería de Datos y Modelado Predictivo)
 ### Formato y Estilo: Citas en APA 7.ª edición
 
@@ -10,7 +10,7 @@
 ### A. Grano y Formulación del Problema
 El objetivo central del sistema predictivo es mitigar el fraude tributario asociado a empresas de fachada o instrumentales que emiten comprobantes de pago falsos sin contar con infraestructura económica real, clasificadas bajo el régimen legal peruano como **Sujetos sin Capacidad Operativa (SSCO)** (Decreto Legislativo N.º 1532, 2022).
 
-Para modelar este fenómeno analíticamente en una arquitectura Big Data (PySpark MLlib), se define un problema de **aprendizaje supervisado de clasificación binaria y ordenamiento de riesgo (ranking)** con un grano estricto de:
+Para modelar este fenómeno analíticamente en una arquitectura de Big Data y Machine Learning (PySpark en EMR para curado y scikit-learn en Amazon SageMaker para modelado), se define un problema de **aprendizaje supervisado de clasificación binaria y ordenamiento de riesgo (ranking)** con un grano estricto de:
 $$\text{Grano} = 1 \text{ fila por cada RUC único (Registro Único de Contribuyentes)}$$
 
 El modelo no busca dictar sentencias administrativas irrevocables, sino generar un puntaje de propensión continuo $S_i \in [0, 1]$ y un ranking de riesgo ordinal descendente $\text{rank}_i \in \{1, 2, \dots, N\}$ para priorizar las acciones de fiscalización y auditoría de campo de la administración tributaria dentro de su restricción presupuestaria y operativa (Hand, 2009).
@@ -41,22 +41,22 @@ Las variables se agrupan en cuatro dimensiones operativas fundamentales: capacid
 
 | Variable | Tipo de Dato | Fuente Primaria | Ventana Temporal | Nulos y Tratamiento | Riesgo de Fuga |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `nro_trabajadores` | Numérica | Padrón RUC | Jun-2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
+| `nro_trabajadores` | Numérica | Padrón RUC | Jun-2025 | Imputación mediana + bandera `sin_trabajadores` | Bajo |
 | `sin_trabajadores` | Binaria (0/1) | Padrón RUC | Jun-2025 | Cero (ausencia de personal) | Bajo |
 | `tipo_contribuyente` | Categórica | Padrón RUC | Jun-2025 | Imputa `"DESCONOCIDO"` | Bajo |
-| `departamento` | Categórica | Padrón RUC | Jun-2025 | Top-25 en train / `"DESCONOCIDO"` | Bajo |
-| `ciiu_principal` | Categórica | Padrón RUC | Jun-2025 | Top-30 en train / `"OTROS"` | Bajo |
+| `departamento` | Categórica | Padrón RUC | Jun-2025 | OHE top-30 en train / `"DESCONOCIDO"` | Bajo |
+| `ciiu_principal` | Categórica | Padrón RUC | Jun-2025 | OHE top-30 en train / infrecuentes | Bajo |
 | `n_actividades` | Numérica | Padrón RUC | Jun-2025 | Valor entero $\ge 1$ | Bajo |
 | `contrata_con_estado` | Binaria (0/1) | SEACE | Ene–Jun 2025 | Cero si no registra compras | Bajo |
-| `n_ordenes` | Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
-| `monto_total_soles` | Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
-| `monto_mediano_soles`| Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
-| `monto_maximo_soles` | Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
-| `n_entidades_distintas`| Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
-| `pct_monto_en_entidad_principal` | Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
+| `n_ordenes` | Numérica | SEACE | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
+| `monto_total_soles` | Numérica | SEACE | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
+| `monto_mediano_soles`| Numérica | SEACE | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
+| `monto_maximo_soles` | Numérica | SEACE | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
+| `n_entidades_distintas`| Numérica | SEACE | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
+| `pct_monto_en_entidad_principal` | Numérica | SEACE | Ene–Jun 2025 | Imputación mediana | Bajo |
 | `pct_ordenes_anuladas`| Numérica | SEACE | Ene–Jun 2025 | Cero si no contrata | Bajo |
-| `antiguedad_contratacion_estado_dias` | Numérica | SEACE | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
-| `monto_por_trabajador`| Numérica | Calculada | Ene–Jun 2025 | Imputación mediana + bandera `_es_nulo` | Bajo |
+| `antiguedad_contratacion_estado_dias` | Numérica | SEACE | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
+| `monto_por_trabajador`| Numérica | Calculada | Ene–Jun 2025 | Log1p + Imputación mediana | Bajo |
 | `informalidad_epen_departamento` | Numérica | INEI EPEN | Encuesta 2025 | Mediana regional | Bajo |
 | `Estado` | Categórica | Padrón RUC | Jun-2025 | Imputa `"DESCONOCIDO"` | **ALTO (Solo V1)** |
 | `Condicion` | Categórica | Padrón RUC | Jun-2025 | Imputa `"DESCONOCIDO"` | **ALTO (Solo V1)** |
@@ -73,76 +73,89 @@ En el corte de junio 2025 sobre el padrón depurado sin PRICOS, la cantidad de p
 
 ## 4.2.3 Modelado
 
-### A. Arquitectura del Pipeline en Apache Spark MLlib
-Para asegurar reproducibilidad estricta y prevenir la fuga de train hacia test, todo el preprocesamiento y entrenamiento se encapsula en un único objeto `pyspark.ml.Pipeline`.
+### A. Justificación de la Migración a Amazon SageMaker y scikit-learn (Decisión D5)
+En la arquitectura inicial del proyecto se contempló el uso de Apache Spark MLlib (Job 07) para el entrenamiento de los modelos predictivos. Sin embargo, tras consolidar y curar las características a grano contribuyente (1 fila por RUC, excluyendo PRICOS) en el Step 06 (`model_inputs`), el volumen de datos resultante sobre el padrón activo comprende aproximadamente 140,000 registros y 18 covariables primarias. Este volumen se almacena en Apache Parquet particionado con un peso total de apenas decenas de megabytes (~20 a 50 MB), un tamaño tabular que cabe holgadamente en la memoria RAM de una única instancia de cómputo.
+
+La ejecución de algoritmos lineales y basados en árboles en un clúster distribuido de Spark para datasets de esta escala tabular introduce penalizaciones técnicas y operativas sustanciales:
+1. **Sobrecarga de Red y Serialización (*Overhead* innecesario):** La coordinación distribuida entre nodos ejecutores (Driver-Executor RPC, gestión de micro-particiones y serialización de objetos JVM/PySpark) resulta órdenes de magnitud más lenta y costosa que el cálculo in-memory vectorizado en CPU mediante bibliotecas nativas de C/Cython.
+2. **Limitaciones en Pipelines Modernos:** Spark MLlib carece de soporte nativo flexible para técnicas estándar de preprocesamiento, tales como `OneHotEncoder(max_categories=30, handle_unknown="infrequent_if_exist")`, compresión logarítmica de distribuciones sesgadas (`Log1pTransformer`) combinada con pipelines heterogéneos (`ColumnTransformer`), y manejo directo de particiones predefinidas (`PredefinedSplit`).
+3. **Eficiencia de Costos y Agilidad Operativa:** Un trabajo de entrenamiento en AWS SageMaker (`ml.m5.xlarge`) con imagen oficial de scikit-learn ejecuta la búsqueda de hiperparámetros con 5 folds en menos de 25 segundos a un costo marginal inferior a $0.05 USD, frente a los minutos de provisión y el elevado costo por hora de un clúster EMR completo.
+
+Por tales motivos, mediante la **Decisión Arquitectural D5**, se eliminó el Job 07 de Spark MLlib y se migró todo el pipeline de modelado a **scikit-learn en Amazon SageMaker** (`src/models/train.py`), garantizando determinismo matemático, trazabilidad de hiperparámetros y total reproducibilidad.
+
+### B. Arquitectura del Pipeline en scikit-learn
+Para asegurar reproducibilidad estricta y prevenir cualquier fuga de información desde el conjunto de prueba (`test`) hacia el de entrenamiento (`train`), todo el flujo de transformación y estimación se encapsula en un pipeline unificado de scikit-learn orquestado mediante `ColumnTransformer`:
 
 ```
                     ┌─────────────────────────────────────────────────────┐
-                    │               model_inputs (Split: Train)           │
+                    │            model_inputs (Split: Train)              │
+                    │               (Grano: 1 fila por RUC)               │
                     └──────────────────────────┬──────────────────────────┘
                                                │
                                                ▼
                     ┌─────────────────────────────────────────────────────┐
-                    │     SQLTransformer: Banderas de Nulo (_es_nulo)     │
+                    │       ColumnTransformer (Preprocesamiento)          │
+                    └──────────────┬───────────────────────┬──────────────┘
+                                   │                       │
+           [Variables Numéricas]   │                       │   [Variables Categóricas]
+                                   ▼                       ▼
+         ┌──────────────────────────────────┐    ┌──────────────────────────────────┐
+         │        Log1pTransformer()        │    │         SimpleImputer()          │
+         │  (Compresión de sesgo monetario) │    │   (fill_value="DESCONOCIDO")     │
+         └─────────────────┬────────────────┘    └─────────────────┬────────────────┘
+                           │                                       │
+                           ▼                                       ▼
+         ┌──────────────────────────────────┐    ┌──────────────────────────────────┐
+         │         SimpleImputer()          │    │         OneHotEncoder()          │
+         │       (strategy="median")        │    │      (max_categories=30,         │
+         └─────────────────┬────────────────┘    │ handle_unknown="infrequent_... ) │
+                           │                     └─────────────────┬────────────────┘
+                           ▼                                       │
+         ┌──────────────────────────────────┐                      │
+         │    StandardScaler() (Solo LR)    │                      │
+         │    (Centrado y varianza unitaria)│                      │
+         └─────────────────┬────────────────┘                      │
+                           │                                       │
+                           └───────────────────┬───────────────────┘
+                                               │
+                                               ▼
+                    ┌─────────────────────────────────────────────────────┐
+                    │           Features Transformadas Concatenadas       │
                     └──────────────────────────┬──────────────────────────┘
                                                │
                                                ▼
                     ┌─────────────────────────────────────────────────────┐
-                    │     Imputer: Medianas de Train (Sin fuga a Test)    │
-                    └──────────────────────────┬──────────────────────────┘
-                                               │
-                                               ▼
-                    ┌─────────────────────────────────────────────────────┐
-                    │         StringIndexer (handleInvalid="keep")        │
-                    └──────────────────────────┬──────────────────────────┘
-                                               │
-                    ┌──────────────────────────┴──────────────────────────┐
-                    ▼ (Si Modelo == LR)                                   ▼ (Si Modelo == DT)
-       ┌─────────────────────────┐                           ┌─────────────────────────┐
-       │     OneHotEncoder       │                           │   (Pasa índices directos)│
-       │    (dropLast=True)      │                           │                         │
-       └────────────┬────────────┘                           └────────────┬────────────┘
-                    │                                                     │
-                    └──────────────────────────┬──────────────────────────┘
-                                               │
-                                               ▼
-                    ┌─────────────────────────────────────────────────────┐
-                    │        VectorAssembler (features unificadas)        │
-                    └──────────────────────────┬──────────────────────────┘
-                                               │
-                                               ▼
-                    ┌─────────────────────────────────────────────────────┐
-                    │   Estimator: LogisticRegression / DecisionTree      │
-                    │   (Ponderado por class_weight = N_neg / N_pos)      │
+                    │    Estimator: LogisticRegression / DecisionTree     │
+                    │     (class_weight="balanced" si usa_pesos="si")     │
                     └─────────────────────────────────────────────────────┘
 ```
 
-> **Consideración Crítica sobre Estandarización:** Se omitió conscientemente el uso de `StandardScaler` previo a `LogisticRegression`. La implementación de `LogisticRegression` en Spark MLlib ejecuta internamente estandarización sobre la matriz de covariables en espacio distribuido; agregar un transformer explícito provocaría distorsión cuadrática en los coeficientes finales.
+> **Justificación del Uso de StandardScaler en LogisticRegression:** En scikit-learn, la función de costo regularizada (penalización L2) evalúa la suma cuadrática de los coeficientes $\sum \beta_j^2$. Si las variables no están estandarizadas, aquellas con escalas numéricas astronómicas (e.g. `monto_total_soles`) recibirían una penalización artificialmente desproporcionada respecto a ratios o conteos. Por consiguiente, el pipeline de scikit-learn incorpora `StandardScaler()` exclusivamente previo a `LogisticRegression`, garantizando equidad en la penalización y comparabilidad directa en la extracción de coeficientes de explicabilidad. Para el `DecisionTreeClassifier` se prescinde del escalador, pues los árboles de decisión son estrictamente invariantes ante transformaciones monótonas de las variables.
 
-### B. Tratamiento del Desbalance: Pesos de Clase vs. Algoritmos de Resampling
-En escenarios distribuidos de Big Data con alta dimensionalidad, se optó por **pesos de clase inversos a la frecuencia** en lugar de técnicas de sobremuestreo sintético como SMOTE (Chawla et al., 2002):
-$$w_{y=1} = \frac{N_{\text{neg}}}{N_{\text{pos}}} \approx 180 - 200, \quad w_{y=0} = 1.0$$
-- **Justificación:** SMOTE en clústeres Spark requiere librerías externas no nativas que elevan drásticamente la latencia de red al calcular k-vecinos más cercanos distribuidos. Además, generar entidades fantasma sintéticas en espacios categóricos de alta cardinalidad (CIIU y departamentos) crea combinaciones corporativas físicamente irreales.
-- Los pesos de clase se aplican **exclusivamente al optimizador de entrenamiento (`weightCol`)** y **nunca al evaluador de validación cruzada**, asegurando que el cálculo de métricas de calidad permanezca inalterado sobre la distribución real de la población.
+### C. Tratamiento del Desbalance: Pesos de Clase vs. Algoritmos de Resampling
+En escenarios con prevalencia ínfima ($\pi < 0.55\%$), se adoptó **pesos de clase inversos a la frecuencia** (`class_weight='balanced'`) en lugar de sobremuestreo sintético (SMOTE; Chawla et al., 2002):
+$$w_{y=1} = \frac{N_{\text{total}}}{2 \cdot N_{\text{pos}}} \approx 90 - 100, \quad w_{y=0} = \frac{N_{\text{total}}}{2 \cdot N_{\text{neg}}} \approx 0.5$$
+- **Justificación Metodológica:** Técnicas como SMOTE sintetizan instancias artificiales interpolando entre k-vecinos más cercanos. En espacios de alta dimensionalidad con atributos categóricos (CIIU, departamento, tipo de contribuyente), la interpolación sintética genera entidades fantasma con combinaciones económicas irreales e inexistentes en el ecosistema tributario nacional.
+- Los pesos de clase se aplican **exclusivamente a la función de pérdida del estimador durante el entrenamiento** y nunca alteran las probabilidades a posteriori ni el cálculo del ranking, preservando intacta la distribución poblacional real sobre el evaluador de métricas.
 
-### C. Esquema de Validación Cruzada: 5 Folds Estratificados por RUC
-Se descarta cualquier partición aleatoria ingenua. La partición de datos implementa:
-1. **Partición 80% Train / 20% Test:** Conducida por un hash determinista con semilla fija ($42$). El conjunto de test permanece estrictamente bajo llave (*hold-out*) y jamás interviene en la selección de hiperparámetros.
-2. **Validación Cruzada de 5 Folds (`foldCol`):** Dentro del conjunto de entrenamiento, se asigna el fold ($0$ a $4$) de forma estratificada por etiqueta y particionada por RUC. Se garantiza que cada fold posea al menos 20 ejemplos positivos de SSCO, evitando la colapsabilidad del optimizador L-BFGS.
+### D. Esquema de Validación Cruzada: PredefinedSplit sobre 5 Folds Estratificados por RUC
+Se descarta cualquier partición aleatoria ingenua. La estrategia de validación se fundamenta en:
+1. **Partición 80% Train / 20% Test:** Conducida por un hash determinista con semilla fija ($42$) en el Step 06. El conjunto de prueba (`test`) permanece estrictamente bajo llave (*hold-out*, identificado con `fold = -1`) y jamás interviene en la selección de hiperparámetros ni en el ajuste de transformadores.
+2. **Validación Cruzada con PredefinedSplit:** Dentro del subconjunto `train`, se emplean los 5 folds estratificados ($0$ a $4$) precalculados de manera reproducible en el pipeline de datos curados. `GridSearchCV` se parametriza con `PredefinedSplit(test_fold=folds_train)`, garantizando que exactamente las mismas particiones evalúen cada combinación de hiperparámetros sin regeneración estocástica de particiones en memoria.
 
-### D. Métrica de Optimización: PR-AUC frente a ROC-AUC
+### E. Métrica de Optimización: PR-AUC (Average Precision) frente a ROC-AUC
 Siguiendo las demostraciones de Saito y Rehmsmeier (2015), en contextos de prevalencia ínfima ($\pi < 1\%$), el área bajo la curva ROC (**ROC-AUC**) es engañosamente optimista debido a la enorme masa de verdaderos negativos que comprime la tasa de falsos positivos ($\text{FPR} = \frac{\text{FP}}{\text{FP} + \text{TN}} \approx 0$).
 
-Por tanto, el `CrossValidator` de Spark MLlib se parametriza formalmente con:
-$$\text{metricName} = \text{"areaUnderPR"} \quad (\text{PR-AUC / Average Precision})$$
-El área bajo la curva Precision-Recall concentra la penalización en los falsos positivos y falsos negativos directamente en relación con la clase minoritaria de interés.
+Por tanto, el `GridSearchCV` de scikit-learn se parametriza formalmente con:
+$$\text{scoring} = \text{"average_precision"} \quad (\text{PR-AUC / Average Precision})$$
+El área bajo la curva Precision-Recall concentra la penalización en los falsos positivos y falsos negativos directamente en relación con la clase minoritaria de interés, garantizando la selección de modelos con máxima precisión en los percentiles superiores de scoring.
 
-### E. Matriz Completa de Experimentos y Criterio de Selección
+### F. Matriz Completa de Experimentos y Criterio de Selección
 
 | ID Corrida | Algoritmo | Variante Features | Pesos de Clase | Dataset | Prioridad | Propósito Metodológico |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **E1** | LR (L2/ElasticNet) | **V2** | Sí | v1 | **MUST** | Candidato a modelo oficial (Lineal, interpretable, sin fuga). |
-| **E2** | DT (Árbol Prof. 3–6) | **V2** | Sí | v1 | **MUST** | Candidato a modelo oficial (No lineal, reglas de negocio explícitas). |
+| **E1** | LR (L2, $C \in [0.01, 10.0]$) | **V2** | Sí | v1 | **MUST** | Candidato a modelo oficial (Lineal, interpretable, sin fuga). |
+| **E2** | DT (Prof. 3–6, Leaf 50–200) | **V2** | Sí | v1 | **MUST** | Candidato a modelo oficial (No lineal, reglas de negocio explícitas). |
 | **E3** | LR | **V1** | Sí | v1 | **MUST** | Benchmark techo superior (evaluación del sesgo de `Estado`/`Condicion`). |
 | **E4** | DT | **V1** | Sí | v1 | **MUST** | Benchmark techo superior no lineal. |
 | **E5** | LR | **V2** | No | v1 | **MUST** | Control de ablación para validar impacto del reponderamiento. |
