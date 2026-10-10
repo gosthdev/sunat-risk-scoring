@@ -15,9 +15,9 @@ resource "aws_iam_role_policy" "s3_access" {
         Resource = [var.gold_bucket_arn]
       },
       {
-        Sid      = "ReadModelInputs"
-        Effect   = "Allow"
-        Action   = [
+        Sid    = "ReadModelInputs"
+        Effect = "Allow"
+        Action = [
           "s3:GetObject",
           "s3:GetObjectVersion"
         ]
