@@ -54,6 +54,10 @@ class TestSparkSessionFactory(unittest.TestCase):
         self.assertEqual(
             applied_configs.get("spark.sql.avro.datetimeRebaseModeInRead"), "CORRECTED"
         )
+        self.assertEqual(
+            applied_configs.get("spark.sql.parquet.enableVectorizedReader"), "false"
+        )
+        self.assertEqual(applied_configs.get("spark.sql.parquet.mergeSchema"), "true")
 
 
 if __name__ == "__main__":
