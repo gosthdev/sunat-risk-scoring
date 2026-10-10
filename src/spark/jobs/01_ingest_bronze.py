@@ -175,8 +175,7 @@ def main(argv=None):
         elapsed = time.perf_counter() - start
         # Línea fácil de grepear en los logs del driver (stdout).
         print(
-            f"BENCHMARK_RESULT mode={args.partition_mode} "
-            f"elapsed_seconds={elapsed:.2f}"
+            f"BENCHMARK_RESULT mode={args.partition_mode} elapsed_seconds={elapsed:.2f}"
         )
         spark.stop()
 

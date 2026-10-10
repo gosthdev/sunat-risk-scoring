@@ -38,7 +38,7 @@ import io
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 DEFAULT_APPLICATION_NAME = "sunat-ssco-spark"
 DEFAULT_NAME_PREFIX = "sunat-ssco-"
@@ -62,7 +62,7 @@ FIELDS = [
 
 
 def _iso(dt):
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if dt else ""
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if dt else ""
 
 
 def _seconds(start, end):
@@ -219,7 +219,7 @@ def main(argv=None):
     if args.job_run_id:
         job_run_ids = args.job_run_id
     else:
-        since = datetime.now(timezone.utc) - timedelta(hours=args.since_hours)
+        since = datetime.now(UTC) - timedelta(hours=args.since_hours)
         job_run_ids = list_job_run_ids(client, application_id, args.name_prefix, since)
 
     if not job_run_ids:

@@ -1,6 +1,6 @@
 import importlib.util
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 _SCRIPT = (
@@ -14,7 +14,7 @@ assert _spec is not None and _spec.loader is not None
 fem = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fem)
 
-T0 = datetime(2026, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 10, 8, 12, 0, 0, tzinfo=UTC)
 
 
 def _job_run(**overrides):
