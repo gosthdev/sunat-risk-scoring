@@ -7,9 +7,8 @@ Implementa:
   - Unión del label oficial de SSCO (D1: 1 si está en lista, 0 si no).
   - Normalización de clave 'ruc' a string de 11 caracteres.
   - Split determinista y estratificado 80/20 (train/test) con semilla 42.
-  - Asignación de 5 folds (0 a 4) estratificados exclusivamente en train.
-  - Agrupación de categorías raras (top 30 CIIU, top 25 departamentos)
-    calculadas ESTRICTAMENTE sobre train para evitar fuga.
+  - Asignación de 5 folds (0 a 4) estratificados en train, y -1 en test (PredefinedSplit).
+  - Preservación de categorías crudas sin agrupar, delegando OHE a scikit-learn.
   - Salida hacia gold/model_inputs/dataset_version=<v>/ respetando Contrato C1.
 
 Uso: spark-submit --py-files common.zip 06_dataset_curado.py
