@@ -28,7 +28,7 @@ resource "aws_iam_role_policy" "s3_access" {
         Resource = ["${var.raw_bucket_arn}/*"]
       },
       {
-        Sid    = "ReadWriteLake"
+        Sid    = "ReadWriteBronzeSilver"
         Effect = "Allow"
         Action = [
           "s3:GetObject",
@@ -39,8 +39,34 @@ resource "aws_iam_role_policy" "s3_access" {
         ]
         Resource = [
           "${var.bronze_bucket_arn}/*",
-          "${var.silver_bucket_arn}/*",
+          "${var.silver_bucket_arn}/*"
+        ]
+      },
+      {
+        Sid    = "ReadGold"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = [
           "${var.gold_bucket_arn}/*"
+        ]
+      },
+      {
+        Sid    = "WriteGoldAllowedPrefixes"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts"
+        ]
+        Resource = [
+          "${var.gold_bucket_arn}/gold/ruc_features/*",
+          "${var.gold_bucket_arn}/gold/regional_summary/*",
+          "${var.gold_bucket_arn}/gold/scoring_dataset/*",
+          "${var.gold_bucket_arn}/gold/model_inputs/*"
         ]
       },
       {

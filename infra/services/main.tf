@@ -30,6 +30,12 @@ module "iam_emr_execution_role" {
   artifacts_bucket_arn = data.aws_s3_bucket.artifacts.arn
 }
 
+module "iam_sagemaker_execution_role" {
+  source          = "../modules/security/iam_sagemaker_execution_role"
+  role_name       = "sunat-ssco-sagemaker-execution-role"
+  gold_bucket_arn = data.aws_s3_bucket.gold.arn
+}
+
 module "iam_glue_crawler_role" {
   source            = "../modules/security/iam_glue_crawler_role"
   role_name         = "sunat-ssco-glue-crawler-role"

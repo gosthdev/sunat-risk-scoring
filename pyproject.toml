@@ -6,9 +6,19 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = [
     "awswrangler",
+    "boto3",
     "openpyxl",
+    "smart_open",
+    "smart_open.*",
+    "joblib",
+    "joblib.*",
+    "sklearn",
+    "sklearn.*",
+    "explainability",
+    "export_outputs",
 ]
 ignore_missing_imports = true
+
 
 [tool.pytest.ini_options]
 pythonpath = [
