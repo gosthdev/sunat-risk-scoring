@@ -42,8 +42,8 @@ except ImportError:
         extraer_reglas_dt,
         obtener_nombres_features,
     )
-    from export_outputs import (
-        exportar_predicciones_y_run_record,  # type: ignore[no-redef]
+    from export_outputs import (  # type: ignore[no-redef]
+        exportar_predicciones_y_run_record,
     )
 
 

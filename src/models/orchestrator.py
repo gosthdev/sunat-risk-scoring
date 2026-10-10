@@ -26,8 +26,8 @@ try:
     from src.models.launch_manual import lanzar_training_job_manual
     from src.models.train import main as train_main
 except ImportError:
-    from launch_manual import (
-        lanzar_training_job_manual,  # type: ignore[import-not-found,no-redef]
+    from launch_manual import (  # type: ignore[import-not-found,no-redef]
+        lanzar_training_job_manual,
     )
     from train import main as train_main  # type: ignore[import-not-found,no-redef]
 
