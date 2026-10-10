@@ -73,8 +73,8 @@ def cargar_run_records(
     else:
         archivos = sorted(glob.glob(ruta_o_patron, recursive=True))
 
-    records_validos = []
-    registros_error = []
+    records_validos: list[dict[str, Any]] = []
+    registros_error: list[dict[str, Any]] = []
 
     for archivo in archivos:
         try:
@@ -86,7 +86,7 @@ def cargar_run_records(
                     )
                     continue
                 data = json.loads(line)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             registros_error.append(
                 {"archivo": archivo, "error": f"Error al leer JSON: {e!s}"}
             )
@@ -123,7 +123,7 @@ def verificar_completitud_matriz(
     faltantes = [c for c in corridas_esperadas if c not in encontradas]
     return {
         "completas": len(faltantes) == 0,
-        "encontradas": sorted(list(encontradas)),
+        "encontradas": sorted(encontradas),
         "faltantes": faltantes,
         "total_encontradas": len(encontradas),
         "total_esperadas": len(corridas_esperadas),
@@ -199,7 +199,7 @@ def consolidar_experimentos(
                     fila["test_recall_5pct"] = m["recall_at_k"].get("5pct")
                     fila["test_lift_1pct"] = m["lift_at_k"].get("1pct")
                     fila["test_brier"] = m.get("brier")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 fila["error_test"] = str(e)
 
         filas.append(fila)
@@ -285,7 +285,7 @@ def registrar_mlflow(
     Registra los run_records y métricas oficiales de test en MLflow local.
     """
     try:
-        import mlflow
+        import mlflow  # type: ignore[import-not-found,import-untyped]
     except ImportError:
         print("[AVISO] MLflow no está instalado. Omitiendo registro en MLflow.")
         return False
@@ -347,6 +347,6 @@ def registrar_mlflow(
             f"[INFO] {len(records)} corridas registradas exitosamente en MLflow ({experiment_name})."
         )
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[ERROR] Error al registrar en MLflow: {e!s}")
         return False
