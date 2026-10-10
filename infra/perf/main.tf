@@ -341,7 +341,7 @@ resource "aws_glue_crawler" "crawler_36p" {
   name          = "sunat-ssco-perf-36p-crawler"
   database_name = aws_glue_catalog_database.perf_database.name
   role          = aws_iam_role.glue_perf_crawler_role.arn
-  table_prefix  = "p_"
+  table_prefix  = "p_silver_"
 
   s3_target {
     path       = "s3://${aws_s3_bucket.standard_perf["perf-36p"].bucket}/silver/"
@@ -362,7 +362,7 @@ resource "aws_glue_crawler" "crawler_36n" {
   name          = "sunat-ssco-perf-36n-crawler"
   database_name = aws_glue_catalog_database.perf_database.name
   role          = aws_iam_role.glue_perf_crawler_role.arn
-  table_prefix  = "n_"
+  table_prefix  = "n_silver_"
 
   s3_target {
     path       = "s3://${aws_s3_bucket.standard_perf["perf-36n"].bucket}/silver/"
