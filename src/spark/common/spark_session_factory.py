@@ -18,6 +18,10 @@ def create_spark_session(app_name: str) -> SparkSession:
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
         .config("spark.sql.parquet.compression.codec", "snappy")
         .config("spark.sql.session.timeZone", "America/Lima")
+        # --- Optimización buffer S3A para prevenir desborde de disco local (/mnt/s3) ---
+        .config("spark.hadoop.fs.s3a.fast.upload", "true")
+        .config("spark.hadoop.fs.s3a.fast.upload.buffer", "bytebuffer")
+        .config("spark.hadoop.fs.s3a.multipart.size", "67108864")
         # --- Solución a fechas antiguas / inconsistencia de calendario en Spark 3+ ---
         .config("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
         .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")

@@ -33,6 +33,15 @@ class TestSparkSessionFactory(unittest.TestCase):
             applied_configs.get("spark.sql.session.timeZone"), "America/Lima"
         )
 
+        # Validaciones de configuración S3A fast upload bytebuffer
+        self.assertEqual(applied_configs.get("spark.hadoop.fs.s3a.fast.upload"), "true")
+        self.assertEqual(
+            applied_configs.get("spark.hadoop.fs.s3a.fast.upload.buffer"), "bytebuffer"
+        )
+        self.assertEqual(
+            applied_configs.get("spark.hadoop.fs.s3a.multipart.size"), "67108864"
+        )
+
         # Validaciones de rebase mode para compatibilidad con fechas antiguas
         self.assertEqual(
             applied_configs.get("spark.sql.parquet.datetimeRebaseModeInWrite"),
