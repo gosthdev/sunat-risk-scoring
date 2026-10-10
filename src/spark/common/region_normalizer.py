@@ -42,6 +42,7 @@ OVERRIDES = {
     "PROV. CONST. DEL CALLAO": "CALLAO",
     "PROVINCIA CONSTITUCIONAL DEL CALLAO": "CALLAO",
     "CALLAO - PROV. CONST.": "CALLAO",
+    "NO DISPONIBLE": None,
 }
 
 # Los 24 departamentos + Callao, en su forma canónica (mayúsculas, sin
