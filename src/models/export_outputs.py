@@ -14,6 +14,15 @@ import numpy as np
 import pandas as pd
 
 
+def _clean_float(val: Any, decimals: int = 4) -> float:
+    """Convierte métricas a float sanitizado, evitando NaN en NDJSON estricto."""
+    try:
+        f = float(val)
+        return 0.0 if np.isnan(f) else round(f, decimals)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def exportar_predicciones_y_run_record(
     df_all: pd.DataFrame,
     X_all: pd.DataFrame,
@@ -111,11 +120,11 @@ def exportar_predicciones_y_run_record(
         "semilla": int(args.seed),
         "version_sklearn": version_sklearn,
         "n_features_transformadas": int(n_features_trans),
-        "segundos_entrenamiento": round(float(elapsed_time), 2),
+        "segundos_entrenamiento": _clean_float(elapsed_time, 2),
         "metricas_cv": {
-            "cv_pr_auc_mean": round(float(cv_mean), 4),
-            "cv_pr_auc_fold": [round(float(x), 4) for x in cv_folds_scores],
-            "train_pr_auc": round(float(train_pr_auc), 4),
+            "cv_pr_auc_mean": _clean_float(cv_mean, 4),
+            "cv_pr_auc_fold": [_clean_float(x, 4) for x in cv_folds_scores],
+            "train_pr_auc": _clean_float(train_pr_auc, 4),
         },
     }
 
@@ -145,7 +154,7 @@ def _guardar_parquet(df: pd.DataFrame, path: str) -> None:
 
 def _guardar_single_line_json(record: dict[str, Any], path: str) -> None:
     """Guarda un diccionario como JSON de una sola línea estricta."""
-    json_str = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+    json_str = json.dumps(record, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     if path.startswith("s3://"):
         try:
             import smart_open  # type: ignore[import-untyped]

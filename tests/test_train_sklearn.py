@@ -198,19 +198,21 @@ def test_ranking_invariante_c2(synthetic_dataframe):
         args.ruta_salida_predicciones = preds_path
         args.ruta_salida_run_record = record_path
 
-        exportar_predicciones_y_run_record(
+        record = exportar_predicciones_y_run_record(
             df_all=synthetic_dataframe,
             X_all=synthetic_dataframe[["monto_total_soles"]],
             best_pipeline=MockPipeline(),
             args=args,
-            cv_mean=0.35,
-            cv_folds_scores=[0.34, 0.35, 0.36, 0.35, 0.35],
+            cv_mean=float("nan"),
+            cv_folds_scores=[0.34, float("nan"), 0.36, 0.35, 0.35],
             train_pr_auc=0.38,
             n_features_trans=10,
             elapsed_time=5.2,
             best_params={"C": 1.0},
         )
 
+        assert record["metricas_cv"]["cv_pr_auc_mean"] == 0.0
+        assert record["metricas_cv"]["cv_pr_auc_fold"][1] == 0.0
         assert os.path.exists(preds_path)
         df_preds = pd.read_parquet(preds_path)
 
