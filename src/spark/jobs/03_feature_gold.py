@@ -246,8 +246,19 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
 
 def attach_regional_features(spark, features_df, regional_path=GOLD_REGIONAL_SUMMARY):
     """Une la tasa de informalidad regional desde gold/regional_summary si existe."""
+    if "informalidad_epen_departamento" in features_df.columns:
+        features_df = features_df.drop("informalidad_epen_departamento")
     try:
         regional = spark.read.parquet(regional_path)
+        col_dept = (
+            col("Departamento")
+            if "Departamento" in regional.columns
+            else (
+                col("departamento")
+                if "departamento" in regional.columns
+                else lit("DESCONOCIDO")
+            )
+        )
         col_inf = (
             col("pct_informalidad")
             if "pct_informalidad" in regional.columns
@@ -258,7 +269,7 @@ def attach_regional_features(spark, features_df, regional_path=GOLD_REGIONAL_SUM
             )
         )
         reg_clean = regional.select(
-            col("Departamento").alias("departamento"),
+            col_dept.alias("departamento"),
             col_inf.alias("informalidad_epen_departamento"),
         ).distinct()
         return features_df.join(reg_clean, on="departamento", how="left")
@@ -322,6 +333,8 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
     )
 
     if regional_df is not None:
+        if "informalidad_epen_departamento" in features.columns:
+            features = features.drop("informalidad_epen_departamento")
         features = features.join(regional_df, on="departamento", how="left")
     elif "informalidad_epen_departamento" not in features.columns:
         features = features.withColumn(

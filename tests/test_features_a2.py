@@ -262,3 +262,112 @@ class TestFeaturesA2(unittest.TestCase):
         self.assertAlmostEqual(row["monto_total_soles"], 8000.0)
         self.assertEqual(row["pct_ordenes_anuladas"], 0.0)
         self.assertAlmostEqual(row["monto_maximo_soles"], 5000.0)
+
+    def test_attach_regional_features_no_duplicate_column(self):
+        """Verifica que attach_regional_features no genere error de columna duplicada."""
+        import tempfile
+
+        assert self.spark is not None
+        padron_schema = StructType(
+            [
+                StructField("RUC", LongType(), True),
+                StructField("mes_referencia", StringType(), True),
+                StructField("departamento", StringType(), True),
+                StructField("nro_trabajadores", DoubleType(), True),
+            ]
+        )
+        contrat_schema = StructType(
+            [
+                StructField("RUC", LongType(), True),
+                StructField("monto_total_soles", DoubleType(), True),
+                StructField("n_ordenes", LongType(), True),
+                StructField("pct_ordenes_anuladas", DoubleType(), True),
+                StructField("fecha_primera_orden", StringType(), True),
+            ]
+        )
+        pricos_schema = StructType(
+            [
+                StructField("RUC", LongType(), True),
+                StructField("es_prico", StringType(), True),
+            ]
+        )
+        padron = self.spark.createDataFrame(
+            [(20100000001, "202506", "LIMA", 10.0)], padron_schema
+        )
+        contrat = self.spark.createDataFrame([], contrat_schema)
+        pricos = self.spark.createDataFrame([], pricos_schema)
+
+        features = job03.compute_all_ruc_features(padron, contrat, pricos)
+        self.assertIn("informalidad_epen_departamento", features.columns)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            reg_schema = StructType(
+                [
+                    StructField("Departamento", StringType(), True),
+                    StructField("pct_informalidad", DoubleType(), True),
+                ]
+            )
+            reg_df = self.spark.createDataFrame([("LIMA", 55.5)], reg_schema)
+            reg_path = f"{tmp_dir}/regional_summary"
+            reg_df.write.parquet(reg_path)
+
+            attached = job03.attach_regional_features(
+                self.spark, features, regional_path=reg_path
+            )
+            cols = [
+                c for c in attached.columns if c == "informalidad_epen_departamento"
+            ]
+            self.assertEqual(len(cols), 1)
+
+            row = attached.first()
+            assert row is not None
+            self.assertAlmostEqual(row["informalidad_epen_departamento"], 55.5)
+
+            out_path = f"{tmp_dir}/output_features"
+            attached.write.parquet(out_path)
+
+    def test_attach_regional_features_missing_path_fallback(self):
+        """Verifica fallback graceful cuando el path regional no existe."""
+        assert self.spark is not None
+        padron_schema = StructType(
+            [
+                StructField("RUC", LongType(), True),
+                StructField("mes_referencia", StringType(), True),
+                StructField("departamento", StringType(), True),
+                StructField("nro_trabajadores", DoubleType(), True),
+            ]
+        )
+        padron = self.spark.createDataFrame(
+            [(20100000001, "202506", "LIMA", 10.0)], padron_schema
+        )
+        contrat = self.spark.createDataFrame(
+            [],
+            StructType(
+                [
+                    StructField("RUC", LongType(), True),
+                    StructField("monto_total_soles", DoubleType(), True),
+                    StructField("n_ordenes", LongType(), True),
+                    StructField("pct_ordenes_anuladas", DoubleType(), True),
+                    StructField("fecha_primera_orden", StringType(), True),
+                ]
+            ),
+        )
+        pricos = self.spark.createDataFrame(
+            [],
+            StructType(
+                [
+                    StructField("RUC", LongType(), True),
+                    StructField("es_prico", StringType(), True),
+                ]
+            ),
+        )
+
+        features = job03.compute_all_ruc_features(padron, contrat, pricos)
+        attached = job03.attach_regional_features(
+            self.spark, features, regional_path="/tmp/ruta_inexistente_no_file"
+        )
+        cols = [c for c in attached.columns if c == "informalidad_epen_departamento"]
+        self.assertEqual(len(cols), 1)
+        row = attached.first()
+        assert row is not None
+        self.assertIsNone(row["informalidad_epen_departamento"])
