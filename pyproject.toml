@@ -17,6 +17,8 @@ module = [
     "explainability",
     "export_outputs",
     "yaml",
+    "mlflow",
+    "mlflow.*",
 ]
 ignore_missing_imports = true
 

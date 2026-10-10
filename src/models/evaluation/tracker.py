@@ -73,8 +73,8 @@ def cargar_run_records(
     else:
         archivos = sorted(glob.glob(ruta_o_patron, recursive=True))
 
-    records_validos = []
-    registros_error = []
+    records_validos: list[dict[str, Any]] = []
+    registros_error: list[dict[str, Any]] = []
 
     for archivo in archivos:
         try:
@@ -285,7 +285,7 @@ def registrar_mlflow(
     Registra los run_records y métricas oficiales de test en MLflow local.
     """
     try:
-        import mlflow
+        import mlflow  # type: ignore[import-not-found,import-untyped]
     except ImportError:
         print("[AVISO] MLflow no está instalado. Omitiendo registro en MLflow.")
         return False
