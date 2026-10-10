@@ -203,6 +203,8 @@ def test_orchestrator_main_end_to_end():
 
         # Verificar existencia de archivos clave
         assert os.path.exists(summary_file)
+        leaderboard_md = os.path.join(tmp_dir, "leaderboard.md")
+        assert os.path.exists(leaderboard_md)
         json_leaderboard = os.path.join(tmp_dir, "leaderboard.json")
         assert os.path.exists(json_leaderboard)
 
@@ -211,5 +213,9 @@ def test_orchestrator_main_end_to_end():
             assert data["dataset_version"] == "v01"
             assert "campeon" in data
             assert len(data["experimentos"]) == 1
-            assert data["experimentos"][0]["id"] == "E1"
-            assert data["experimentos"][0]["status"] == "SUCCESS"
+            exp0 = data["experimentos"][0]
+            assert exp0["id"] == "E1"
+            assert exp0["status"] == "SUCCESS"
+            assert len(exp0["cv_folds"]) == 5
+            assert exp0["cv_pr_auc_std"] > 0
+            assert exp0["best_params"] != {}
