@@ -5,6 +5,7 @@ Pruebas unitarias para el seguimiento y consolidación de experimentos (Tarea B5
 import json
 import os
 import tempfile
+
 import pandas as pd
 import pytest
 
@@ -124,12 +125,14 @@ def test_consolidar_experimentos_sin_predicciones(mock_run_record_valido):
 def test_consolidar_experimentos_con_predicciones(mock_run_record_valido):
     # Generar predicciones sintéticas para E1
     n = 100
-    df_preds = pd.DataFrame({
-        "ruc": [f"20{i:09d}" for i in range(n)],
-        "label": [1] * 5 + [0] * (n - 5),
-        "score": [0.9] * 5 + [0.1] * (n - 5),
-        "split": ["test"] * n,
-    })
+    df_preds = pd.DataFrame(
+        {
+            "ruc": [f"20{i:09d}" for i in range(n)],
+            "label": [1] * 5 + [0] * (n - 5),
+            "score": [0.9] * 5 + [0.1] * (n - 5),
+            "split": ["test"] * n,
+        }
+    )
 
     records = [mock_run_record_valido]
     predicciones_map = {mock_run_record_valido["run_id"]: df_preds}

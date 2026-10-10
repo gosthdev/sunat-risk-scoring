@@ -9,7 +9,6 @@ Modelos baselines implementados:
 Todos los métodos retornan un DataFrame respetando el contrato C2 de predicciones.
 """
 
-from typing import Optional
 import numpy as np
 import pandas as pd
 
@@ -62,7 +61,12 @@ def baseline_analyst_rule(df: pd.DataFrame) -> pd.DataFrame:
 
     # 3. Contratación con Estado con <= 1 trabajador
     col_contrata = None
-    for cand in ["contrata_con_estado", "proveedor_estado", "es_proveedor_estado", "tiene_adjudicaciones"]:
+    for cand in [
+        "contrata_con_estado",
+        "proveedor_estado",
+        "es_proveedor_estado",
+        "tiene_adjudicaciones",
+    ]:
         if cand in res.columns:
             col_contrata = cand
             break

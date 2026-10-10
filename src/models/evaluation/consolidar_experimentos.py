@@ -11,6 +11,7 @@ Uso:
 import argparse
 import os
 import sys
+
 import pandas as pd
 
 from .tracker import (
@@ -68,7 +69,9 @@ def main():
     records_validos, registros_con_error = cargar_run_records(args.artifacts_dir)
 
     if registros_con_error:
-        print(f"[ALERTA] Se encontraron {len(registros_con_error)} registros con error de esquema o lectura:")
+        print(
+            f"[ALERTA] Se encontraron {len(registros_con_error)} registros con error de esquema o lectura:"
+        )
         for reg in registros_con_error:
             print(f"  - {reg.get('archivo')}: {reg.get('error') or reg.get('errores')}")
 
@@ -83,7 +86,9 @@ def main():
     if check_matriz["completas"]:
         print("[OK] Matriz completa: todas las corridas E1 a E6 están presentes.")
     else:
-        print(f"[AVISO] Corridas faltantes de la matriz oficial E1..E6: {check_matriz['faltantes']}")
+        print(
+            f"[AVISO] Corridas faltantes de la matriz oficial E1..E6: {check_matriz['faltantes']}"
+        )
 
     # Cargar predicciones asociadas si existen en disco
     predicciones_por_run = {}
@@ -101,7 +106,9 @@ def main():
             if c and os.path.isfile(c):
                 try:
                     predicciones_por_run[run_id] = pd.read_parquet(c)
-                    print(f"[INFO] Predicciones cargadas para run_id '{run_id}' desde: {c}")
+                    print(
+                        f"[INFO] Predicciones cargadas para run_id '{run_id}' desde: {c}"
+                    )
                     break
                 except Exception as e:
                     print(f"[ALERTA] Error al leer predicciones de {c}: {e}")
@@ -118,9 +125,9 @@ def main():
 
     cabecera_doc = f"""# Tabla Comparativa de Experimentos — Modelo Base SSCO (Tarea B5)
 
-> **Generado automáticamente:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}  
+> **Generado automáticamente:** {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}  
 > **Total de corridas consolidadas:** {len(records_validos)}  
-> **Corridas oficiales detectadas:** {check_matriz['total_encontradas']} de {check_matriz['total_esperadas']}  
+> **Corridas oficiales detectadas:** {check_matriz["total_encontradas"]} de {check_matriz["total_esperadas"]}  
 
 ---
 
@@ -132,8 +139,8 @@ def main():
 
 ## 2. Criterio de Selección del Modelo Oficial
 
-1. Se comparan las corridas de la **Variante V2 con pesos de clase (E1 vs. E2)** sobre la media de PR-AUC obtenida en CV ($\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}$).
-2. Si $\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}(\\text{{LR}}) \\ge \\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}(\\text{{DT}})$, se selecciona **Regresión Logística (E1)** debido a su parsimonia y estabilidad.
+1. Se comparan las corridas de la **Variante V2 con pesos de clase (E1 vs. E2)** sobre la media de PR-AUC obtenida en CV ($\\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}$).
+2. Si $\\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}(\\text{{LR}}) \\ge \\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}(\\text{{DT}})$, se selecciona **Regresión Logística (E1)** debido a su parsimonia y estabilidad.
 3. El subconjunto de prueba (`test`) se evalúa con la librería de métricas C4 y permanece sin intervenir en la selección de hiperparámetros.
 """
 

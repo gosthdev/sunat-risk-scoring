@@ -10,7 +10,8 @@ Métricas calculadas:
 - Desglose por segmento geográfico (Lima vs. Resto y departamentos principales).
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
@@ -23,11 +24,15 @@ def _resolve_ordering(df: pd.DataFrame) -> pd.DataFrame:
     de lo contrario, preserva el índice original con mergesort estable.
     """
     if "ruc" in df.columns:
-        return df.sort_values(by=["score", "ruc"], ascending=[False, True], kind="mergesort")
+        return df.sort_values(
+            by=["score", "ruc"], ascending=[False, True], kind="mergesort"
+        )
     return df.sort_values(by=["score"], ascending=[False], kind="mergesort")
 
 
-def _calculate_confusion_matrix(y_true: np.ndarray, top_k_mask: np.ndarray) -> Dict[str, int]:
+def _calculate_confusion_matrix(
+    y_true: np.ndarray, top_k_mask: np.ndarray
+) -> dict[str, int]:
     """
     Calcula TP, FP, FN, TN dado un vector booleano indicando selección en top K.
     """
@@ -58,7 +63,7 @@ def _bootstrap_pr_auc_ci(
         return (1.0, 1.0)
 
     rng = np.random.RandomState(seed)
-    boot_scores: List[float] = []
+    boot_scores: list[float] = []
 
     for _ in range(n_bootstrap):
         indices = rng.randint(0, n, size=n)
@@ -85,11 +90,11 @@ def _bootstrap_pr_auc_ci(
 
 def compute_metrics(
     df: pd.DataFrame,
-    ks: Optional[List[int]] = None,
+    ks: list[int] | None = None,
     n_bootstrap: int = 1000,
     seed: int = 42,
     modo_diagnostico: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calcula el reporte completo de métricas oficiales (Contrato C4).
 
@@ -117,7 +122,9 @@ def compute_metrics(
         if "target" in work_df.columns:
             work_df = work_df.rename(columns={"target": "label"})
         else:
-            raise ValueError("El DataFrame debe contener la columna 'label' o 'target'.")
+            raise ValueError(
+                "El DataFrame debe contener la columna 'label' o 'target'."
+            )
 
     if "score" not in work_df.columns:
         raise ValueError("El DataFrame debe contener la columna 'score'.")
@@ -157,21 +164,23 @@ def compute_metrics(
     # Validar que ningún K absoluto exceda el total
     for k in ks:
         if k > n_total:
-            raise ValueError(f"El valor de K={k} excede el tamaño del conjunto de datos (N={n_total}).")
+            raise ValueError(
+                f"El valor de K={k} excede el tamaño del conjunto de datos (N={n_total})."
+            )
 
     k_percent_1 = max(1, int(np.ceil(0.01 * n_total)))
     k_percent_5 = max(1, int(np.ceil(0.05 * n_total)))
 
-    cutoffs: Dict[str, int] = {}
+    cutoffs: dict[str, int] = {}
     for k in ks:
         cutoffs[str(k)] = k
     cutoffs["1pct"] = k_percent_1
     cutoffs["5pct"] = k_percent_5
 
     # Métricas @ K
-    precision_at_k: Dict[str, float] = {}
-    recall_at_k: Dict[str, float] = {}
-    lift_at_k: Dict[str, float] = {}
+    precision_at_k: dict[str, float] = {}
+    recall_at_k: dict[str, float] = {}
+    lift_at_k: dict[str, float] = {}
 
     for label_k, k_val in cutoffs.items():
         k_val = min(k_val, n_total)
@@ -223,13 +232,24 @@ def compute_metrics(
     brier_val = float(brier_score_loss(y_true, y_score))
 
     # Métricas por Segmento Geográfico (si columna 'departamento' existe)
-    por_segmento: Dict[str, Any] = {}
+    por_segmento: dict[str, Any] = {}
     if "departamento" in work_df.columns:
         # Segmentación: LIMA vs RESTO
-        work_df["es_lima"] = work_df["departamento"].astype(str).str.upper().str.strip().isin(
-            ["LIMA", "LIMA METROPOLITANA", "PROVINCIA CONSTITUCIONAL DEL CALLAO", "CALLAO"]
+        work_df["es_lima"] = (
+            work_df["departamento"]
+            .astype(str)
+            .str.upper()
+            .str.strip()
+            .isin(
+                [
+                    "LIMA",
+                    "LIMA METROPOLITANA",
+                    "PROVINCIA CONSTITUCIONAL DEL CALLAO",
+                    "CALLAO",
+                ]
+            )
         )
-        
+
         segments_to_eval = {
             "LIMA": work_df[work_df["es_lima"]],
             "RESTO": work_df[~work_df["es_lima"]],
@@ -256,7 +276,11 @@ def compute_metrics(
             else:
                 seg_y_score = seg_df["score"].to_numpy().astype(float)
                 seg_prev = float(seg_positives / seg_n)
-                seg_pr_auc = float(average_precision_score(seg_y_true, seg_y_score)) if seg_positives < seg_n else 1.0
+                seg_pr_auc = (
+                    float(average_precision_score(seg_y_true, seg_y_score))
+                    if seg_positives < seg_n
+                    else 1.0
+                )
 
                 # Recall@5% en segmento
                 k_seg_5 = max(1, int(np.ceil(0.05 * seg_n)))
@@ -271,7 +295,9 @@ def compute_metrics(
                     "recall_at_5pct": seg_rec_5,
                 }
 
-    run_id = str(work_df["run_id"].iloc[0]) if "run_id" in work_df.columns else "default_run"
+    run_id = (
+        str(work_df["run_id"].iloc[0]) if "run_id" in work_df.columns else "default_run"
+    )
 
     return {
         "run_id": run_id,

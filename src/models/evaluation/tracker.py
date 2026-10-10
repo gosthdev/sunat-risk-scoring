@@ -13,7 +13,8 @@ Funcionalidades:
 import glob
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
+
 import pandas as pd
 
 from .metrics import compute_metrics
@@ -29,7 +30,7 @@ CAMPOS_OBLIGATORIOS_C3 = [
 CORRIDAS_OFICIALES_ESPERADAS = ["E1", "E2", "E3", "E4", "E5", "E6"]
 
 
-def validar_run_record(record: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validar_run_record(record: dict[str, Any]) -> tuple[bool, list[str]]:
     """
     Valida que un diccionario cumpla con el esquema mínimo del Contrato C3.
     Retorna (es_valido, lista_errores).
@@ -52,8 +53,8 @@ def validar_run_record(record: Dict[str, Any]) -> Tuple[bool, List[str]]:
 
 
 def cargar_run_records(
-    ruta_o_patron: Union[str, List[str]]
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ruta_o_patron: str | list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Carga todos los run_records desde una ruta de directorio, lista de rutas o patrón glob.
     Retorna (records_validos, registros_con_error).
@@ -62,7 +63,11 @@ def cargar_run_records(
     if isinstance(ruta_o_patron, list):
         archivos = ruta_o_patron
     elif os.path.isdir(ruta_o_patron):
-        archivos = sorted(glob.glob(os.path.join(ruta_o_patron, "**/run_record*.json"), recursive=True))
+        archivos = sorted(
+            glob.glob(
+                os.path.join(ruta_o_patron, "**/run_record*.json"), recursive=True
+            )
+        )
     elif os.path.isfile(ruta_o_patron):
         archivos = [ruta_o_patron]
     else:
@@ -76,11 +81,15 @@ def cargar_run_records(
             with open(archivo, "r", encoding="utf-8") as f:
                 line = f.readline().strip()
                 if not line:
-                    registros_error.append({"archivo": archivo, "error": "Archivo vacío"})
+                    registros_error.append(
+                        {"archivo": archivo, "error": "Archivo vacío"}
+                    )
                     continue
                 data = json.loads(line)
         except Exception as e:
-            registros_error.append({"archivo": archivo, "error": f"Error al leer JSON: {str(e)}"})
+            registros_error.append(
+                {"archivo": archivo, "error": f"Error al leer JSON: {e!s}"}
+            )
             continue
 
         es_valido, lista_errores = validar_run_record(data)
@@ -94,9 +103,9 @@ def cargar_run_records(
 
 
 def verificar_completitud_matriz(
-    records: List[Dict[str, Any]],
-    corridas_esperadas: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    records: list[dict[str, Any]],
+    corridas_esperadas: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Verifica si todas las corridas oficiales (E1 a E6) están presentes.
     """
@@ -122,8 +131,8 @@ def verificar_completitud_matriz(
 
 
 def consolidar_experimentos(
-    records: List[Dict[str, Any]],
-    predicciones_por_run: Optional[Dict[str, pd.DataFrame]] = None,
+    records: list[dict[str, Any]],
+    predicciones_por_run: dict[str, pd.DataFrame] | None = None,
     n_bootstrap: int = 500,
     seed: int = 42,
 ) -> pd.DataFrame:
@@ -144,7 +153,7 @@ def consolidar_experimentos(
         train_pr_auc = metricas_cv.get("train_pr_auc", None)
         segundos = r.get("segundos_entrenamiento", None)
 
-        fila: Dict[str, Any] = {
+        fila: dict[str, Any] = {
             "run_id": run_id,
             "modelo": model_name,
             "variante": variant,
@@ -167,7 +176,9 @@ def consolidar_experimentos(
             try:
                 # Filtrar conjunto de test para evaluar según Contrato C4
                 if "split" in df_pred.columns:
-                    df_test = df_pred[df_pred["split"].astype(str).str.lower() == "test"].copy()
+                    df_test = df_pred[
+                        df_pred["split"].astype(str).str.lower() == "test"
+                    ].copy()
                 else:
                     df_test = df_pred
 
@@ -181,7 +192,9 @@ def consolidar_experimentos(
                         seed=seed,
                     )
                     fila["test_pr_auc"] = m["pr_auc"]["valor"]
-                    fila["test_ic_95"] = f"[{m['pr_auc']['ic_bajo']:.3f}, {m['pr_auc']['ic_alto']:.3f}]"
+                    fila["test_ic_95"] = (
+                        f"[{m['pr_auc']['ic_bajo']:.3f}, {m['pr_auc']['ic_alto']:.3f}]"
+                    )
                     fila["test_recall_1pct"] = m["recall_at_k"].get("1pct")
                     fila["test_recall_5pct"] = m["recall_at_k"].get("5pct")
                     fila["test_lift_1pct"] = m["lift_at_k"].get("1pct")
@@ -194,7 +207,9 @@ def consolidar_experimentos(
     df_resumen = pd.DataFrame(filas)
     if not df_resumen.empty and "cv_pr_auc" in df_resumen.columns:
         # Ordenar por CV PR-AUC descendente
-        df_resumen = df_resumen.sort_values(by="cv_pr_auc", ascending=False).reset_index(drop=True)
+        df_resumen = df_resumen.sort_values(
+            by="cv_pr_auc", ascending=False
+        ).reset_index(drop=True)
 
     return df_resumen
 
@@ -222,11 +237,21 @@ def formatear_tabla_markdown(df_experimentos: pd.DataFrame) -> str:
     ]
 
     # Filtrar solo columnas presentes
-    cols_existentes = [(orig, titulo) for orig, titulo in columnas_ordenadas if orig in df_experimentos.columns]
+    cols_existentes = [
+        (orig, titulo)
+        for orig, titulo in columnas_ordenadas
+        if orig in df_experimentos.columns
+    ]
 
     lineas = []
     cabecera = "| " + " | ".join([titulo for _, titulo in cols_existentes]) + " |"
-    separador = "| " + " | ".join([":---:" if orig != "run_id" else ":---" for orig, _ in cols_existentes]) + " |"
+    separador = (
+        "| "
+        + " | ".join(
+            [":---:" if orig != "run_id" else ":---" for orig, _ in cols_existentes]
+        )
+        + " |"
+    )
     lineas.append(cabecera)
     lineas.append(separador)
 
@@ -251,10 +276,10 @@ def formatear_tabla_markdown(df_experimentos: pd.DataFrame) -> str:
 
 
 def registrar_mlflow(
-    records: List[Dict[str, Any]],
-    df_experimentos: Optional[pd.DataFrame] = None,
+    records: list[dict[str, Any]],
+    df_experimentos: pd.DataFrame | None = None,
     experiment_name: str = "sunat-risk-ssco",
-    tracking_uri: Optional[str] = None,
+    tracking_uri: str | None = None,
 ) -> bool:
     """
     Registra los run_records y métricas oficiales de test en MLflow local.
@@ -297,7 +322,9 @@ def registrar_mlflow(
                         mlflow.log_metric(m_key, float(m_val))
 
                 if r.get("segundos_entrenamiento"):
-                    mlflow.log_metric("segundos_entrenamiento", float(r["segundos_entrenamiento"]))
+                    mlflow.log_metric(
+                        "segundos_entrenamiento", float(r["segundos_entrenamiento"])
+                    )
 
                 # Métricas Oficiales de Test (C4)
                 if run_id in test_metrics_by_run:
@@ -316,8 +343,10 @@ def registrar_mlflow(
                     if t_row.get("test_ic_95"):
                         mlflow.set_tag("test_ic_95", str(t_row.get("test_ic_95")))
 
-        print(f"[INFO] {len(records)} corridas registradas exitosamente en MLflow ({experiment_name}).")
+        print(
+            f"[INFO] {len(records)} corridas registradas exitosamente en MLflow ({experiment_name})."
+        )
         return True
     except Exception as e:
-        print(f"[ERROR] Error al registrar en MLflow: {str(e)}")
+        print(f"[ERROR] Error al registrar en MLflow: {e!s}")
         return False

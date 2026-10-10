@@ -6,8 +6,8 @@ Exporta:
     compute_baselines — evalúa los tres baselines (B0, B1, B2)
 """
 
+from .baselines import baseline_analyst_rule, baseline_random, baseline_trivial
 from .metrics import compute_metrics
-from .baselines import baseline_trivial, baseline_analyst_rule, baseline_random
 from .tracker import (
     cargar_run_records,
     consolidar_experimentos,
@@ -17,14 +17,13 @@ from .tracker import (
 )
 
 __all__ = [
-    "compute_metrics",
-    "baseline_trivial",
     "baseline_analyst_rule",
     "baseline_random",
+    "baseline_trivial",
     "cargar_run_records",
+    "compute_metrics",
     "consolidar_experimentos",
     "formatear_tabla_markdown",
     "validar_run_record",
     "verificar_completitud_matriz",
 ]
-
