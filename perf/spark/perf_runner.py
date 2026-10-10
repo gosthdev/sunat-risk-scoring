@@ -18,10 +18,15 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _COMMON_PATH = str(_ROOT / "src" / "spark" / "common")
 _JOBS_PATH = str(_ROOT / "src" / "spark" / "jobs")
-if _COMMON_PATH not in sys.path:
-    sys.path.insert(0, _COMMON_PATH)
-if _JOBS_PATH not in sys.path:
-    sys.path.insert(0, _JOBS_PATH)
+_CURRENT_DIR = str(Path(__file__).resolve().parent)
+
+for p in [".", _CURRENT_DIR, _COMMON_PATH, _JOBS_PATH]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+for z in [Path("common.zip"), Path(__file__).resolve().parent / "common.zip"]:
+    if z.is_file() and str(z) not in sys.path:
+        sys.path.insert(0, str(z))
 
 logging.basicConfig(
     level=logging.INFO,

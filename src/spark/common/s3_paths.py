@@ -28,12 +28,20 @@ GOLD_BUCKET = os.environ.get(
     f"{_prefix_base}-gold" if _prefix_base else "sunat-risk-scoring-gold",
 )
 
-# Soporte para bucket único si todos coinciden
+# Soporte para bucket único si todos coinciden o variable explícita
 _is_single_bucket = RAW_BUCKET == BRONZE_BUCKET == SILVER_BUCKET == GOLD_BUCKET
+_force_layer_prefix = os.environ.get("S3_USE_LAYER_PREFIX")
 
 
 def _build_path(bucket: str, layer_prefix: str, subpath: str) -> str:
-    if _is_single_bucket:
+    if _force_layer_prefix is not None:
+        use_prefix = _force_layer_prefix.lower() in ("1", "true", "yes")
+    else:
+        # Se incluye el prefijo de capa si se usa bucket compartido o si el bucket
+        # no termina en el nombre específico de la capa (ej. perf-36p, perf-36n, perf-e2)
+        use_prefix = _is_single_bucket or not bucket.endswith(f"-{layer_prefix}")
+
+    if use_prefix:
         return f"s3://{bucket}/{layer_prefix}/{subpath}"
     return f"s3://{bucket}/{subpath}"
 
