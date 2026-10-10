@@ -23,14 +23,15 @@ if _COMMON_PATH not in sys.path:
 def compute_df_checksum(df, key_col=None) -> str:
     """Calcula un checksum MD5 determinista sobre el contenido del DataFrame."""
     # Ordenar por columnas relevantes para consistencia
-    sort_cols = [key_col] if (key_col and key_col in df.columns) else df.columns
+    sort_cols = [key_col] if (key_col and key_col in df.columns) else sorted(df.columns)
     sorted_df = df.orderBy(*sort_cols)
 
-    # Concatenar representación en string de cada fila
+    # Concatenar representación en string de cada fila en orden alfabético de columnas
+    col_names = sorted(df.columns)
     rows = sorted_df.collect()
     hasher = hashlib.md5()
     for row in rows:
-        row_str = "|".join("" if v is None else str(v) for v in row.asDict().values())
+        row_str = "|".join("" if row[c] is None else str(row[c]) for c in col_names)
         hasher.update(row_str.encode("utf-8"))
     return hasher.hexdigest()
 
@@ -90,11 +91,12 @@ def compare_datasets(
         print("  ✓ Checksum de contenido idéntico")
     else:
         print("  (Dataset grande: validando mediante agregados numéricos)")
-        # Comparar sumas de columnas numéricas si existen
+        from pyspark.sql.types import NumericType
+
         numeric_cols = [
             f.name
             for f in df_a.schema.fields
-            if f.dataType.simpleString() in ("int", "bigint", "double", "float")
+            if isinstance(f.dataType, NumericType)
         ]
         if numeric_cols:
             from pyspark.sql.functions import sum as spark_sum
