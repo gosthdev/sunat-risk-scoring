@@ -28,14 +28,38 @@ done
 mkdir -p "${BUILD_DIR}"
 
 echo "[package_perf] Empaquetando common.zip..."
-(
-  cd "${REPO_ROOT}/src/spark/common"
-  zip -q -r "${BUILD_DIR}/common.zip" . -x "*.pyc" "__pycache__/*"
-)
+COMMON_DIR="${REPO_ROOT}/src/spark/common"
+OUTPUT_ZIP="${BUILD_DIR}/common.zip"
+rm -f "${OUTPUT_ZIP}"
 
-echo "[package_perf] Copiando scripts de jobs y perf a dist/..."
+python3 -c "
+import zipfile
+from pathlib import Path
+
+output_zip = Path('${OUTPUT_ZIP}')
+with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+    # 1. Módulos comunes (src/spark/common)
+    for file in Path('${COMMON_DIR}').rglob('*.py'):
+        if '__pycache__' not in file.parts and not file.name.endswith('.pyc'):
+            zf.write(file, arcname=file.name)
+    # 2. Jobs de producción (src/spark/jobs)
+    for file in Path('${REPO_ROOT}/src/spark/jobs').glob('*.py'):
+        if '__pycache__' not in file.parts and not file.name.endswith('.pyc'):
+            zf.write(file, arcname=file.name)
+    # 3. Scripts de rendimiento (perf/spark)
+    for file in Path('${PERF_DIR}/spark').glob('*.py'):
+        if '__pycache__' not in file.parts and not file.name.endswith('.pyc'):
+            zf.write(file, arcname=file.name)
+    # 4. Scripts de análisis (perf/analysis)
+    for file in Path('${PERF_DIR}/analysis').glob('*.py'):
+        if '__pycache__' not in file.parts and not file.name.endswith('.pyc'):
+            zf.write(file, arcname=file.name)
+"
+
+echo "[package_perf] Copiando scripts de jobs, perf y análisis a dist/..."
 cp "${PERF_DIR}/spark/"*.py "${BUILD_DIR}/"
 cp "${REPO_ROOT}/src/spark/jobs/"*.py "${BUILD_DIR}/"
+cp "${PERF_DIR}/analysis/"*.py "${BUILD_DIR}/"
 
 echo "✓ Empaquetado completado en: ${BUILD_DIR}"
 ls -lh "${BUILD_DIR}"

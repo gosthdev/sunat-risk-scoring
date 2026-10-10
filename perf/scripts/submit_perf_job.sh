@@ -44,6 +44,7 @@ RAW_BUCKET_VAL="${RAW_BUCKET:-sunat-risk-scoring-raw}"
 BRONZE_BUCKET_VAL="${BRONZE_BUCKET:-sunat-risk-scoring-perf-36p}"
 SILVER_BUCKET_VAL="${SILVER_BUCKET:-sunat-risk-scoring-perf-36p}"
 GOLD_BUCKET_VAL="${GOLD_BUCKET:-sunat-risk-scoring-perf-36p}"
+CONDITION="${CONDITION:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --exp-tag)
       EXP_TAG="$2"
+      shift 2
+      ;;
+    --condition)
+      CONDITION="$2"
       shift 2
       ;;
     --raw-bucket)
@@ -156,12 +161,24 @@ if [[ -n "$JOB_ARGS" ]]; then
   ARGS_ARRAY="$ARGS_JSON"
 fi
 
+# Inferir Condition si no fue provista explícitamente
+if [[ -z "$CONDITION" ]]; then
+  if [[ "$RUN_NAME" =~ warmup ]]; then
+    CONDITION="warmup"
+  elif [[ "$RUN_NAME" =~ -([A-Za-z]+)[0-9]*$ ]]; then
+    CONDITION="${BASH_REMATCH[1]}"
+  else
+    CONDITION="default"
+  fi
+fi
+
 echo "========================================================================"
 echo "Lanzando Perf Job: ${RUN_NAME} [Git SHA: ${GIT_SHA}]"
 echo "Aplicación ID   : ${EMR_APPLICATION_ID}"
 echo "Perfil          : ${PROFILE} (Executors: ${SPARK_EXECUTOR_INSTANCES}, Disk: ${SPARK_EXECUTOR_DISK})"
 echo "Script          : ${ENTRY_POINT}"
 echo "Args            : ${JOB_ARGS}"
+echo "Condición       : ${CONDITION}"
 echo "========================================================================"
 
 JOB_RUN_ID=$(aws emr-serverless start-job-run \
@@ -187,7 +204,8 @@ JOB_RUN_ID=$(aws emr-serverless start-job-run \
     \"Project\": \"sunat-risk-scoring\",
     \"Experiment\": \"${EXP_TAG}\",
     \"Profile\": \"${PROFILE}\",
-    \"GitSHA\": \"${GIT_SHA}\"
+    \"GitSHA\": \"${GIT_SHA}\",
+    \"Condition\": \"${CONDITION}\"
   }" \
   --query "jobRunId" \
   --output text)
@@ -226,3 +244,9 @@ aws emr-serverless get-job-run \
   > "${RUN_JSON_FILE}"
 
 echo "✓ Detalle JSON guardado en: ${RUN_JSON_FILE}"
+
+if [[ "$STATE" != "SUCCESS" ]]; then
+  echo "❌ ERROR: El job run ${RUN_NAME} (${JOB_RUN_ID}) no finalizó exitosamente (Estado: ${STATE})." >&2
+  exit 1
+fi
+
