@@ -1,0 +1,71 @@
+# Especificación Oficial de Matriz de Experimentos de Machine Learning (Contrato C5)
+# Detección de Sujetos sin Capacidad Operativa (SSCO) - SUNAT Risk Scoring
+
+dataset_version: "v01"
+seed: 42
+scoring_metric: "average_precision"
+
+# Matriz de Experimentos E1..E6 (Sección 4.2.3.F de informe_modelado_ssco.md)
+experiments:
+  - id: "E1"
+    model_name: "LR"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "MUST"
+    description: "Candidato Oficial 1: Regresión Logística con features V2 (sin fuga) y pesos de clase balanceados"
+    hyperparameters:
+      param_grid:
+        model__C: [0.01, 0.1, 1.0, 10.0]
+
+  - id: "E2"
+    model_name: "DT"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "MUST"
+    description: "Candidato Oficial 2: Árbol de Decisión con features V2 (sin fuga) y pesos de clase balanceados"
+    hyperparameters:
+      param_grid:
+        model__max_depth: [3, 5, 6]
+        model__min_samples_leaf: [50, 200]
+
+  - id: "E3"
+    model_name: "LR"
+    variant: "V1"
+    usa_pesos: "si"
+    priority: "MUST"
+    description: "Benchmark Techo: Regresión Logística con features V1 (incluye Estado/Condicion con fuga)"
+    hyperparameters:
+      param_grid:
+        model__C: [0.01, 0.1, 1.0, 10.0]
+
+  - id: "E4"
+    model_name: "DT"
+    variant: "V1"
+    usa_pesos: "si"
+    priority: "MUST"
+    description: "Benchmark Techo: Árbol de Decisión con features V1 (incluye Estado/Condicion con fuga)"
+    hyperparameters:
+      param_grid:
+        model__max_depth: [3, 5, 6]
+        model__min_samples_leaf: [50, 200]
+
+  - id: "E5"
+    model_name: "LR"
+    variant: "V2"
+    usa_pesos: "no"
+    priority: "MUST"
+    description: "Control de Ablación: Regresión Logística V2 sin reponderación de clases"
+    hyperparameters:
+      param_grid:
+        model__C: [0.01, 0.1, 1.0, 10.0]
+
+  - id: "E6"
+    model_name: "DT"
+    variant: "V2"
+    usa_pesos: "no"
+    priority: "MUST"
+    description: "Control de Ablación: Árbol de Decisión V2 sin reponderación de clases"
+    hyperparameters:
+      param_grid:
+        model__max_depth: [3, 5, 6]
+        model__min_samples_leaf: [50, 200]

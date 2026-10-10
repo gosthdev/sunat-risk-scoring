@@ -47,7 +47,8 @@ common.zip
 *.onnx
 *.tar.gz
 model.tar.gz
-models/
+/models/
+!src/models/
 
 # ── AWS ───────────────────────────────────────────────────────
 .aws/
