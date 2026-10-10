@@ -118,4 +118,5 @@ jobs:
             ./data/output/orchestrator/leaderboard.md
             ./data/output/orchestrator/run_records/
             ./data/output/orchestrator/predictions/
+            ./data/output/orchestrator/models/
           retention-days: 30
