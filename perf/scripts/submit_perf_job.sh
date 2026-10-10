@@ -313,13 +313,25 @@ JOB_RUN_ID=$(aws emr-serverless start-job-run \
 echo "✓ Job Run iniciado: ${JOB_RUN_ID}"
 
 # Monitoreo
+MAX_POLL_FAILURES=5
+poll_failures=0
 while true; do
-  STATE=$(aws emr-serverless get-job-run \
+  if STATE=$(aws emr-serverless get-job-run \
     --region "${AWS_REGION}" \
     --application-id "${EMR_APPLICATION_ID}" \
     --job-run-id "${JOB_RUN_ID}" \
     --query "jobRun.state" \
-    --output text 2>/dev/null || echo "UNKNOWN")
+    --output text); then
+    poll_failures=0
+  else
+    STATE="UNKNOWN"
+    poll_failures=$((poll_failures + 1))
+    echo "WARN: get-job-run falló (${poll_failures}/${MAX_POLL_FAILURES})" >&2
+    if [[ "$poll_failures" -ge "$MAX_POLL_FAILURES" ]]; then
+      echo "ERROR: get-job-run falló ${MAX_POLL_FAILURES} veces seguidas; abortando monitoreo (job run ${JOB_RUN_ID} puede seguir activo)" >&2
+      break
+    fi
+  fi
 
   echo "[$(date +'%H:%M:%S')] Estado: ${STATE}"
 
