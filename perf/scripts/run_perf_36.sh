@@ -226,16 +226,19 @@ if [[ "$RUN_E2" == "true" ]]; then
   echo "  [Corrida Calentamiento] Condición A..."
   bash "${SCRIPT_DIR}/perf_clean_layer.sh" --bucket "${BUCKET_E2}" --layer bronze
   bash "${SCRIPT_DIR}/submit_perf_job.sh" --profile C3 --script 01_ingest_bronze.py --bronze-bucket "${BUCKET_E2}" --run-name "run-e2-warmup" --exp-tag E2
+  sleep 10
 
   # 6 corridas medidas alternadas: A1, B1, A2, B2, A3, B3
   for i in 1 2 3; do
     echo "  [Medición ${i}/3] Condición A (Job 01 original sin persist)..."
     bash "${SCRIPT_DIR}/perf_clean_layer.sh" --bucket "${BUCKET_E2}" --layer bronze
     bash "${SCRIPT_DIR}/submit_perf_job.sh" --profile C3 --script 01_ingest_bronze.py --bronze-bucket "${BUCKET_E2}" --run-name "run-e2-A${i}" --exp-tag E2
+    sleep 10
 
     echo "  [Medición ${i}/3] Condición B (Variante con persist MEMORY_AND_DISK)..."
     bash "${SCRIPT_DIR}/perf_clean_layer.sh" --bucket "${BUCKET_E2}" --layer bronze
     bash "${SCRIPT_DIR}/submit_perf_job.sh" --profile C3 --script e2_ingest_bronze_persist.py --bronze-bucket "${BUCKET_E2}" --run-name "run-e2-B${i}" --exp-tag E2
+    sleep 10
   done
 
   echo "-> 5.2 Auditando capas escritas con s_count_layers..."
