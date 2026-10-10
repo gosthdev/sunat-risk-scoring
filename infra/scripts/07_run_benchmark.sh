@@ -107,9 +107,8 @@ run_ingest() {
 
   local spark_params
   spark_params="--py-files ${PY_FILES_URI}"
-  for var in DATALAKE_BUCKET RAW_BUCKET BRONZE_BUCKET SILVER_BUCKET GOLD_BUCKET; do
-    spark_params+=" --conf spark.emr-serverless.driverEnv.${var}=${!var}"
-    spark_params+=" --conf spark.executorEnv.${var}=${!var}"
+    for conf in datetimeRebaseModeInWrite datetimeRebaseModeInRead int96RebaseModeInWrite int96RebaseModeInRead; do
+    spark_params+=" --conf spark.sql.parquet.${conf}=CORRECTED"
   done
 
   local job_driver
