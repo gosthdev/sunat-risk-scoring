@@ -1,0 +1,122 @@
+name: Train & Benchmark SSCO Models
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiments:
+        description: "Experimentos a ejecutar (ALL, o separados por comas: E1,E2,E5,E6)"
+        required: false
+        type: string
+        default: "ALL"
+      target:
+        description: "Entorno de ejecución (runner: rápido en GitHub Actions; sagemaker: oficial en AWS SageMaker)"
+        required: false
+        type: choice
+        options:
+          - runner
+          - sagemaker
+        default: "runner"
+      dataset_version:
+        description: "Versión del dataset en S3 o local"
+        required: false
+        type: string
+        default: "v01"
+      use_synthetic:
+        description: "Generar y usar dataset sintético (para pruebas de CI sin descargar de S3)"
+        required: false
+        type: boolean
+        default: false
+      gold_bucket:
+        description: "Bucket Gold de AWS S3 (dejar vacío para usar default de vars/secrets)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  train-and-benchmark:
+    name: Run ML Experiments Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          if [ -f src/models/requirements.txt ]; then pip install -r src/models/requirements.txt; fi
+
+      - name: Configure AWS Credentials (OIDC)
+        if: ${{ inputs.use_synthetic == false || inputs.target == 'sagemaker' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        continue-on-error: true
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Prepare Dataset (Download from S3 if Runner mode without synthetic)
+        if: ${{ inputs.target == 'runner' && inputs.use_synthetic == false }}
+        env:
+          GOLD_BUCKET: ${{ inputs.gold_bucket != '' && inputs.gold_bucket || vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
+          DATASET_VERSION: ${{ inputs.dataset_version }}
+        run: |
+          mkdir -p ./data/input
+          echo "Descargando dataset desde s3://${GOLD_BUCKET}/gold/model_inputs/dataset_version=${DATASET_VERSION}/"
+          if aws s3 cp "s3://${GOLD_BUCKET}/gold/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive; then
+            echo "Dataset descargado exitosamente."
+          else
+            echo "WARN: No se pudo descargar desde S3. Se activará fallback sintético si no hay datos locales."
+          fi
+
+      - name: Execute ML Orchestrator
+        env:
+          GOLD_BUCKET: ${{ inputs.gold_bucket != '' && inputs.gold_bucket || vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
+          SAGEMAKER_ROLE_ARN: ${{ vars.SAGEMAKER_ROLE_ARN || secrets.SAGEMAKER_ROLE_ARN || '' }}
+        run: |
+          OUTPUT_DIR="./data/output/orchestrator"
+          EXTRA_FLAGS=""
+
+          if [ "${{ inputs.use_synthetic }}" = "true" ]; then
+            EXTRA_FLAGS="--synthetic"
+          fi
+
+          TRAIN_ARG=""
+          if [ -d "./data/input" ] && [ "$(ls -A ./data/input 2>/dev/null)" ]; then
+            TRAIN_ARG="--train_dir ./data/input"
+          elif [ "${{ inputs.use_synthetic }}" != "true" ] && [ "${{ inputs.target }}" = "runner" ]; then
+            echo "No se detectaron archivos en ./data/input. Activando --synthetic para garantizar ejecución."
+            EXTRA_FLAGS="--synthetic"
+          fi
+
+          python -m src.models.orchestrator \
+            --config config/experiments.yml \
+            --experiments "${{ inputs.experiments }}" \
+            --target "${{ inputs.target }}" \
+            --output_dir "${OUTPUT_DIR}" \
+            --gold_bucket "${GOLD_BUCKET}" \
+            --output_summary_file "${GITHUB_STEP_SUMMARY}" \
+            ${TRAIN_ARG} \
+            ${EXTRA_FLAGS}
+
+      - name: Upload Experiment Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssco-experiment-artifacts-${{ github.run_id }}
+          path: |
+            ./data/output/orchestrator/leaderboard.json
+            ./data/output/orchestrator/leaderboard.md
+            ./data/output/orchestrator/run_records/
+            ./data/output/orchestrator/predictions/
+            ./data/output/orchestrator/models/
+          retention-days: 30

@@ -16,6 +16,7 @@ module = [
     "sklearn.*",
     "explainability",
     "export_outputs",
+    "yaml",
 ]
 ignore_missing_imports = true
 

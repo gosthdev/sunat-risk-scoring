@@ -48,6 +48,8 @@ def lanzar_training_job_manual(
     role_arn: str | None = None,
     gold_bucket: str | None = None,
     region: str = "us-east-1",
+    sagemaker_program: str = "train.py",
+    sagemaker_submit_directory: str | None = None,
 ) -> dict[str, Any]:
     """Crea y despacha un Training Job en SageMaker respetando el contrato C5."""
     if not gold_bucket:
@@ -126,6 +128,11 @@ def lanzar_training_job_manual(
             "MaxRuntimeInSeconds": 3600,
         },
         HyperParameters={
+            "sagemaker_program": sagemaker_program,
+            "sagemaker_submit_directory": (
+                sagemaker_submit_directory
+                or f"s3://{gold_bucket}/code/sourcedir.tar.gz"
+            ),
             "run_id": run_id,
             "model_name": model_name,
             "variant": variant,

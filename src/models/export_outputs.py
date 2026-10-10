@@ -7,7 +7,7 @@ Garantiza el cumplimiento estricto de:
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -103,7 +103,7 @@ def exportar_predicciones_y_run_record(
 
     run_record = {
         "run_id": args.run_id,
-        "fecha": datetime.now(timezone.utc).isoformat(),
+        "fecha": datetime.now(UTC).isoformat(),
         "git_commit": git_commit,
         "dataset_version": args.dataset_version,
         "variant": args.variant,
@@ -154,7 +154,9 @@ def _guardar_parquet(df: pd.DataFrame, path: str) -> None:
 
 def _guardar_single_line_json(record: dict[str, Any], path: str) -> None:
     """Guarda un diccionario como JSON de una sola línea estricta."""
-    json_str = json.dumps(record, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    json_str = json.dumps(
+        record, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    )
     if path.startswith("s3://"):
         try:
             import smart_open  # type: ignore[import-untyped]

@@ -188,6 +188,28 @@ resource "aws_iam_role_policy" "deploy_jobs" {
           "athena:GetDataCatalog"
         ]
         Resource = ["*"]
+      },
+      {
+        Sid    = "SageMakerTrainingJobsAccess"
+        Effect = "Allow"
+        Action = [
+          "sagemaker:CreateTrainingJob",
+          "sagemaker:DescribeTrainingJob",
+          "sagemaker:StopTrainingJob",
+          "sagemaker:ListTrainingJobs"
+        ]
+        Resource = ["*"]
+      },
+      {
+        Sid      = "PassSageMakerExecutionRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = [var.sagemaker_execution_role_arn != "" ? var.sagemaker_execution_role_arn : "arn:aws:iam::*:role/sunat-ssco-sagemaker-execution-role"]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "sagemaker.amazonaws.com"
+          }
+        }
       }
     ]
   })
