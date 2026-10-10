@@ -29,7 +29,7 @@ BRONZE_BUCKET = os.environ.get("BRONZE_BUCKET", "sunat-risk-scoring-bronze")
 def latest_partition(base_path):
     """Devuelve la última partición mes_referencia disponible."""
     dirs = wr.s3.list_directories(base_path)
-    return sorted(dirs)[-1] if dirs else base_path
+    return max(dirs) if dirs else base_path
 
 
 def contar(path):
