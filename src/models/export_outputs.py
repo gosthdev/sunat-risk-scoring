@@ -154,7 +154,9 @@ def _guardar_parquet(df: pd.DataFrame, path: str) -> None:
 
 def _guardar_single_line_json(record: dict[str, Any], path: str) -> None:
     """Guarda un diccionario como JSON de una sola línea estricta."""
-    json_str = json.dumps(record, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    json_str = json.dumps(
+        record, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    )
     if path.startswith("s3://"):
         try:
             import smart_open  # type: ignore[import-untyped]

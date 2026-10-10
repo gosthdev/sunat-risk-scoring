@@ -26,14 +26,18 @@ try:
     from src.models.launch_manual import lanzar_training_job_manual
     from src.models.train import main as train_main
 except ImportError:
-    from launch_manual import lanzar_training_job_manual  # type: ignore[import-not-found,no-redef]
+    from launch_manual import (
+        lanzar_training_job_manual,  # type: ignore[import-not-found,no-redef]
+    )
     from train import main as train_main  # type: ignore[import-not-found,no-redef]
 
 
 def cargar_configuracion(config_path: str) -> dict[str, Any]:
     """Carga y valida el archivo de configuración YAML de experimentos."""
     if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Archivo de configuración no encontrado: {config_path}")
+        raise FileNotFoundError(
+            f"Archivo de configuración no encontrado: {config_path}"
+        )
 
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
@@ -52,7 +56,9 @@ def filtrar_experimentos(
         return experimentos
 
     ids_permitidos = {x.strip().upper() for x in filtro.split(",") if x.strip()}
-    seleccionados = [e for e in experimentos if str(e.get("id", "")).upper() in ids_permitidos]
+    seleccionados = [
+        e for e in experimentos if str(e.get("id", "")).upper() in ids_permitidos
+    ]
 
     if not seleccionados:
         raise ValueError(
@@ -85,13 +91,17 @@ def generar_dataset_sintetico(
 
     n_ordenes = np.random.poisson(lam=5, size=n_rows)
     antiguedad = np.random.randint(1, 120, size=n_rows)
-    n_trabajadores = np.random.choice([0, 1, 3, 10, 50], size=n_rows, p=[0.4, 0.3, 0.15, 0.1, 0.05])
+    n_trabajadores = np.random.choice(
+        [0, 1, 3, 10, 50], size=n_rows, p=[0.4, 0.3, 0.15, 0.1, 0.05]
+    )
     sin_trabajadores = (n_trabajadores == 0).astype(int)
 
     ciius = np.random.choice(["4659", "4100", "4711", "9999", ""], size=n_rows)
     depts = np.random.choice(["LIMA", "AREQUIPA", "CUSCO", "LORETO", None], size=n_rows)
     tipos = np.random.choice(["SOCIEDAD ANONIMA", "PERSONA NATURAL"], size=n_rows)
-    estados = np.random.choice(["ACTIVO", "BAJA DE OFICIO", "SUSPENSION TEMPORAL"], size=n_rows)
+    estados = np.random.choice(
+        ["ACTIVO", "BAJA DE OFICIO", "SUSPENSION TEMPORAL"], size=n_rows
+    )
     condiciones = np.random.choice(["HABIDO", "NO HABIDO", "NO HALLADO"], size=n_rows)
 
     df = pd.DataFrame(
@@ -113,7 +123,9 @@ def generar_dataset_sintetico(
             "nro_trabajadores": n_trabajadores,
             "sin_trabajadores": sin_trabajadores,
             "monto_por_trabajador": montos / np.maximum(1, n_trabajadores),
-            "informalidad_epen_departamento": np.random.uniform(50.0, 85.0, size=n_rows),
+            "informalidad_epen_departamento": np.random.uniform(
+                50.0, 85.0, size=n_rows
+            ),
             "ciiu_principal": ciius,
             "actividad_economica_principal": ciius,
             "departamento": depts,
@@ -407,7 +419,15 @@ def generar_leaderboard_markdown(
             t_sec = r.get("train_seconds", 0.0)
 
             es_campeon = r_id == campeon_info.get("campeon_id")
-            badge = "🏆 **CHAMPION**" if es_campeon else ("Candidato Oficial" if variant == "V2" and pesos == "si" else ("Benchmark Techo" if variant == "V1" else "Ablación"))
+            badge = (
+                "🏆 **CHAMPION**"
+                if es_campeon
+                else (
+                    "Candidato Oficial"
+                    if variant == "V2" and pesos == "si"
+                    else ("Benchmark Techo" if variant == "V1" else "Ablación")
+                )
+            )
 
             lines.append(
                 f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | **{cv_mean:.4f}** (±{cv_std:.3f}) | {train_auc:.4f} | {gap:+.4f} | {t_sec:.1f}s | {badge} |"
@@ -421,16 +441,18 @@ def generar_leaderboard_markdown(
                 f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | *FALLÓ* | - | - | - | Error: {r.get('error', 'Desconocido')} |"
             )
 
-    lines.extend([
-        "",
-        "## Justificación de Selección de Modelo",
-        "",
-        "> [!IMPORTANT]",
-        f"> **Modelo Campeón Seleccionado:** `{campeon_info.get('campeon_model')}` (Experimento `{campeon_info.get('campeon_id')}`)",
-        "> ",
-        f"> {campeon_info.get('justificacion')}",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Justificación de Selección de Modelo",
+            "",
+            "> [!IMPORTANT]",
+            f"> **Modelo Campeón Seleccionado:** `{campeon_info.get('campeon_model')}` (Experimento `{campeon_info.get('campeon_id')}`)",
+            "> ",
+            f"> {campeon_info.get('justificacion')}",
+            "",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -505,7 +527,9 @@ def main(args_list: list[str] | None = None) -> int:
     todos_exp = config.get("experiments", [])
 
     seleccionados = filtrar_experimentos(todos_exp, args.experiments)
-    print(f"[INFO] Experimentos a ejecutar ({len(seleccionados)}): {[e['id'] for e in seleccionados]}")
+    print(
+        f"[INFO] Experimentos a ejecutar ({len(seleccionados)}): {[e['id'] for e in seleccionados]}"
+    )
     print(f"[INFO] Target de ejecución: {args.target}")
 
     dataset_path = args.train_dir
@@ -543,9 +567,7 @@ def main(args_list: list[str] | None = None) -> int:
 
     # Determinar Campeón y Leaderboard
     campeon_info = seleccionar_modelo_campeon(resultados)
-    md_summary = generar_leaderboard_markdown(
-        resultados, campeon_info, dataset_version
-    )
+    md_summary = generar_leaderboard_markdown(resultados, campeon_info, dataset_version)
 
     print("\n" + "=" * 60)
     print("                 LEADERBOARD FINAL")
