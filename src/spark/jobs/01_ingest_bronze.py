@@ -18,9 +18,18 @@ Asume que raw/ ya está particionado en carpetas Hive-style
 columnas automáticamente al leer el directorio base.
 
 Uso: spark-submit --py-files common.zip 01_ingest_bronze.py
+
+Argumentos opcionales (usados por infra/scripts/07_run_benchmark.sh para
+comparar escritura particionada vs. sin particionar; sin argumentos el
+comportamiento es el de producción: particionado y salida en bronze/):
+
+  --partition-mode {partitioned,unpartitioned}   (default: partitioned)
+  --output-root s3://bucket/prefix               (default: rutas BRONZE_* de s3_paths)
 """
 
+import argparse
 import sys
+import time
 
 from pyspark.sql.functions import col, lit, year
 from s3_paths import (
@@ -78,25 +87,51 @@ def _split_date_range_quarantine(df, date_columns):
     return clean, quarantined
 
 
+def _write_clean(df, path, partitioned):
+    """Escribe el DataFrame limpio, con o sin partitionBy("anio", "mes").
+
+    Sin particionar, "anio" y "mes" se conservan igual como columnas
+    normales dentro de los archivos Parquet.
+    """
+    writer = df.write.mode("overwrite")
+    if partitioned:
+        writer = writer.partitionBy("anio", "mes")
+    writer.parquet(path)
+
+
 def _write_if_not_empty(df, path):
     """Evita escribir un parquet vacío (y el costo de un job de escritura) si no hay filas."""
     if df.take(1):
         df.write.mode("overwrite").parquet(path)
 
 
-def ingest_padron_ruc(spark):
+def _resolve_paths(output_root):
+    """Rutas de salida: las de producción, o un árbol aislado si hay --output-root."""
+    if output_root is None:
+        return {
+            "padron": BRONZE_PADRON_RUC,
+            "padron_q": BRONZE_PADRON_RUC_QUARANTINE,
+            "oc": BRONZE_ORDENES_COMPRA,
+            "oc_q": BRONZE_ORDENES_COMPRA_QUARANTINE,
+        }
+    root = output_root.rstrip("/")
+    return {
+        "padron": f"{root}/padron_ruc",
+        "padron_q": f"{root}/quarantine/padron_ruc",
+        "oc": f"{root}/ordenes_compra",
+        "oc_q": f"{root}/quarantine/ordenes_compra",
+    }
+
+
+def ingest_padron_ruc(spark, paths, partitioned=True):
     raw_df = _read_raw(spark, RAW_PADRON_RUC, PADRON_RUC_SCHEMA)
     clean_df, quarantined_df = _split_schema_quarantine(raw_df)
 
-    (
-        clean_df.write.mode("overwrite")
-        .partitionBy("anio", "mes")
-        .parquet(BRONZE_PADRON_RUC)
-    )
-    _write_if_not_empty(quarantined_df, BRONZE_PADRON_RUC_QUARANTINE)
+    _write_clean(clean_df, paths["padron"], partitioned)
+    _write_if_not_empty(quarantined_df, paths["padron_q"])
 
 
-def ingest_ordenes_compra(spark):
+def ingest_ordenes_compra(spark, paths, partitioned=True):
     raw_df = _read_raw(spark, RAW_ORDENES_COMPRA, ORDENES_COMPRA_SCHEMA)
     schema_clean_df, schema_quarantined_df = _split_schema_quarantine(raw_df)
 
@@ -104,11 +139,7 @@ def ingest_ordenes_compra(spark):
         schema_clean_df, ORDENES_COMPRA_DATE_COLUMNS
     )
 
-    (
-        clean_df.write.mode("overwrite")
-        .partitionBy("anio", "mes")
-        .parquet(BRONZE_ORDENES_COMPRA)
-    )
+    _write_clean(clean_df, paths["oc"], partitioned)
 
     # Las dos fuentes de cuarentena (error de esquema y año fuera de rango)
     # se unifican en un solo parquet de cuarentena para esta tabla.
@@ -116,15 +147,36 @@ def ingest_ordenes_compra(spark):
         date_quarantined_df.withColumn(CORRUPT_COLUMN, lit(None).cast("string")),
         allowMissingColumns=True,
     )
-    _write_if_not_empty(all_quarantined_df, BRONZE_ORDENES_COMPRA_QUARANTINE)
+    _write_if_not_empty(all_quarantined_df, paths["oc_q"])
 
 
-def main():
+def _parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Ingesta raw -> bronze")
+    parser.add_argument(
+        "--partition-mode",
+        choices=["partitioned", "unpartitioned"],
+        default="partitioned",
+    )
+    parser.add_argument("--output-root", default=None)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    partitioned = args.partition_mode == "partitioned"
+    paths = _resolve_paths(args.output_root)
+
     spark = create_spark_session("01_ingest_bronze")
+    start = time.perf_counter()
     try:
-        ingest_padron_ruc(spark)
-        ingest_ordenes_compra(spark)
+        ingest_padron_ruc(spark, paths, partitioned)
+        ingest_ordenes_compra(spark, paths, partitioned)
     finally:
+        elapsed = time.perf_counter() - start
+        # Línea fácil de grepear en los logs del driver (stdout).
+        print(
+            f"BENCHMARK_RESULT mode={args.partition_mode} elapsed_seconds={elapsed:.2f}"
+        )
         spark.stop()
 
 
