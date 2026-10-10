@@ -87,7 +87,9 @@ def cargar_run_records(
                     continue
                 data = json.loads(line)
         except Exception as e:  # noqa: BLE001
-            registros_error.append({"archivo": archivo, "error": f"Error al leer JSON: {e!s}"})
+            registros_error.append(
+                {"archivo": archivo, "error": f"Error al leer JSON: {e!s}"}
+            )
             continue
 
         es_valido, lista_errores = validar_run_record(data)
