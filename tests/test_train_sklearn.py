@@ -14,9 +14,14 @@ import os
 import re
 import tempfile
 
+import pytest
+
+pytest.importorskip("numpy", reason="numpy is required for training tests")
+pytest.importorskip("pandas", reason="pandas is required for training tests")
+pytest.importorskip("sklearn", reason="scikit-learn is required for training tests")
+
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.models.explainability import (
     extraer_explicabilidad_lr,
