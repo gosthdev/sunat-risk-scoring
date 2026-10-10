@@ -103,6 +103,14 @@ run_crawler() {
   echo "Iniciando crawler: $name"
   aws glue start-crawler --name "$name"
 
+  # Fase 1: esperar a que el crawler abandone el READY inicial
+  for _ in {1..30}; do
+    state=$(aws glue get-crawler --name "$name" --query 'Crawler.State' --output text)
+    [[ "$state" == "RUNNING" || "$state" == "STOPPING" ]] && break
+    sleep 2
+  done
+
+  # Fase 2: esperar a que vuelva a READY
   while true; do
     state=$(aws glue get-crawler --name "$name" --query 'Crawler.State' --output text)
     [[ "$state" == "READY" ]] && break
