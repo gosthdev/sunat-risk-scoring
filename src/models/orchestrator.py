@@ -213,11 +213,13 @@ def ejecutar_experimento_runner(
         metricas_cv = record_data.get("metricas_cv", {})
         cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0))
         train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0))
-        fold_scores = [
-            float(metricas_cv[f"cv_pr_auc_fold_{i}"])
-            for i in range(5)
-            if f"cv_pr_auc_fold_{i}" in metricas_cv
-        ]
+        fold_scores = [float(x) for x in metricas_cv.get("cv_pr_auc_fold", [])]
+        if not fold_scores:
+            fold_scores = [
+                float(metricas_cv[f"cv_pr_auc_fold_{i}"])
+                for i in range(5)
+                if f"cv_pr_auc_fold_{i}" in metricas_cv
+            ]
         cv_std = float(np.std(fold_scores)) if fold_scores else 0.0
 
         return {
@@ -235,7 +237,10 @@ def ejecutar_experimento_runner(
             "train_pr_auc": train_pr_auc,
             "overfit_gap": round(train_pr_auc - cv_mean, 4),
             "train_seconds": elapsed,
-            "best_params": record_data.get("hiperparametros_optimos", {}),
+            "best_params": record_data.get(
+                "hiperparametros_ganadores",
+                record_data.get("hiperparametros_optimos", {}),
+            ),
             "record_file": record_file,
             "preds_file": preds_file,
         }
@@ -589,13 +594,21 @@ def main(args_list: list[str] | None = None) -> int:
             ensure_ascii=False,
         )
 
-    summary_file = args.output_summary_file or os.getenv("GITHUB_STEP_SUMMARY", "")
-    if not summary_file:
-        summary_file = os.path.join(args.output_dir, "leaderboard.md")
-
-    with open(summary_file, "w", encoding="utf-8") as f:
+    leaderboard_md_path = os.path.join(args.output_dir, "leaderboard.md")
+    with open(leaderboard_md_path, "w", encoding="utf-8") as f:
         f.write(md_summary)
-    print(f"\n[INFO] Leaderboard guardado en: {summary_file} y {json_path}")
+
+    summary_file = args.output_summary_file or os.getenv("GITHUB_STEP_SUMMARY", "")
+    if summary_file and os.path.abspath(summary_file) != os.path.abspath(
+        leaderboard_md_path
+    ):
+        with open(summary_file, "w", encoding="utf-8") as f:
+            f.write(md_summary)
+        print(
+            f"\n[INFO] Leaderboard guardado en: {leaderboard_md_path}, {summary_file} y {json_path}"
+        )
+    else:
+        print(f"\n[INFO] Leaderboard guardado en: {leaderboard_md_path} y {json_path}")
 
     # Si algún experimento falló, retornar 1
     if any(r.get("status") == "FAILED" for r in resultados):
