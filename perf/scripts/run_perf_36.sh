@@ -208,7 +208,8 @@ if [[ "$RUN_E1" == "true" ]]; then
   bash "${SCRIPT_DIR}/athena_bench.sh" || echo "WARN: Consulta Athena finalizada con advertencias."
 
   echo "-> 4.8 Consolidando métricas de E1..."
-  python3 "${REPO_ROOT}/perf/analysis/consolidate_runs.py" "${REPO_ROOT}/perf/results/E1/"*.json || true
+  python3 "${REPO_ROOT}/perf/analysis/consolidate_runs.py" "${REPO_ROOT}/perf/results/E1/"*.json --output-json "${REPO_ROOT}/perf/results/E1/summary.json" > "${REPO_ROOT}/perf/results/E1/summary.md" || true
+  cat "${REPO_ROOT}/perf/results/E1/summary.md" || true
   echo "✓ Experimento E1 finalizado exitosamente."
 fi
 
@@ -248,7 +249,8 @@ if [[ "$RUN_E2" == "true" ]]; then
     --exp-tag E2 || echo "WARN: Auditoría s_count_layers finalizada con advertencias."
 
   echo "-> 5.3 Consolidando métricas de E2..."
-  python3 "${REPO_ROOT}/perf/analysis/consolidate_runs.py" "${REPO_ROOT}/perf/results/E2/"*.json || true
+  python3 "${REPO_ROOT}/perf/analysis/consolidate_runs.py" "${REPO_ROOT}/perf/results/E2/"*.json --output-json "${REPO_ROOT}/perf/results/E2/summary.json" > "${REPO_ROOT}/perf/results/E2/summary.md" || true
+  cat "${REPO_ROOT}/perf/results/E2/summary.md" || true
   echo "✓ Experimento E2 finalizado exitosamente."
 fi
 

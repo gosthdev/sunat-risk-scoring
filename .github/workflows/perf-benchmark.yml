@@ -85,6 +85,22 @@ jobs:
           echo "Iniciando ejecución automatizada: bash perf/scripts/run_perf_36.sh $RUN_FLAG $EXTRA_FLAGS"
           bash perf/scripts/run_perf_36.sh $RUN_FLAG $EXTRA_FLAGS
 
+      - name: Publish Benchmark Dashboard to Job Summary
+        if: always()
+        run: |
+          echo "## 🚀 Dashboard de Rendimiento: Optimización 3.6" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f perf/results/E1/summary.md ]; then
+            echo "### 📊 Experimento E1: Poda de Particiones por Año/Mes (Padrón RUC)" >> $GITHUB_STEP_SUMMARY
+            cat perf/results/E1/summary.md >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f perf/results/E2/summary.md ]; then
+            echo "### 📊 Experimento E2: Persistencia contra Doble Lectura CSV (Job 01)" >> $GITHUB_STEP_SUMMARY
+            cat perf/results/E2/summary.md >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Archive Benchmark Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
