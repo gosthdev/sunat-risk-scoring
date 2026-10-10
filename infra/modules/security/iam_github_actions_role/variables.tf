@@ -50,3 +50,9 @@ variable "glue_crawler_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "sagemaker_execution_role_arn" {
+  description = "ARN del rol de ejecución de SageMaker para pass_role."
+  type        = string
+  default     = ""
+}
