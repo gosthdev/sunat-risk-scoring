@@ -150,6 +150,7 @@ if [[ "$RUN_E1" == "true" ]]; then
     --profile C3 \
     --executor-disk 100g \
     --script e1_make_layouts.py \
+    --job-args "--staging-input s3://${BUCKET_P}/staging/padron_ruc --output-p s3://${BUCKET_P}/silver/padron_ruc --output-n s3://${BUCKET_N}/silver/padron_ruc" \
     --run-name "e1-make-layouts" \
     --condition "setup" \
     --exp-tag E1
