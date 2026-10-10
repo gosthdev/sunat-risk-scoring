@@ -24,17 +24,18 @@ htmlcov/
 .ipynb_checkpoints/
 *.ipynb
 
-# ── Data ──────────────────────────────────────────────────────
-data/raw/*
-data/processed/*
-data/silver/*
-data/artifacts/*
+# ── Data & Performance Artifacts ──────────────────────────────
+data/
 *.csv
 *.parquet
 *.json.gz
 *.orc
 *.avro
+*.tar
+*.tar.gz
 common.zip
+perf/dist/
+perf/results/
 
 # ── Models ────────────────────────────────────────────────────
 models/*.pkl
@@ -42,6 +43,8 @@ models/*.joblib
 models/*.h5
 models/*.pt
 models/*.onnx
+*.pkl
+*.joblib
 
 # ── AWS ───────────────────────────────────────────────────────
 .aws/
