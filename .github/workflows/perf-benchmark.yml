@@ -49,6 +49,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.5.7"
+          terraform_wrapper: false
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -67,6 +68,7 @@ jobs:
           ARTIFACTS_BUCKET: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
           TF_VAR_aws_profile: ""
           TF_VAR_aws_region: ${{ inputs.aws_region != '' && inputs.aws_region || vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+          TF_VAR_artifacts_bucket_name: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
         run: |
           RUN_FLAG="--all"
           if [ "${{ inputs.experiment }}" = "e1-only" ]; then
