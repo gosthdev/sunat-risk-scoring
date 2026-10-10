@@ -97,7 +97,8 @@ def generar_dataset_sintetico(
     sin_trabajadores = (n_trabajadores == 0).astype(int)
 
     ciius = np.random.choice(["4659", "4100", "4711", "9999", ""], size=n_rows)
-    depts = np.random.choice(["LIMA", "AREQUIPA", "CUSCO", "LORETO", None], size=n_rows)
+    dept_choices = np.array(["LIMA", "AREQUIPA", "CUSCO", "LORETO", None], dtype=object)
+    depts = np.random.choice(dept_choices, size=n_rows)
     tipos = np.random.choice(["SOCIEDAD ANONIMA", "PERSONA NATURAL"], size=n_rows)
     estados = np.random.choice(
         ["ACTIVO", "BAJA DE OFICIO", "SUSPENSION TEMPORAL"], size=n_rows
