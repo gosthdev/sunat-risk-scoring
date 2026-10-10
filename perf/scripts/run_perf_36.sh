@@ -148,6 +148,7 @@ if [[ "$RUN_E1" == "true" ]]; then
   echo "-> 4.2 Generando layouts P (particionado) y N (sin particionar)..."
   bash "${SCRIPT_DIR}/submit_perf_job.sh" \
     --profile C3 \
+    --executor-disk 100g \
     --script e1_make_layouts.py \
     --run-name "e1-make-layouts" \
     --condition "setup" \

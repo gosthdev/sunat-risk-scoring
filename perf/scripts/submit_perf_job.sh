@@ -24,11 +24,20 @@ SCRIPT_NAME="perf_runner.py"
 JOB_ARGS=""
 RUN_NAME="perf-run"
 EXP_TAG="misc"
+EXECUTOR_DISK_ARG=""
+S3A_BUFFER_ARG=""
+S3A_MULTIPART_SIZE_ARG=""
+EXTRA_CONFS=()
+DRY_RUN=false
 
 usage() {
   echo "Uso: $0 [opciones]"
   echo "Opciones:"
   echo "  --profile <C1|C3|C7>               Perfil de recursos (default: C3)"
+  echo "  --executor-disk <disk>             Tamaño de disco del executor (ej. 100g, 200g)"
+  echo "  --s3a-buffer <bytebuffer|array|disk> Modo de buffer S3A Fast Upload (default: bytebuffer)"
+  echo "  --s3a-multipart-size <size>        Tamaño de partición S3A multipart (default: 64M)"
+  echo "  --conf <clave=valor>               Configuración Spark adicional (repetible)"
   echo "  --script <nombre_script.py>        Script de entrada (default: perf_runner.py)"
   echo "  --job-args \"<argumentos>\"          Argumentos pasados al script"
   echo "  --run-name <nombre>                Nombre identificador del job run"
@@ -37,6 +46,7 @@ usage() {
   echo "  --bronze-bucket <bucket>           Bucket para BRONZE_BUCKET"
   echo "  --silver-bucket <bucket>           Bucket para SILVER_BUCKET"
   echo "  --gold-bucket <bucket>             Bucket para GOLD_BUCKET"
+  echo "  --dry-run                          Solo imprime los parámetros sin lanzar el job en AWS"
   exit 1
 }
 
@@ -50,6 +60,22 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile|-p)
       PROFILE="$2"
+      shift 2
+      ;;
+    --executor-disk)
+      EXECUTOR_DISK_ARG="$2"
+      shift 2
+      ;;
+    --s3a-buffer)
+      S3A_BUFFER_ARG="$2"
+      shift 2
+      ;;
+    --s3a-multipart-size)
+      S3A_MULTIPART_SIZE_ARG="$2"
+      shift 2
+      ;;
+    --conf|--extra-conf)
+      EXTRA_CONFS+=("$2")
       shift 2
       ;;
     --script|-s)
@@ -88,6 +114,10 @@ while [[ $# -gt 0 ]]; do
       GOLD_BUCKET_VAL="$2"
       shift 2
       ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
     *)
       usage
       ;;
@@ -111,7 +141,22 @@ else
   SPARK_EXECUTOR_MEMORY="14g"
   SPARK_EXECUTOR_INSTANCES=3
   SPARK_DYNAMIC_ALLOCATION="false"
-  SPARK_EXECUTOR_DISK="20g"
+  SPARK_EXECUTOR_DISK="100g"
+fi
+
+# Configuración S3A con fallback por defecto a bytebuffer y 64M
+S3A_FAST_UPLOAD_BUFFER="${S3A_FAST_UPLOAD_BUFFER:-bytebuffer}"
+S3A_MULTIPART_SIZE="${S3A_MULTIPART_SIZE:-64M}"
+
+# Sobrescrituras explícitas por línea de comandos
+if [[ -n "$EXECUTOR_DISK_ARG" ]]; then
+  SPARK_EXECUTOR_DISK="$EXECUTOR_DISK_ARG"
+fi
+if [[ -n "$S3A_BUFFER_ARG" ]]; then
+  S3A_FAST_UPLOAD_BUFFER="$S3A_BUFFER_ARG"
+fi
+if [[ -n "$S3A_MULTIPART_SIZE_ARG" ]]; then
+  S3A_MULTIPART_SIZE="$S3A_MULTIPART_SIZE_ARG"
 fi
 
 # Detectar Application ID si no fue provista
@@ -144,6 +189,9 @@ SPARK_PARAMS="--py-files ${PY_FILES} \
 --conf spark.executor.instances=${SPARK_EXECUTOR_INSTANCES} \
 --conf spark.dynamicAllocation.enabled=${SPARK_DYNAMIC_ALLOCATION} \
 --conf spark.emr-serverless.executor.disk=${SPARK_EXECUTOR_DISK} \
+--conf spark.hadoop.fs.s3a.fast.upload=true \
+--conf spark.hadoop.fs.s3a.fast.upload.buffer=${S3A_FAST_UPLOAD_BUFFER} \
+--conf spark.hadoop.fs.s3a.multipart.size=${S3A_MULTIPART_SIZE} \
 --conf spark.emr-serverless.driverEnv.RAW_BUCKET=${RAW_BUCKET_VAL} \
 --conf spark.driverEnv.RAW_BUCKET=${RAW_BUCKET_VAL} \
 --conf spark.executorEnv.RAW_BUCKET=${RAW_BUCKET_VAL} \
@@ -156,6 +204,10 @@ SPARK_PARAMS="--py-files ${PY_FILES} \
 --conf spark.emr-serverless.driverEnv.GOLD_BUCKET=${GOLD_BUCKET_VAL} \
 --conf spark.driverEnv.GOLD_BUCKET=${GOLD_BUCKET_VAL} \
 --conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET_VAL}"
+
+for extra_conf in "${EXTRA_CONFS[@]}"; do
+  SPARK_PARAMS="${SPARK_PARAMS} --conf ${extra_conf}"
+done
 
 # Parse entry point arguments to JSON array
 ARGS_ARRAY="[]"
@@ -188,11 +240,18 @@ fi
 echo "========================================================================"
 echo "Lanzando Perf Job: ${RUN_NAME} [Git SHA: ${GIT_SHA}]"
 echo "Aplicación ID   : ${EMR_APPLICATION_ID}"
-echo "Perfil          : ${PROFILE} (Executors: ${SPARK_EXECUTOR_INSTANCES}, Disk: ${SPARK_EXECUTOR_DISK})"
+echo "Perfil          : ${PROFILE} (Executors: ${SPARK_EXECUTOR_INSTANCES}, Disk: ${SPARK_EXECUTOR_DISK}, S3A Buffer: ${S3A_FAST_UPLOAD_BUFFER}, PartSize: ${S3A_MULTIPART_SIZE})"
 echo "Script          : ${ENTRY_POINT}"
 echo "Args            : ${JOB_ARGS}"
 echo "Condición       : ${CONDITION}"
 echo "========================================================================"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "[submit_perf_job] Modo Dry-Run activo. Parámetros construidos con éxito."
+  echo "SPARK_PARAMS: ${SPARK_PARAMS}"
+  echo "ARGS_ARRAY  : ${ARGS_ARRAY}"
+  exit 0
+fi
 
 JOB_RUN_ID=$(aws emr-serverless start-job-run \
   --region "${AWS_REGION}" \
