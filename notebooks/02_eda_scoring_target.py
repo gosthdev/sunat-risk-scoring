@@ -13,8 +13,6 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-import pandas as pd
-import numpy as np
 import awswrangler as wr
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -201,16 +199,24 @@ df_c["label"] = df_c["es_ssco"].apply(lambda x: "SSCO" if x else "No SSCO")
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
 sns.boxplot(
-    data=df_c, x="label", y="cantidad_contratos_estado", ax=axes[0],
-    palette={"No SSCO": "#2ecc71", "SSCO": "#e74c3c"}, showfliers=False,
+    data=df_c,
+    x="label",
+    y="cantidad_contratos_estado",
+    ax=axes[0],
+    palette={"No SSCO": "#2ecc71", "SSCO": "#e74c3c"},
+    showfliers=False,
 )
 axes[0].set_title("Cantidad de contratos (sin outliers)")
 axes[0].set_yscale("log")
 axes[0].set_xlabel("")
 
 sns.boxplot(
-    data=df_c, x="label", y="monto_total_contratado_estado", ax=axes[1],
-    palette={"No SSCO": "#2ecc71", "SSCO": "#e74c3c"}, showfliers=False,
+    data=df_c,
+    x="label",
+    y="monto_total_contratado_estado",
+    ax=axes[1],
+    palette={"No SSCO": "#2ecc71", "SSCO": "#e74c3c"},
+    showfliers=False,
 )
 axes[1].set_title("Monto total contratado (sin outliers)")
 axes[1].set_yscale("log")
@@ -221,10 +227,17 @@ plt.tight_layout()
 plt.show()
 
 print("Cantidad de contratos (percentiles):")
-print(df_c.groupby("label")["cantidad_contratos_estado"].describe().round(2).to_string())
+print(
+    df_c.groupby("label")["cantidad_contratos_estado"].describe().round(2).to_string()
+)
 print()
 print("Monto total contratado (percentiles):")
-print(df_c.groupby("label")["monto_total_contratado_estado"].describe().round(2).to_string())
+print(
+    df_c.groupby("label")["monto_total_contratado_estado"]
+    .describe()
+    .round(2)
+    .to_string()
+)
 
 # %% [markdown]
 # **Interpretación:** Si los SSCO muestran medianas similares o menores
@@ -255,8 +268,14 @@ corr = df_corr.corr()
 
 fig, ax = plt.subplots(figsize=(7, 5))
 sns.heatmap(
-    corr, annot=True, cmap="RdBu_r", center=0, fmt=".2f",
-    square=True, ax=ax, linewidths=0.5,
+    corr,
+    annot=True,
+    cmap="RdBu_r",
+    center=0,
+    fmt=".2f",
+    square=True,
+    ax=ax,
+    linewidths=0.5,
 )
 ax.set_title("Matriz de correlación — Features numéricas + target")
 plt.tight_layout()

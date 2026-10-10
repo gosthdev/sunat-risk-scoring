@@ -11,8 +11,6 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-import pandas as pd
-import numpy as np
 import awswrangler as wr
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -36,8 +34,14 @@ df.head()
 # %%
 fig, ax = plt.subplots(figsize=(10, 7))
 ax.scatter(
-    df["pct_informalidad"], df["ruc_activos"],
-    s=100, alpha=0.7, c="#3498db", edgecolors="white", linewidth=0.5, zorder=5,
+    df["pct_informalidad"],
+    df["ruc_activos"],
+    s=100,
+    alpha=0.7,
+    c="#3498db",
+    edgecolors="white",
+    linewidth=0.5,
+    zorder=5,
 )
 
 for _, row in df.iterrows():
@@ -125,8 +129,13 @@ plt.show()
 
 # %%
 tabla = df[
-    ["Departamento", "ruc_activos", "pct_informalidad",
-     "recaudacion_soles", "concentracion_pricos"]
+    [
+        "Departamento",
+        "ruc_activos",
+        "pct_informalidad",
+        "recaudacion_soles",
+        "concentracion_pricos",
+    ]
 ].copy()
 tabla["recaudacion_MM"] = (tabla["recaudacion_soles"] / 1e6).round(2)
 tabla["pct_informalidad"] = tabla["pct_informalidad"].round(2)

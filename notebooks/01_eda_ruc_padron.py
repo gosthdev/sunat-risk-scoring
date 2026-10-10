@@ -12,8 +12,6 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-import pandas as pd
-import numpy as np
 import awswrangler as wr
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -45,11 +43,16 @@ print(f"Registros: {total:,}")
 estado = df["Estado"].value_counts()
 
 fig, ax = plt.subplots(figsize=(8, 4))
-bars = ax.barh(estado.index, estado.values, color=sns.color_palette("viridis", len(estado)))
+bars = ax.barh(
+    estado.index, estado.values, color=sns.color_palette("viridis", len(estado))
+)
 for bar, val in zip(bars, estado.values):
     ax.text(
-        bar.get_width(), bar.get_y() + bar.get_height() / 2,
-        f"  {val:,} ({val / total * 100:.1f}%)", va="center", fontsize=9,
+        bar.get_width(),
+        bar.get_y() + bar.get_height() / 2,
+        f"  {val:,} ({val / total * 100:.1f}%)",
+        va="center",
+        fontsize=9,
     )
 ax.set_xlabel("Cantidad de RUCs")
 ax.set_title("Distribución por Estado del Contribuyente")
@@ -76,8 +79,11 @@ fig, ax = plt.subplots(figsize=(8, 4))
 bars = ax.barh(cond.index, cond.values, color=sns.color_palette("magma", len(cond)))
 for bar, val in zip(bars, cond.values):
     ax.text(
-        bar.get_width(), bar.get_y() + bar.get_height() / 2,
-        f"  {val:,} ({val / total * 100:.1f}%)", va="center", fontsize=9,
+        bar.get_width(),
+        bar.get_y() + bar.get_height() / 2,
+        f"  {val:,} ({val / total * 100:.1f}%)",
+        va="center",
+        fontsize=9,
     )
 ax.set_xlabel("Cantidad de RUCs")
 ax.set_title("Distribución por Condición de Domicilio")
@@ -98,7 +104,9 @@ plt.show()
 # Solo se grafican RUCs con monto > 0.
 
 # %%
-montos = df.loc[df["monto_total_contratado_estado"] > 0, "monto_total_contratado_estado"]
+montos = df.loc[
+    df["monto_total_contratado_estado"] > 0, "monto_total_contratado_estado"
+]
 
 fig, ax = plt.subplots()
 ax.hist(montos, bins=60, color="#2ecc71", edgecolor="white")
@@ -106,11 +114,15 @@ ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_xlabel("Monto total contratado (S/.) — escala log")
 ax.set_ylabel("Frecuencia (escala log)")
-ax.set_title("Distribución del monto total contratado con el Estado (RUCs con monto > 0)")
+ax.set_title(
+    "Distribución del monto total contratado con el Estado (RUCs con monto > 0)"
+)
 plt.tight_layout()
 plt.show()
 
-print(f"RUCs con monto > 0: {len(montos):,} de {total:,} ({len(montos) / total * 100:.2f}%)")
+print(
+    f"RUCs con monto > 0: {len(montos):,} de {total:,} ({len(montos) / total * 100:.2f}%)"
+)
 print(montos.describe().round(2).to_string())
 
 # %% [markdown]
@@ -134,11 +146,15 @@ ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_xlabel("Cantidad de contratos — escala log")
 ax.set_ylabel("Frecuencia (escala log)")
-ax.set_title("Distribución de la cantidad de contratos con el Estado (RUCs con contratos > 0)")
+ax.set_title(
+    "Distribución de la cantidad de contratos con el Estado (RUCs con contratos > 0)"
+)
 plt.tight_layout()
 plt.show()
 
-print(f"RUCs con contratos > 0: {len(contratos):,} de {total:,} ({len(contratos) / total * 100:.2f}%)")
+print(
+    f"RUCs con contratos > 0: {len(contratos):,} de {total:,} ({len(contratos) / total * 100:.2f}%)"
+)
 print(contratos.describe().round(2).to_string())
 
 # %% [markdown]
@@ -167,7 +183,9 @@ ax.set_title("Distribución de antigüedad de contratación con el Estado")
 plt.tight_layout()
 plt.show()
 
-print(f"RUCs con antigüedad calculable: {len(antig):,} de {total:,} ({len(antig) / total * 100:.2f}%)")
+print(
+    f"RUCs con antigüedad calculable: {len(antig):,} de {total:,} ({len(antig) / total * 100:.2f}%)"
+)
 print(antig.describe().round(0).to_string())
 
 # %% [markdown]
@@ -196,7 +214,9 @@ ax.set_title("Proporción de Principales Contribuyentes (PRICOS)")
 plt.tight_layout()
 plt.show()
 
-print(f"PRICOS: {prico.get(True, 0):,} de {total:,} ({prico.get(True, 0) / total * 100:.4f}%)")
+print(
+    f"PRICOS: {prico.get(True, 0):,} de {total:,} ({prico.get(True, 0) / total * 100:.4f}%)"
+)
 
 # %% [markdown]
 # **Interpretación:** Los PRICOS representan una fracción mínima del total
