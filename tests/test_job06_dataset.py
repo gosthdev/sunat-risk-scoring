@@ -250,7 +250,18 @@ class TestJob06Dataset(unittest.TestCase):
         assert self.spark is not None
         rows = [
             (20100000001, "4659", "LIMA", None, 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
-            (20100000002, "4659", "LIMA", "SOCIEDAD ANONIMA CERRADA", 1.0, 0, 100.0, 1, "ACTIVO", "HABIDO"),
+            (
+                20100000002,
+                "4659",
+                "LIMA",
+                "SOCIEDAD ANONIMA CERRADA",
+                1.0,
+                0,
+                100.0,
+                1,
+                "ACTIVO",
+                "HABIDO",
+            ),
             (
                 20100000003,
                 "4659",
@@ -292,4 +303,3 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertIsNone(res["20100000001"])
         self.assertEqual(res["20100000002"], "SOCIEDAD ANONIMA CERRADA")
         self.assertEqual(res["20100000003"], "SOCIEDAD ANONIMA")
-
