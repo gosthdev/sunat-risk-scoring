@@ -110,7 +110,7 @@ def main():
                         f"[INFO] Predicciones cargadas para run_id '{run_id}' desde: {c}"
                     )
                     break
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     print(f"[ALERTA] Error al leer predicciones de {c}: {e}")
 
     # Consolidar
