@@ -10,6 +10,7 @@ mejor del perdedor; si no, es 'no concluyente'".
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -25,20 +26,42 @@ def parse_job_run_json(file_path: Path) -> dict[str, Any]:
     utilization = job_run.get("totalResourceUtilization", {})
 
     # Duración total de ejecución reportada por EMR (segundos)
-    total_exec_time = job_run.get("totalExecutionTime", 0)
+    total_exec_time = (
+        job_run.get("totalExecutionDurationSeconds")
+        or job_run.get("totalExecutionTime")
+        or 0
+    )
+
+    vcpu = utilization.get("vCPUHour") or utilization.get("vCPUHours") or 0.0
+    mem = utilization.get("memoryGBHour") or utilization.get("memoryGBHours") or 0.0
+    storage = (
+        utilization.get("storageGBHour") or utilization.get("storageGBHours") or 0.0
+    )
+
+    name = job_run.get("name", "unknown")
+    condition = tags.get("Condition")
+    if not condition or condition == "unknown":
+        if "warmup" in name.lower():
+            condition = "warmup"
+        else:
+            match = re.search(r"[-_]([A-Za-z]+)\d*$", name)
+            if match:
+                condition = match.group(1).upper()
+            else:
+                condition = "unknown"
 
     return {
         "job_run_id": job_run.get("jobRunId", file_path.stem),
-        "name": job_run.get("name", "unknown"),
+        "name": name,
         "state": job_run.get("state", "UNKNOWN"),
         "created_at": str(job_run.get("createdAt", "")),
         "total_execution_seconds": total_exec_time,
-        "vcpu_hours": round(utilization.get("vCPUHours", 0.0), 4),
-        "memory_gb_hours": round(utilization.get("memoryGBHours", 0.0), 4),
-        "storage_gb_hours": round(utilization.get("storageGBHours", 0.0), 4),
+        "vcpu_hours": round(float(vcpu), 4),
+        "memory_gb_hours": round(float(mem), 4),
+        "storage_gb_hours": round(float(storage), 4),
         "git_sha": tags.get("GitSHA", "unknown"),
         "profile": tags.get("Profile", "unknown"),
-        "condition": tags.get("Condition", "unknown"),
+        "condition": condition,
         "file": str(file_path),
     }
 
@@ -49,23 +72,34 @@ def analyze_runs(
     if not runs:
         return {"error": "No se encontraron ejecuciones para analizar."}
 
+    # Descartar corridas de calentamiento si se solicita
+    if discard_warmup:
+        active_runs = [
+            r
+            for r in runs
+            if r["condition"] != "warmup" and "warmup" not in r["name"].lower()
+        ]
+    else:
+        active_runs = runs
+
+    if not active_runs:
+        return {"error": "Solo se encontraron corridas de calentamiento."}
+
     # Separar por condición (ej. A vs B, o N vs P)
     by_condition: dict[str, list[dict[str, Any]]] = {}
-    for r in runs:
-        cond = (
-            r["condition"] if r["condition"] != "unknown" else r["name"].split("_")[-1]
-        )
-        by_condition.setdefault(cond, []).append(r)
+    for r in active_runs:
+        by_condition.setdefault(r["condition"], []).append(r)
 
     results: dict[str, Any] = {"conditions": {}, "comparison": None}
 
     stats_by_cond: dict[str, dict[str, float]] = {}
 
     for cond, cond_runs in by_condition.items():
-        # Descartar calentamiento si se solicita y hay más de 1 corrida
-        measured = (
-            cond_runs[1:] if (discard_warmup and len(cond_runs) > 1) else cond_runs
-        )
+        measured = [
+            r
+            for r in cond_runs
+            if not (discard_warmup and "warmup" in r["name"].lower())
+        ]
         times = [
             r["total_execution_seconds"]
             for r in measured
