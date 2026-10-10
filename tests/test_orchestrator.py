@@ -12,6 +12,7 @@ pytest.importorskip("sklearn", reason="scikit-learn is required for orchestrator
 
 from src.models.orchestrator import (
     cargar_configuracion,
+    ejecutar_experimento_runner,
     filtrar_experimentos,
     generar_dataset_sintetico,
     generar_leaderboard_markdown,
@@ -219,3 +220,134 @@ def test_orchestrator_main_end_to_end():
             assert len(exp0["cv_folds"]) == 5
             assert exp0["cv_pr_auc_std"] > 0
             assert exp0["best_params"] != {}
+
+
+def test_orchestrator_main_nested_summary_file():
+    """Verifica que el orquestador cree directorios padres inexistentes para output_summary_file."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        nested_summary = os.path.join(tmp_dir, "nested", "deep", "custom_summary.md")
+        cli_args = [
+            "--config",
+            "config/experiments.yml",
+            "--experiments",
+            "E1",
+            "--synthetic",
+            "--output_dir",
+            tmp_dir,
+            "--output_summary_file",
+            nested_summary,
+        ]
+
+        exit_code = orchestrator_main(cli_args)
+        assert exit_code == 0
+        assert os.path.exists(nested_summary)
+        leaderboard_md = os.path.join(tmp_dir, "leaderboard.md")
+        assert os.path.exists(leaderboard_md)
+
+
+def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
+    """Verifica la robustez en la extracción de métricas de CV y mejores parámetros ante formatos diversos."""
+    import numpy as np
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Mocking train_main para simular distintos run_record.json
+        exp = {
+            "id": "E1",
+            "model_name": "LR",
+            "variant": "V2",
+            "usa_pesos": "si",
+            "hyperparameters": {"param_grid": {"model__C": [0.1]}},
+        }
+
+        # Caso 1: Formato canónico C3 (lista y hiperparametros_ganadores)
+        def mock_train_c3(args_list):
+            rec_idx = args_list.index("--ruta_salida_run_record")
+            rec_path = args_list[rec_idx + 1]
+            os.makedirs(os.path.dirname(rec_path), exist_ok=True)
+            with open(rec_path, "w", encoding="utf-8") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "metricas_cv": {
+                                "cv_pr_auc_mean": 0.35,
+                                "cv_pr_auc_fold": [0.31, 0.33, 0.37, 0.39, 0.35],
+                                "train_pr_auc": 0.40,
+                            },
+                            "hiperparametros_ganadores": {"model__C": 0.1},
+                        }
+                    )
+                    + "\n"
+                )
+            return 0
+
+        monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_c3)
+        res1 = ejecutar_experimento_runner(
+            exp, tmp_dir, tmp_dir, 42, "v01"
+        )
+        assert res1["status"] == "SUCCESS"
+        assert res1["cv_folds"] == [0.31, 0.33, 0.37, 0.39, 0.35]
+        assert np.isclose(res1["cv_pr_auc_std"], float(np.std([0.31, 0.33, 0.37, 0.39, 0.35])))
+        assert res1["best_params"] == {"model__C": 0.1}
+
+        # Caso 2: Formato legado con escalares y hiperparametros_optimos
+        def mock_train_legacy(args_list):
+            rec_idx = args_list.index("--ruta_salida_run_record")
+            rec_path = args_list[rec_idx + 1]
+            with open(rec_path, "w", encoding="utf-8") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "metricas_cv": {
+                                "cv_pr_auc_mean": 0.28,
+                                "cv_pr_auc_fold_0": 0.25,
+                                "cv_pr_auc_fold_1": 0.29,
+                                "cv_pr_auc_fold_2": 0.30,
+                                "cv_pr_auc_fold_3": 0.26,
+                                "cv_pr_auc_fold_4": 0.30,
+                                "train_pr_auc": 0.32,
+                            },
+                            "hiperparametros_optimos": {"model__C": 1.0},
+                        }
+                    )
+                    + "\n"
+                )
+            return 0
+
+        monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_legacy)
+        res2 = ejecutar_experimento_runner(
+            exp, tmp_dir, tmp_dir, 42, "v01"
+        )
+        assert res2["status"] == "SUCCESS"
+        assert res2["cv_folds"] == [0.25, 0.29, 0.30, 0.26, 0.30]
+        assert res2["cv_pr_auc_std"] > 0
+        assert res2["best_params"] == {"model__C": 1.0}
+
+        # Caso 3: Valores nulos en JSON (cv_pr_auc_fold = null, hiperparametros_ganadores = null)
+        def mock_train_nulls(args_list):
+            rec_idx = args_list.index("--ruta_salida_run_record")
+            rec_path = args_list[rec_idx + 1]
+            with open(rec_path, "w", encoding="utf-8") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "metricas_cv": {
+                                "cv_pr_auc_mean": None,
+                                "cv_pr_auc_fold": None,
+                                "train_pr_auc": None,
+                            },
+                            "hiperparametros_ganadores": None,
+                        }
+                    )
+                    + "\n"
+                )
+            return 0
+
+        monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_nulls)
+        res3 = ejecutar_experimento_runner(
+            exp, tmp_dir, tmp_dir, 42, "v01"
+        )
+        assert res3["status"] == "SUCCESS"
+        assert res3["cv_folds"] == []
+        assert res3["cv_pr_auc_std"] == 0.0
+        assert res3["best_params"] == {}
+

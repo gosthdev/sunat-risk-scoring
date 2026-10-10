@@ -337,3 +337,42 @@ def test_explainability(synthetic_dataframe):
     rules = extraer_reglas_dt(dt_pipe, dt_names)
     assert isinstance(rules, str)
     assert len(rules) > 0
+
+
+def test_train_main_custom_param_grid(synthetic_dataframe):
+    """Verifica que train_main respete una grilla personalizada vía --param_grid_json."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        parquet_path = os.path.join(tmp_dir, "train_data.parquet")
+        synthetic_dataframe.to_parquet(parquet_path, index=False)
+
+        custom_grid = json.dumps({"model__C": [0.05]})
+        cli_args = [
+            "--train_dir",
+            parquet_path,
+            "--model_dir",
+            os.path.join(tmp_dir, "model"),
+            "--output_dir",
+            os.path.join(tmp_dir, "output"),
+            "--run_id",
+            "test-custom-grid-run",
+            "--model_name",
+            "LR",
+            "--variant",
+            "V2",
+            "--usa_pesos",
+            "si",
+            "--param_grid_json",
+            custom_grid,
+        ]
+
+        exit_code = train_main(cli_args)
+        assert exit_code == 0
+
+        record_file = os.path.join(
+            tmp_dir, "output", "run_record_test-custom-grid-run.json"
+        )
+        assert os.path.exists(record_file)
+        with open(record_file, "r", encoding="utf-8") as f:
+            record_data = json.loads(f.readline().strip())
+        assert record_data["hiperparametros_ganadores"].get("C") == 0.05
+
