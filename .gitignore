@@ -99,3 +99,8 @@ verificar_*.py
 scratch/
 tmp/
 temp/
+
+# ── MLflow ────────────────────────────────────────────────────
+mlruns/
+mlflow.db
+*.db
