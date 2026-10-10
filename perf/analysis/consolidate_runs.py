@@ -40,13 +40,26 @@ def parse_job_run_json(file_path: Path) -> dict[str, Any]:
 
     name = job_run.get("name", "unknown")
     condition = tags.get("Condition")
-    if not condition or condition == "unknown":
+    if not condition or condition.lower() == "unknown":
         if "warmup" in name.lower():
             condition = "warmup"
+        elif "make-layouts" in name.lower() or "make_layouts" in name.lower():
+            condition = "setup"
+        elif (
+            "compare-outputs" in name.lower()
+            or "compare_outputs" in name.lower()
+            or "count-layers" in name.lower()
+            or "audit-layers" in name.lower()
+        ):
+            condition = "utility"
         else:
             match = re.search(r"[-_]([A-Za-z]+)\d*$", name)
             if match:
-                condition = match.group(1).upper()
+                token = match.group(1).upper()
+                if token in ("LAYOUTS", "OUTPUTS", "LAYERS"):
+                    condition = "utility"
+                else:
+                    condition = token
             else:
                 condition = "unknown"
 
@@ -72,18 +85,20 @@ def analyze_runs(
     if not runs:
         return {"error": "No se encontraron ejecuciones para analizar."}
 
-    # Descartar corridas de calentamiento si se solicita
+    # Descartar calentamiento y jobs utilitarios/setup de la comparación
+    ignored_conditions = {"setup", "utility", "unknown"}
     if discard_warmup:
-        active_runs = [
-            r
-            for r in runs
-            if r["condition"] != "warmup" and "warmup" not in r["name"].lower()
-        ]
-    else:
-        active_runs = runs
+        ignored_conditions.add("warmup")
+
+    active_runs = [
+        r
+        for r in runs
+        if r["condition"].lower() not in ignored_conditions
+        and (not discard_warmup or "warmup" not in r["name"].lower())
+    ]
 
     if not active_runs:
-        return {"error": "Solo se encontraron corridas de calentamiento."}
+        return {"error": "Solo se encontraron corridas de calentamiento o utilitarias."}
 
     # Separar por condición (ej. A vs B, o N vs P)
     by_condition: dict[str, list[dict[str, Any]]] = {}
@@ -92,33 +107,49 @@ def analyze_runs(
 
     results: dict[str, Any] = {"conditions": {}, "comparison": None}
 
-    stats_by_cond: dict[str, dict[str, float]] = {}
+    stats_by_cond: dict[str, dict[str, Any]] = {}
 
     for cond, cond_runs in by_condition.items():
-        measured = [
-            r
-            for r in cond_runs
-            if not (discard_warmup and "warmup" in r["name"].lower())
+        successful_runs = [
+            r for r in cond_runs if r.get("state", "SUCCESS") == "SUCCESS"
+        ]
+        failed_runs = [
+            r for r in cond_runs if r.get("state", "SUCCESS") != "SUCCESS"
         ]
         times = [
             r["total_execution_seconds"]
-            for r in measured
+            for r in successful_runs
             if r["total_execution_seconds"] > 0
         ]
-        vcpus = [r["vcpu_hours"] for r in measured]
+        vcpus = [r["vcpu_hours"] for r in successful_runs]
 
         if times:
             stats_by_cond[cond] = {
                 "count": len(times),
+                "total": len(cond_runs),
+                "failed": len(failed_runs),
                 "min": min(times),
                 "max": max(times),
                 "mean": round(statistics.mean(times), 2),
                 "median": round(statistics.median(times), 2),
                 "avg_vcpu_h": round(statistics.mean(vcpus), 4) if vcpus else 0.0,
             }
+        else:
+            stats_by_cond[cond] = {
+                "count": 0,
+                "total": len(cond_runs),
+                "failed": len(failed_runs),
+                "min": 0,
+                "max": 0,
+                "mean": 0.0,
+                "median": 0.0,
+                "avg_vcpu_h": 0.0,
+            }
+
         results["conditions"][cond] = {
             "all_runs": cond_runs,
-            "measured_runs": measured,
+            "measured_runs": successful_runs,
+            "failed_runs": failed_runs,
             "stats": stats_by_cond.get(cond, {}),
         }
 
@@ -128,37 +159,49 @@ def analyze_runs(
         c1, c2 = cond_names[0], cond_names[1]
         s1, s2 = stats_by_cond[c1], stats_by_cond[c2]
 
-        # Determinar candidato ganador por mediana más baja
-        if s1["median"] < s2["median"]:
-            winner, loser = c1, c2
-            s_winner, s_loser = s1, s2
+        if s1["count"] == 0 or s2["count"] == 0:
+            failed_conds = [c for c in (c1, c2) if stats_by_cond[c]["count"] == 0]
+            results["comparison"] = {
+                "winner_candidate": None,
+                "loser_candidate": None,
+                "winner_max": None,
+                "loser_min": None,
+                "conclusive": False,
+                "verdict": f"NO CONCLUYENTE (sin corridas exitosas en: {', '.join(failed_conds)})",
+                "speedup_median": 1.0,
+            }
         else:
-            winner, loser = c2, c1
-            s_winner, s_loser = s2, s1
+            # Determinar candidato ganador por mediana más baja
+            if s1["median"] < s2["median"]:
+                winner, loser = c1, c2
+                s_winner, s_loser = s1, s2
+            else:
+                winner, loser = c2, c1
+                s_winner, s_loser = s2, s1
 
-        # Criterio estricto: peor tiempo del ganador < mejor tiempo del perdedor
-        conclusive = s_winner["max"] < s_loser["min"]
-        verdict = (
-            f"GANA {winner}"
-            if conclusive
-            else "NO CONCLUYENTE (solapamiento de rangos)"
-        )
+            # Criterio estricto: peor tiempo del ganador < mejor tiempo del perdedor
+            conclusive = s_winner["max"] < s_loser["min"]
+            verdict = (
+                f"GANA {winner}"
+                if conclusive
+                else "NO CONCLUYENTE (solapamiento de rangos)"
+            )
 
-        speedup = (
-            round(s_loser["median"] / s_winner["median"], 2)
-            if s_winner["median"] > 0
-            else 1.0
-        )
+            speedup = (
+                round(s_loser["median"] / s_winner["median"], 2)
+                if s_winner["median"] > 0
+                else 1.0
+            )
 
-        results["comparison"] = {
-            "winner_candidate": winner,
-            "loser_candidate": loser,
-            "winner_max": s_winner["max"],
-            "loser_min": s_loser["min"],
-            "conclusive": conclusive,
-            "verdict": verdict,
-            "speedup_median": speedup,
-        }
+            results["comparison"] = {
+                "winner_candidate": winner,
+                "loser_candidate": loser,
+                "winner_max": s_winner["max"],
+                "loser_min": s_loser["min"],
+                "conclusive": conclusive,
+                "verdict": verdict,
+                "speedup_median": speedup,
+            }
 
     return results
 
@@ -167,17 +210,23 @@ def format_markdown_table(analysis: dict[str, Any]) -> str:
     lines = []
     lines.append("### Resumen Consolidado de Rendimiento\n")
     lines.append(
-        "| Condición | Corridas Medidas | Mín (s) | Máx (s) | Mediana (s) | Promedio (s) | vCPU-h Prom |"
+        "| Condición | Exitosas / Total | Mín (s) | Máx (s) | Mediana (s) | Promedio (s) | vCPU-h Prom |"
     )
     lines.append("|:---|:---:|:---:|:---:|:---:|:---:|:---:|")
 
     for cond, data in analysis.get("conditions", {}).items():
         s = data.get("stats", {})
         if s:
-            lines.append(
-                f"| **{cond}** | {s.get('count', 0)} | {s.get('min', 0)} | {s.get('max', 0)} | "
-                f"{s.get('median', 0)} | {s.get('mean', 0)} | {s.get('avg_vcpu_h', 0)} |"
-            )
+            count_str = f"{s.get('count', 0)} / {s.get('total', s.get('count', 0))}"
+            if s.get("count", 0) > 0:
+                lines.append(
+                    f"| **{cond}** | {count_str} | {s.get('min', 0)} | {s.get('max', 0)} | "
+                    f"{s.get('median', 0)} | {s.get('mean', 0)} | {s.get('avg_vcpu_h', 0)} |"
+                )
+            else:
+                lines.append(
+                    f"| **{cond}** | {count_str} | - | - | - | - | - |"
+                )
 
     comp = analysis.get("comparison")
     if comp:

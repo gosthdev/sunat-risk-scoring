@@ -151,6 +151,49 @@ class TestConsolidateRuns(unittest.TestCase):
         self.assertFalse(comp["conclusive"])
         self.assertIn("NO CONCLUYENTE", comp["verdict"])
 
+    def test_analyze_runs_with_failed_runs(self):
+        """Verifica que las corridas con estado FAILED no se computen en las métricas."""
+        runs = [
+            {
+                "name": "run-e1-N1",
+                "condition": "N",
+                "state": "FAILED",
+                "total_execution_seconds": 29,
+                "vcpu_hours": 0.03,
+            },
+            {
+                "name": "run-e1-P1",
+                "condition": "P",
+                "state": "FAILED",
+                "total_execution_seconds": 29,
+                "vcpu_hours": 0.03,
+            },
+        ]
+        analysis = consolidate_runs.analyze_runs(runs)
+        self.assertEqual(analysis["conditions"]["N"]["stats"]["count"], 0)
+        self.assertEqual(analysis["conditions"]["P"]["stats"]["count"], 0)
+        comp = analysis["comparison"]
+        self.assertFalse(comp["conclusive"])
+        self.assertIn("sin corridas exitosas", comp["verdict"])
+
+    def test_parse_job_run_utility_and_setup(self):
+        """Verifica que jobs de setup/utilitarios no sean clasificados como condiciones de benchmark."""
+        payload_setup = {
+            "jobRun": {
+                "name": "e1-make-layouts",
+                "state": "SUCCESS",
+                "totalExecutionDurationSeconds": 600,
+            }
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fp:
+            json.dump(payload_setup, fp)
+            temp_path = Path(fp.name)
+        try:
+            run = consolidate_runs.parse_job_run_json(temp_path)
+            self.assertEqual(run["condition"], "setup")
+        finally:
+            temp_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()
