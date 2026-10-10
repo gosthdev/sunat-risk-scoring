@@ -13,9 +13,9 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-import pandas as pd
 import awswrangler as wr
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 
 plt.rcParams.update({"figure.figsize": (10, 6), "figure.dpi": 100})
@@ -38,6 +38,7 @@ def contar(path):
         return len(wr.s3.read_parquet(path, dataset=True, columns=[]))
     except Exception:
         return 0
+
 
 # %% [markdown]
 # ## 1. Nulos por columna — `gold/ruc_features`
@@ -62,7 +63,9 @@ fig, ax = plt.subplots(figsize=(10, 5))
 colors = ["#e74c3c" if v > 0 else "#2ecc71" for v in resumen_feat["pct_nulos"]]
 ax.barh(resumen_feat.index, resumen_feat["pct_nulos"], color=colors)
 for i, (idx, row) in enumerate(resumen_feat.iterrows()):
-    ax.text(row["pct_nulos"] + 0.3, i, f"{row['pct_nulos']:.2f}%", va="center", fontsize=9)
+    ax.text(
+        row["pct_nulos"] + 0.3, i, f"{row['pct_nulos']:.2f}%", va="center", fontsize=9
+    )
 ax.set_xlabel("% de nulos")
 ax.set_title("Porcentaje de nulos por columna — gold/ruc_features")
 ax.invert_yaxis()
@@ -88,7 +91,13 @@ try:
     colors = ["#e74c3c" if v > 0 else "#2ecc71" for v in resumen_sd["pct_nulos"]]
     ax.barh(resumen_sd.index, resumen_sd["pct_nulos"], color=colors)
     for i, (idx, row) in enumerate(resumen_sd.iterrows()):
-        ax.text(row["pct_nulos"] + 0.3, i, f"{row['pct_nulos']:.2f}%", va="center", fontsize=9)
+        ax.text(
+            row["pct_nulos"] + 0.3,
+            i,
+            f"{row['pct_nulos']:.2f}%",
+            va="center",
+            fontsize=9,
+        )
     ax.set_xlabel("% de nulos")
     ax.set_title("Porcentaje de nulos por columna — gold/scoring_dataset")
     ax.invert_yaxis()
@@ -188,11 +197,31 @@ plt.show()
 
 # %%
 CANONICAL = {
-    "AMAZONAS", "ANCASH", "APURIMAC", "AREQUIPA", "AYACUCHO", "CAJAMARCA",
-    "CALLAO", "CUSCO", "HUANCAVELICA", "HUANUCO", "ICA", "JUNIN",
-    "LA LIBERTAD", "LAMBAYEQUE", "LIMA", "LORETO", "MADRE DE DIOS",
-    "MOQUEGUA", "PASCO", "PIURA", "PUNO", "SAN MARTIN", "TACNA",
-    "TUMBES", "UCAYALI",
+    "AMAZONAS",
+    "ANCASH",
+    "APURIMAC",
+    "AREQUIPA",
+    "AYACUCHO",
+    "CAJAMARCA",
+    "CALLAO",
+    "CUSCO",
+    "HUANCAVELICA",
+    "HUANUCO",
+    "ICA",
+    "JUNIN",
+    "LA LIBERTAD",
+    "LAMBAYEQUE",
+    "LIMA",
+    "LORETO",
+    "MADRE DE DIOS",
+    "MOQUEGUA",
+    "PASCO",
+    "PIURA",
+    "PUNO",
+    "SAN MARTIN",
+    "TACNA",
+    "TUMBES",
+    "UCAYALI",
 }
 
 # Leer la partición más reciente de silver/padron_ruc
