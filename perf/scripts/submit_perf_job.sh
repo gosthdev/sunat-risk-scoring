@@ -124,6 +124,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Defaults base de Spark (recursos equivalentes a perfil C3)
+SPARK_DRIVER_CORES="${SPARK_DRIVER_CORES:-4}"
+SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-14g}"
+SPARK_EXECUTOR_CORES="${SPARK_EXECUTOR_CORES:-4}"
+SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-14g}"
+SPARK_EXECUTOR_INSTANCES="${SPARK_EXECUTOR_INSTANCES:-3}"
+SPARK_DYNAMIC_ALLOCATION="${SPARK_DYNAMIC_ALLOCATION:-false}"
+SPARK_EXECUTOR_DISK="${SPARK_EXECUTOR_DISK:-100g}"
+S3A_FAST_UPLOAD_BUFFER="${S3A_FAST_UPLOAD_BUFFER:-bytebuffer}"
+S3A_MULTIPART_SIZE="${S3A_MULTIPART_SIZE:-64M}"
+
 # Cargar perfil
 PROFILE_ENV_FILE="${REPO_ROOT}/perf/env/${PROFILE,,}.env"
 if [[ ! -f "$PROFILE_ENV_FILE" ]]; then
@@ -133,18 +144,35 @@ if [[ -f "$PROFILE_ENV_FILE" ]]; then
   echo "[submit_perf_job] Cargando perfil desde ${PROFILE_ENV_FILE}"
   # shellcheck source=/dev/null
   source "$PROFILE_ENV_FILE"
+
+  # Si el perfil cargado referencia otro perfil de recursos (ej. PROFILE="C3" en e2.env),
+  # cargar también dicho archivo de hardware si difiere del actual
+  TARGET_PROFILE_LOWER="${PROFILE,,}"
+  CURRENT_BASENAME="${PROFILE_ENV_FILE##*/}"
+  CURRENT_PREFIX="${CURRENT_BASENAME%.env*}"
+  if [[ -n "$TARGET_PROFILE_LOWER" && "$TARGET_PROFILE_LOWER" != "$CURRENT_PREFIX" ]]; then
+    SUB_PROFILE_FILE="${REPO_ROOT}/perf/env/${TARGET_PROFILE_LOWER}.env"
+    if [[ ! -f "$SUB_PROFILE_FILE" ]]; then
+      SUB_PROFILE_FILE="${REPO_ROOT}/perf/env/${TARGET_PROFILE_LOWER}.env.example"
+    fi
+    if [[ -f "$SUB_PROFILE_FILE" ]]; then
+      echo "[submit_perf_job] Cargando perfil base referenciado desde ${SUB_PROFILE_FILE}"
+      # shellcheck source=/dev/null
+      source "$SUB_PROFILE_FILE"
+    fi
+  fi
 else
   echo "WARN: No se encontró archivo de perfil para $PROFILE. Usando defaults C3."
-  SPARK_DRIVER_CORES=4
-  SPARK_DRIVER_MEMORY="14g"
-  SPARK_EXECUTOR_CORES=4
-  SPARK_EXECUTOR_MEMORY="14g"
-  SPARK_EXECUTOR_INSTANCES=3
-  SPARK_DYNAMIC_ALLOCATION="false"
-  SPARK_EXECUTOR_DISK="100g"
 fi
 
-# Configuración S3A con fallback por defecto a bytebuffer y 64M
+# Fallback final garantizado para todas las variables requeridas
+SPARK_DRIVER_CORES="${SPARK_DRIVER_CORES:-4}"
+SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-14g}"
+SPARK_EXECUTOR_CORES="${SPARK_EXECUTOR_CORES:-4}"
+SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-14g}"
+SPARK_EXECUTOR_INSTANCES="${SPARK_EXECUTOR_INSTANCES:-3}"
+SPARK_DYNAMIC_ALLOCATION="${SPARK_DYNAMIC_ALLOCATION:-false}"
+SPARK_EXECUTOR_DISK="${SPARK_EXECUTOR_DISK:-100g}"
 S3A_FAST_UPLOAD_BUFFER="${S3A_FAST_UPLOAD_BUFFER:-bytebuffer}"
 S3A_MULTIPART_SIZE="${S3A_MULTIPART_SIZE:-64M}"
 

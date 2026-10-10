@@ -72,7 +72,7 @@ class TestSubmitPerfJob(unittest.TestCase):
         self.assertIn("spark.executor.extraJavaOptions=-XX:+UseG1GC", res.stdout)
 
     def test_e1_make_layouts_args_formatting(self):
-        """Verifica la invocación típica de e1-make-layouts con --executor-disk 100g."""
+        """Verifica la invocación típica de e1-make-layouts con --executor-disk 100g y job-args."""
         res = self.run_submit_dry_run(
             [
                 "--profile",
@@ -81,6 +81,8 @@ class TestSubmitPerfJob(unittest.TestCase):
                 "100g",
                 "--script",
                 "e1_make_layouts.py",
+                "--job-args",
+                "--staging-input s3://sunat-risk-scoring-perf-36p/staging/padron_ruc --output-p s3://sunat-risk-scoring-perf-36p/silver/padron_ruc --output-n s3://sunat-risk-scoring-perf-36n/silver/padron_ruc",
                 "--run-name",
                 "e1-make-layouts",
                 "--condition",
@@ -94,6 +96,48 @@ class TestSubmitPerfJob(unittest.TestCase):
         self.assertIn("spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer", res.stdout)
         self.assertIn("e1_make_layouts.py", res.stdout)
         self.assertIn("Condición       : setup", res.stdout)
+        self.assertIn("s3://sunat-risk-scoring-perf-36p/staging/padron_ruc", res.stdout)
+        self.assertIn("s3://sunat-risk-scoring-perf-36p/silver/padron_ruc", res.stdout)
+        self.assertIn("s3://sunat-risk-scoring-perf-36n/silver/padron_ruc", res.stdout)
+
+    def test_profile_c1_loads_200g_disk_and_bytebuffer(self):
+        """Verifica que el perfil C1 cargue 200g de disco y S3A bytebuffer."""
+        res = self.run_submit_dry_run(["--profile", "C1"])
+        self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+        self.assertIn("spark.emr-serverless.executor.disk=200g", res.stdout)
+        self.assertIn("spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer", res.stdout)
+        self.assertIn("spark.executor.instances=1", res.stdout)
+
+    def test_profile_c7_loads_200g_disk_and_bytebuffer(self):
+        """Verifica que el perfil C7 cargue 200g de disco y S3A bytebuffer."""
+        res = self.run_submit_dry_run(["--profile", "C7"])
+        self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+        self.assertIn("spark.emr-serverless.executor.disk=200g", res.stdout)
+        self.assertIn("spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer", res.stdout)
+        self.assertIn("spark.executor.instances=7", res.stdout)
+
+    def test_profile_e2_resolves_referenced_profile_and_defaults(self):
+        """Verifica que un perfil de experimento (E2) resuelva el perfil C3 referenciado."""
+        res = self.run_submit_dry_run(["--profile", "e2"])
+        self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+        self.assertIn("spark.emr-serverless.executor.disk=100g", res.stdout)
+        self.assertIn("spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer", res.stdout)
+        self.assertIn("spark.executor.instances=3", res.stdout)
+
+    def test_profile_e1_n_uses_hardware_defaults_without_unbound_variable(self):
+        """Verifica que un perfil sin definición de hardware (e1_n) no falle y use defaults."""
+        res = self.run_submit_dry_run(["--profile", "e1_n"])
+        self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+        self.assertIn("spark.emr-serverless.executor.disk=100g", res.stdout)
+        self.assertIn("spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer", res.stdout)
+
+    def test_nonexistent_profile_falls_back_to_defaults_safely(self):
+        """Verifica que un perfil no existente emita advertencia y aplique defaults C3."""
+        res = self.run_submit_dry_run(["--profile", "perfil_inexistente"])
+        self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+        self.assertIn("WARN: No se encontró archivo de perfil", res.stdout)
+        self.assertIn("spark.emr-serverless.executor.disk=100g", res.stdout)
+        self.assertIn("spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer", res.stdout)
 
 
 if __name__ == "__main__":
