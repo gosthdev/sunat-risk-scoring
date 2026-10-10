@@ -142,7 +142,7 @@ tabla["pct_informalidad"] = tabla["pct_informalidad"].round(2)
 tabla = tabla.drop(columns=["recaudacion_soles"])
 tabla = tabla.sort_values("ruc_activos", ascending=False).reset_index(drop=True)
 tabla.index += 1
-tabla
+print(tabla)
 
 # %% [markdown]
 # **Interpretación:** Lima domina en RUC activos, recaudación y PRICOS.

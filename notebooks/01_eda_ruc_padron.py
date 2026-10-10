@@ -24,7 +24,7 @@ GOLD_BUCKET = os.environ.get("GOLD_BUCKET", "sunat-risk-scoring-gold")
 
 def latest_partition(base_path):
     dirs = wr.s3.list_directories(base_path)
-    return sorted(dirs)[-1] if dirs else base_path
+    return max(dirs) if dirs else base_path
 
 
 path = latest_partition(f"s3://{GOLD_BUCKET}/ruc_features/")
