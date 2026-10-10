@@ -25,5 +25,8 @@ def create_spark_session(app_name: str) -> SparkSession:
         .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
         .config("spark.sql.avro.datetimeRebaseModeInWrite", "CORRECTED")
         .config("spark.sql.avro.datetimeRebaseModeInRead", "CORRECTED")
+        # --- Robustez de lectura Parquet: coerción de tipos (INT32 -> bigint) entre particiones ---
+        .config("spark.sql.parquet.enableVectorizedReader", "false")
+        .config("spark.sql.parquet.mergeSchema", "true")
         .getOrCreate()
     )

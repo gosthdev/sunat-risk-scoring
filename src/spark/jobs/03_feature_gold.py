@@ -127,7 +127,7 @@ def build_contratacion_estado_features(spark, ordenes_df=None, fecha_corte=None)
     # Columnas de compatibilidad con versión previa
     contratacion = contratacion.withColumn(
         "monto_total_contratado_estado", col("monto_total_soles")
-    ).withColumn("cantidad_contratos_estado", col("n_ordenes").cast("int"))
+    ).withColumn("cantidad_contratos_estado", col("n_ordenes").cast("long"))
 
     return contratacion
 
@@ -322,7 +322,9 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
         )
         .withColumn(
             "cantidad_contratos_estado",
-            when(col("n_ordenes").isNull(), 0).otherwise(col("n_ordenes").cast("int")),
+            when(col("n_ordenes").isNull(), lit(0).cast("long")).otherwise(
+                col("n_ordenes").cast("long")
+            ),
         )
         .withColumn(
             "pct_ordenes_anuladas",
