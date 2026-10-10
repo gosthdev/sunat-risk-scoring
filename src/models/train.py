@@ -9,6 +9,7 @@ Compatible con:
 
 import argparse
 import glob
+import json
 import os
 import sys
 import tarfile
@@ -85,6 +86,12 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
+    parser.add_argument(
+        "--param_grid_json",
+        type=str,
+        default="",
+        help="JSON string con grilla de hiperparámetros personalizada para GridSearchCV",
+    )
 
     if args_list is not None:
         return parser.parse_args(args_list)
@@ -242,6 +249,19 @@ def main(args_list: list[str] | None = None) -> int:
             "model__max_depth": [3, 5, 6],
             "model__min_samples_leaf": [50, 200] if len(df_train) > 1000 else [2, 5],
         }
+
+    if args.param_grid_json:
+        try:
+            custom_grid = json.loads(args.param_grid_json)
+            if isinstance(custom_grid, dict) and custom_grid:
+                param_grid = custom_grid
+                print(
+                    f"[INFO] Grilla de hiperparámetros personalizada cargada: {param_grid}"
+                )
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            print(
+                f"[WARN] Error parseando param_grid_json: {e}. Se mantiene grilla por defecto."
+            )
 
     full_pipeline = Pipeline(
         [

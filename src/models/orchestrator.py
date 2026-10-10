@@ -190,6 +190,10 @@ def ejecutar_experimento_runner(
         record_file,
     ]
 
+    param_grid = exp.get("hyperparameters", {}).get("param_grid")
+    if param_grid and isinstance(param_grid, dict):
+        cli_args.extend(["--param_grid_json", json.dumps(param_grid)])
+
     t0 = time.time()
     try:
         ret = train_main(cli_args)
@@ -211,16 +215,26 @@ def ejecutar_experimento_runner(
             record_data = json.loads(f.readline().strip())
 
         metricas_cv = record_data.get("metricas_cv", {})
-        cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0))
-        train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0))
-        fold_scores = [float(x) for x in metricas_cv.get("cv_pr_auc_fold", [])]
+        cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
+        train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0) or 0.0)
+        raw_folds = metricas_cv.get("cv_pr_auc_fold")
+        if isinstance(raw_folds, list):
+            fold_scores = [float(x) for x in raw_folds if x is not None]
+        else:
+            fold_scores = []
         if not fold_scores:
             fold_scores = [
                 float(metricas_cv[f"cv_pr_auc_fold_{i}"])
                 for i in range(5)
-                if f"cv_pr_auc_fold_{i}" in metricas_cv
+                if metricas_cv.get(f"cv_pr_auc_fold_{i}") is not None
             ]
         cv_std = float(np.std(fold_scores)) if fold_scores else 0.0
+
+        best_params = (
+            record_data.get("hiperparametros_ganadores")
+            or record_data.get("hiperparametros_optimos")
+            or {}
+        )
 
         return {
             "id": exp_id,
@@ -237,10 +251,7 @@ def ejecutar_experimento_runner(
             "train_pr_auc": train_pr_auc,
             "overfit_gap": round(train_pr_auc - cv_mean, 4),
             "train_seconds": elapsed,
-            "best_params": record_data.get(
-                "hiperparametros_ganadores",
-                record_data.get("hiperparametros_optimos", {}),
-            ),
+            "best_params": best_params,
             "record_file": record_file,
             "preds_file": preds_file,
         }
@@ -602,6 +613,9 @@ def main(args_list: list[str] | None = None) -> int:
     if summary_file and os.path.abspath(summary_file) != os.path.abspath(
         leaderboard_md_path
     ):
+        summary_dir = os.path.dirname(os.path.abspath(summary_file))
+        if summary_dir:
+            os.makedirs(summary_dir, exist_ok=True)
         with open(summary_file, "w", encoding="utf-8") as f:
             f.write(md_summary)
         print(
