@@ -281,12 +281,12 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
             return 0
 
         monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_c3)
-        res1 = ejecutar_experimento_runner(
-            exp, tmp_dir, tmp_dir, 42, "v01"
-        )
+        res1 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v01")
         assert res1["status"] == "SUCCESS"
         assert res1["cv_folds"] == [0.31, 0.33, 0.37, 0.39, 0.35]
-        assert np.isclose(res1["cv_pr_auc_std"], float(np.std([0.31, 0.33, 0.37, 0.39, 0.35])))
+        assert np.isclose(
+            res1["cv_pr_auc_std"], float(np.std([0.31, 0.33, 0.37, 0.39, 0.35]))
+        )
         assert res1["best_params"] == {"model__C": 0.1}
 
         # Caso 2: Formato legado con escalares y hiperparametros_optimos
@@ -314,9 +314,7 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
             return 0
 
         monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_legacy)
-        res2 = ejecutar_experimento_runner(
-            exp, tmp_dir, tmp_dir, 42, "v01"
-        )
+        res2 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v01")
         assert res2["status"] == "SUCCESS"
         assert res2["cv_folds"] == [0.25, 0.29, 0.30, 0.26, 0.30]
         assert res2["cv_pr_auc_std"] > 0
@@ -343,11 +341,8 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
             return 0
 
         monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_nulls)
-        res3 = ejecutar_experimento_runner(
-            exp, tmp_dir, tmp_dir, 42, "v01"
-        )
+        res3 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v01")
         assert res3["status"] == "SUCCESS"
         assert res3["cv_folds"] == []
         assert res3["cv_pr_auc_std"] == 0.0
         assert res3["best_params"] == {}
-

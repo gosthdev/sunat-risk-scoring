@@ -375,4 +375,3 @@ def test_train_main_custom_param_grid(synthetic_dataframe):
         with open(record_file, "r", encoding="utf-8") as f:
             record_data = json.loads(f.readline().strip())
         assert record_data["hiperparametros_ganadores"].get("C") == 0.05
-
