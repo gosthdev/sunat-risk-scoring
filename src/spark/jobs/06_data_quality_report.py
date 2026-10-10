@@ -19,7 +19,7 @@ def count_s3_parquet(path):
         return len(df)
     except wr.exceptions.NoFilesFound:
         return 0
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error leyendo {path}: {e}")
         return 0
 
@@ -41,7 +41,7 @@ def calculate_completeness_s3(path, columns):
         return completeness
     except wr.exceptions.NoFilesFound:
         return {c: 0 for c in columns}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error calculando completitud en {path}: {e}")
         return {c: 0 for c in columns}
 
