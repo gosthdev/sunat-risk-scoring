@@ -36,7 +36,7 @@ def contar(path):
     """Conteo rápido de filas sin leer columnas."""
     try:
         return len(wr.s3.read_parquet(path, dataset=True, columns=[]))
-    except Exception:
+    except (FileNotFoundError, OSError, ValueError):
         return 0
 
 
@@ -103,7 +103,7 @@ try:
     ax.invert_yaxis()
     plt.tight_layout()
     plt.show()
-except Exception as e:
+except (FileNotFoundError, OSError, ValueError) as e:
     print(f"Error leyendo scoring_dataset: {e} (probablemente no existe aún)")
 
 # %% [markdown]
