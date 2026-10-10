@@ -1,0 +1,92 @@
+name: Performance Benchmark (EMR Serverless 3.6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment:
+        description: "Experimento o flujo a ejecutar"
+        required: true
+        type: choice
+        options:
+          - all
+          - e1-only
+          - e2-only
+        default: all
+      skip_infra:
+        description: "Omitir despliegue con Terraform (--skip-infra si la infraestructura ya existe)"
+        required: false
+        type: boolean
+        default: false
+      artifacts_bucket:
+        description: "Nombre del bucket de artefactos (vacío para usar default)"
+        required: false
+        type: string
+        default: ""
+      aws_region:
+        description: "Región AWS (vacío para usar default us-east-1)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run-perf-benchmark:
+    name: Run Optimization 3.6 Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region != '' && inputs.aws_region || vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+
+      - name: Execute Benchmark Pipeline
+        env:
+          AWS_REGION: ${{ inputs.aws_region != '' && inputs.aws_region || vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+          ARTIFACTS_BUCKET: ${{ inputs.artifacts_bucket != '' && inputs.artifacts_bucket || vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+          TF_VAR_aws_profile: ""
+          TF_VAR_aws_region: ${{ inputs.aws_region != '' && inputs.aws_region || vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+        run: |
+          RUN_FLAG="--all"
+          if [ "${{ inputs.experiment }}" = "e1-only" ]; then
+            RUN_FLAG="--e1-only"
+          elif [ "${{ inputs.experiment }}" = "e2-only" ]; then
+            RUN_FLAG="--e2-only"
+          fi
+
+          EXTRA_FLAGS=""
+          if [ "${{ inputs.skip_infra }}" = "true" ]; then
+            EXTRA_FLAGS="--skip-infra"
+          fi
+
+          echo "Iniciando ejecución automatizada: bash perf/scripts/run_perf_36.sh $RUN_FLAG $EXTRA_FLAGS"
+          bash perf/scripts/run_perf_36.sh $RUN_FLAG $EXTRA_FLAGS
+
+      - name: Archive Benchmark Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-benchmark-results-${{ github.run_id }}
+          path: perf/results/
+          if-no-files-found: warn
