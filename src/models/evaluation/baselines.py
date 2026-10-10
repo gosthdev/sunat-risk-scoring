@@ -38,11 +38,14 @@ def baseline_analyst_rule(df: pd.DataFrame) -> pd.DataFrame:
     puntos = np.zeros(len(res), dtype=float)
 
     # 1. Condición tributaria
-    if "condicion" in res.columns:
-        cond_upper = res["condicion"].astype(str).str.upper().str.strip()
-        puntos += cond_upper.isin(["NO HABIDO", "NO HALLADO"]).astype(float)
-    elif "condicion_domicilio" in res.columns:
-        cond_upper = res["condicion_domicilio"].astype(str).str.upper().str.strip()
+    col_cond = None
+    for cand in ["condicion", "condicion_domicilio", "Condicion", "Condicion_domicilio"]:
+        if cand in res.columns:
+            col_cond = cand
+            break
+
+    if col_cond is not None:
+        cond_upper = res[col_cond].astype(str).str.upper().str.strip()
         puntos += cond_upper.isin(["NO HABIDO", "NO HALLADO"]).astype(float)
 
     # Identificar columna de trabajadores
@@ -66,13 +69,17 @@ def baseline_analyst_rule(df: pd.DataFrame) -> pd.DataFrame:
         "proveedor_estado",
         "es_proveedor_estado",
         "tiene_adjudicaciones",
+        "monto_total_soles",
+        "n_ordenes",
     ]:
         if cand in res.columns:
             col_contrata = cand
             break
 
     if col_contrata is not None:
-        contrata_bool = res[col_contrata].astype(bool) | (res[col_contrata] == 1)
+        # Manejar seguro booleano y numérico (> 0)
+        contrata_numeric = pd.to_numeric(res[col_contrata], errors="coerce").fillna(0)
+        contrata_bool = (contrata_numeric > 0) | (res[col_contrata].astype(str).str.lower().isin(["true", "t", "1"]))
         puntos += (contrata_bool & (trab_vals <= 1)).astype(float)
 
     res["score"] = puntos / 3.0
