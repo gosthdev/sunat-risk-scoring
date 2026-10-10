@@ -18,7 +18,6 @@ if _COMMON_PATH not in sys.path:
     sys.path.insert(0, _COMMON_PATH)
 
 import s3_paths
-from spark_session_factory import create_spark_session
 
 
 def audit_path(spark, path_uri: str, layer_name: str) -> dict[str, Any]:
@@ -140,6 +139,16 @@ def main():
     )
     parser.add_argument("--output-json", help="Ruta para exportar métricas en JSON")
     args = parser.parse_args()
+
+    try:
+        from spark_session_factory import create_spark_session
+    except ImportError as e:
+        print(
+            f"ERROR: No se pudo inicializar SparkSession ({e}). "
+            "s_count_layers debe ejecutarse en EMR Serverless o en un entorno con PySpark configurado.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     spark = create_spark_session("s_count_layers")
     try:
