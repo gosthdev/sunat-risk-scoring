@@ -21,6 +21,11 @@ RESULTS_DIR="${REPO_ROOT}/perf/results/E1_athena"
 
 mkdir -p "${RESULTS_DIR}"
 
+if ! aws athena get-work-group --work-group "$WORKGROUP" >/dev/null 2>&1; then
+  echo "WARN: Workgroup '$WORKGROUP' no accesible. Usando workgroup 'primary'." >&2
+  WORKGROUP="primary"
+fi
+
 run_query_single() {
   local query_str="$1"
   local nonce

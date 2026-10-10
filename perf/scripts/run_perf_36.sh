@@ -150,6 +150,7 @@ if [[ "$RUN_E1" == "true" ]]; then
     --profile C3 \
     --script e1_make_layouts.py \
     --run-name "e1-make-layouts" \
+    --condition "setup" \
     --exp-tag E1
 
   echo "-> 4.3 Copiando tablas maestras auxiliares (pricos, epen, ingresos)..."
@@ -176,19 +177,29 @@ if [[ "$RUN_E1" == "true" ]]; then
     --script compare_outputs.py \
     --job-args "--path-a s3://${BUCKET_N}/gold/regional_summary --path-b s3://${BUCKET_P}/gold/regional_summary --key-col Departamento" \
     --run-name "e1-compare-outputs" \
+    --condition "utility" \
     --exp-tag E1 || echo "WARN: compare_outputs finalizado con advertencias."
 
   echo "-> 4.6 Ejecutando Crawlers de Glue para catalogar tablas en Athena..."
-  aws glue start-crawler --name "sunat-ssco-perf-36p-crawler" || true
-  aws glue start-crawler --name "sunat-ssco-perf-36n-crawler" || true
+  for c_name in "sunat-ssco-perf-36p-crawler" "sunat-ssco-perf-36n-crawler"; do
+    aws glue start-crawler --name "$c_name" || true
+  done
 
   echo "Esperando que los crawlers cataloguen las tablas..."
+  sleep 5
   for c_name in "sunat-ssco-perf-36p-crawler" "sunat-ssco-perf-36n-crawler"; do
+    for _ in {1..6}; do
+      c_state=$(aws glue get-crawler --name "$c_name" --query 'Crawler.State' --output text 2>/dev/null || echo "UNKNOWN")
+      [[ "$c_state" == "RUNNING" || "$c_state" == "STOPPING" ]] && break
+      sleep 2
+    done
     while true; do
       c_state=$(aws glue get-crawler --name "$c_name" --query 'Crawler.State' --output text 2>/dev/null || echo "READY")
       [[ "$c_state" == "READY" ]] && break
+      echo "  Crawler $c_name en estado $c_state... esperando 10s"
       sleep 10
     done
+    echo "  ✓ Crawler $c_name completado."
   done
 
   echo "-> 4.7 Ejecutando consultas analíticas de benchmark en Athena..."
@@ -225,7 +236,14 @@ if [[ "$RUN_E2" == "true" ]]; then
   done
 
   echo "-> 5.2 Auditando capas escritas con s_count_layers..."
-  python3 "${REPO_ROOT}/perf/spark/s_count_layers.py" --layer bronze || true
+  bash "${SCRIPT_DIR}/submit_perf_job.sh" \
+    --profile C1 \
+    --script s_count_layers.py \
+    --job-args "--layer bronze" \
+    --bronze-bucket "${BUCKET_E2}" \
+    --run-name "run-e2-count-layers" \
+    --condition "utility" \
+    --exp-tag E2 || echo "WARN: Auditoría s_count_layers finalizada con advertencias."
 
   echo "-> 5.3 Consolidando métricas de E2..."
   python3 "${REPO_ROOT}/perf/analysis/consolidate_runs.py" "${REPO_ROOT}/perf/results/E2/"*.json || true
@@ -239,6 +257,5 @@ echo ""
 echo "========================================================================"
 echo "🎉 EJECUCIÓN AUTOMATIZADA COMPLETADA CON ÉXITO"
 echo "Resultados JSON en : ${REPO_ROOT}/perf/results/"
-echo "Guía Visualización : docs/perf/3.6/VISUALIZACION-3.6.md"
 echo "Fichas de Informe  : docs/perf/3.6/E1.md y docs/perf/3.6/E2.md"
 echo "========================================================================"

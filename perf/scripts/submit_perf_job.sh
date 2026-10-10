@@ -145,12 +145,16 @@ SPARK_PARAMS="--py-files ${PY_FILES} \
 --conf spark.dynamicAllocation.enabled=${SPARK_DYNAMIC_ALLOCATION} \
 --conf spark.emr-serverless.executor.disk=${SPARK_EXECUTOR_DISK} \
 --conf spark.emr-serverless.driverEnv.RAW_BUCKET=${RAW_BUCKET_VAL} \
+--conf spark.driverEnv.RAW_BUCKET=${RAW_BUCKET_VAL} \
 --conf spark.executorEnv.RAW_BUCKET=${RAW_BUCKET_VAL} \
 --conf spark.emr-serverless.driverEnv.BRONZE_BUCKET=${BRONZE_BUCKET_VAL} \
+--conf spark.driverEnv.BRONZE_BUCKET=${BRONZE_BUCKET_VAL} \
 --conf spark.executorEnv.BRONZE_BUCKET=${BRONZE_BUCKET_VAL} \
 --conf spark.emr-serverless.driverEnv.SILVER_BUCKET=${SILVER_BUCKET_VAL} \
+--conf spark.driverEnv.SILVER_BUCKET=${SILVER_BUCKET_VAL} \
 --conf spark.executorEnv.SILVER_BUCKET=${SILVER_BUCKET_VAL} \
 --conf spark.emr-serverless.driverEnv.GOLD_BUCKET=${GOLD_BUCKET_VAL} \
+--conf spark.driverEnv.GOLD_BUCKET=${GOLD_BUCKET_VAL} \
 --conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET_VAL}"
 
 # Parse entry point arguments to JSON array
@@ -165,8 +169,17 @@ fi
 if [[ -z "$CONDITION" ]]; then
   if [[ "$RUN_NAME" =~ warmup ]]; then
     CONDITION="warmup"
+  elif [[ "$RUN_NAME" =~ make-layouts|make_layouts ]]; then
+    CONDITION="setup"
+  elif [[ "$RUN_NAME" =~ compare-outputs|compare_outputs|count-layers|audit-layers ]]; then
+    CONDITION="utility"
   elif [[ "$RUN_NAME" =~ -([A-Za-z]+)[0-9]*$ ]]; then
-    CONDITION="${BASH_REMATCH[1]}"
+    matched="${BASH_REMATCH[1]}"
+    if [[ "$matched" =~ ^(layouts|outputs|layers)$ ]]; then
+      CONDITION="utility"
+    else
+      CONDITION="$matched"
+    fi
   else
     CONDITION="default"
   fi
