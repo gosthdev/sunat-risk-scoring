@@ -16,7 +16,7 @@ on:
         description: "Omitir despliegue con Terraform (--skip-infra si la infraestructura ya existe)"
         required: false
         type: boolean
-        default: false
+        default: true
       artifacts_bucket:
         description: "Nombre del bucket de artefactos (vacío para usar default)"
         required: false
@@ -27,6 +27,9 @@ on:
         required: false
         type: string
         default: ""
+  push:
+    branches:
+      - feat/experiment3.6
 
 permissions:
   id-token: write
@@ -78,7 +81,7 @@ jobs:
           fi
 
           EXTRA_FLAGS=""
-          if [ "${{ inputs.skip_infra }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.skip_infra }}" = "true" ]; then
             EXTRA_FLAGS="--skip-infra"
           fi
 
