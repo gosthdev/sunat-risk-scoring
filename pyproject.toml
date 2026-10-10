@@ -8,6 +8,14 @@ module = [
     "awswrangler",
     "boto3",
     "openpyxl",
+    "smart_open",
+    "smart_open.*",
+    "joblib",
+    "joblib.*",
+    "sklearn",
+    "sklearn.*",
+    "explainability",
+    "export_outputs",
 ]
 ignore_missing_imports = true
 

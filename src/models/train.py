@@ -37,12 +37,12 @@ try:
     )
     from src.models.export_outputs import exportar_predicciones_y_run_record
 except ImportError:
-    from explainability import (
+    from explainability import (  # type: ignore[no-redef]
         extraer_explicabilidad_lr,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
-    from export_outputs import exportar_predicciones_y_run_record
+    from export_outputs import exportar_predicciones_y_run_record  # type: ignore[no-redef]
 
 
 class Log1pTransformer(BaseEstimator, TransformerMixin):
@@ -213,8 +213,8 @@ def main(args_list: list[str] | None = None) -> int:
     df_train = df[df["split"] == "train"].copy()
 
     X_train = df_train[features]
-    y_train = df_train["label"].values.astype(int)
-    folds_train = df_train["fold"].values
+    y_train: np.ndarray = np.asarray(df_train["label"].values, dtype=int)
+    folds_train: np.ndarray = np.asarray(df_train["fold"].values)
 
     n_train = len(df_train)
     n_pos_train = int(y_train.sum())
@@ -250,10 +250,10 @@ def main(args_list: list[str] | None = None) -> int:
 
     # 3. Validación Cruzada con Folds Predefinidos
     # Si los folds predefinidos son válidos (5 folds 0..4), usar PredefinedSplit; caso contrario StratifiedKFold
-    unique_folds = (
+    unique_folds: np.ndarray = (
         np.unique(folds_train[folds_train >= 0])
         if (folds_train is not None and len(folds_train) > 0)
-        else []
+        else np.array([])
     )
     if len(unique_folds) >= 2:
         cv_splitter = PredefinedSplit(test_fold=folds_train)
