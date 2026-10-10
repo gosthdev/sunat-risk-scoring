@@ -1,10 +1,12 @@
 # ── Environments ──────────────────────────────────────────────
-venv/
-.venv/
-env/
+/venv/
+/.venv/
+/env/
 .env
 .env.*
 !.env.example
+perf/env/*.env
+!perf/env/*.env.example
 
 # ── Python ────────────────────────────────────────────────────
 __pycache__/
