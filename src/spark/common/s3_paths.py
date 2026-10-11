@@ -38,6 +38,18 @@ def _build_path(bucket: str, layer_prefix: str, subpath: str) -> str:
     return f"s3://{bucket}/{subpath}"
 
 
+# Los jobs que alimentan Silver/Gold escriben primero en <bucket>/_staging/...
+# y 05_submit_spark_steps.sh publica a la ruta viva solo si el job terminó bien.
+STAGING_PREFIX = "_staging"
+
+
+def staging_de(ruta_viva: str) -> str:
+    """s3://bucket/clave -> s3://bucket/_staging/clave (misma capa, ruta de paso)."""
+    esquema, resto = ruta_viva.split("://", 1)
+    bucket, _, clave = resto.partition("/")
+    return f"{esquema}://{bucket}/{STAGING_PREFIX}/{clave}"
+
+
 # ---------------------------------------------------------------- RAW -----
 RAW_PADRON_RUC = _build_path(RAW_BUCKET, "raw", "padron_ruc")
 RAW_ORDENES_COMPRA = _build_path(RAW_BUCKET, "raw", "ordenes_compra")
