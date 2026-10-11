@@ -9,8 +9,12 @@ Modelos baselines implementados:
 Todos los métodos retornan un DataFrame respetando el contrato C2 de predicciones.
 """
 
+from typing import Any, Callable
+
 import numpy as np
 import pandas as pd
+
+from src.models.evaluation.metrics import export_metrics_flat
 
 
 def baseline_trivial(df: pd.DataFrame) -> pd.DataFrame:
@@ -91,3 +95,51 @@ def baseline_random(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
     res["score"] = rng.uniform(0.0, 1.0, size=len(res))
     res["run_id"] = "baseline_b2_random"
     return res
+
+
+def evaluate_and_export_baseline(
+    baseline_fn: Callable[[pd.DataFrame], pd.DataFrame],
+    test_df: pd.DataFrame,
+    output_path: str,
+    ks: list[int] | None = None,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """
+    Evalúa un baseline y persiste las métricas planas C4 en Single-line NDJSON.
+
+    Permite que B0, B1 y B2 aparezcan como filas en el Leaderboard Athena
+    junto a los modelos reales (E1–E6), con sagemaker_metadata=None porque
+    los baselines no corren en SageMaker.
+
+    Parámetros:
+    -----------
+    baseline_fn: callable
+        Una de: baseline_trivial, baseline_analyst_rule, baseline_random.
+    test_df: pd.DataFrame
+        Conjunto de test con columnas 'label' y 'split' (contrato C2 parcial).
+    output_path: str
+        Destino del metrics.json. Soporta ruta local y s3://bucket/key.
+        Convención: gold/model_metrics/run_id=<run_id>/metrics.json
+    ks: list[int] | None
+        Cortes K absolutos (por defecto [100, 500]).
+    n_bootstrap: int
+        Remuestreos para IC 95% de PR-AUC.
+    seed: int
+        Semilla del bootstrap.
+
+    Retorna el dict plano C4 (mismo que se escribe en output_path).
+    """
+    if ks is None:
+        ks = [100, 500]
+
+    predictions = baseline_fn(test_df)
+
+    return export_metrics_flat(
+        predictions,
+        output_path=output_path,
+        sagemaker_metadata=None,
+        ks=ks,
+        n_bootstrap=n_bootstrap,
+        seed=seed,
+    )
