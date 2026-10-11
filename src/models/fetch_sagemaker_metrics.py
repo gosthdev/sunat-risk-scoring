@@ -8,8 +8,8 @@ Uso:
     python -m src.models.fetch_sagemaker_metrics --run_id ssco-run-E1-lr-v2-w1
     python -m src.models.fetch_sagemaker_metrics --run_id ssco-run-E1-lr-v2-w1 --output_json /tmp/cost.json
 
-Precios de referencia on-demand us-east-1:
-    ml.m5.xlarge  → $0.269 USD/hora
+Precios de referencia on-demand us-east-1 (verificar en la página de precios de SageMaker):
+    ml.m5.xlarge  → $0.23 USD/hora (entrenamiento, aprox.)
     ml.m5.2xlarge → $0.538 USD/hora
 """
 
@@ -22,7 +22,7 @@ import boto3
 # Precios on-demand us-east-1 (USD/hora). Actualizar si cambia la instancia.
 INSTANCE_PRICE_MAP: dict[str, float] = {
     "ml.m5.large": 0.134,
-    "ml.m5.xlarge": 0.269,
+    "ml.m5.xlarge": 0.23,
     "ml.m5.2xlarge": 0.538,
     "ml.m5.4xlarge": 1.075,
     "ml.t3.medium": 0.050,
