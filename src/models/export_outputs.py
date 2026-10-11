@@ -5,6 +5,8 @@ Garantiza el cumplimiento estricto de:
 - C3: run_record.json como JSON de una sola línea (Single-line NDJSON).
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess

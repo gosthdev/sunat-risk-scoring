@@ -93,7 +93,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      if [[ "$1" =~ ^0[1-5] ]]; then
+      if [[ "$1" =~ ^0[1-6] ]]; then
         ONLY_STEPS="$1"
         shift
       else
@@ -112,6 +112,12 @@ ALL_STEPS=(
   "05_scoring_dataset_gold"
 )
 
+# Steps que solo se ejecutan si se piden con --only-steps (no forman parte del pipeline base).
+OPTIONAL_STEPS=(
+  "06_dataset_curado"
+)
+KNOWN_STEPS=("${ALL_STEPS[@]}" "${OPTIONAL_STEPS[@]}")
+
 if [[ -n "${ONLY_STEPS}" ]]; then
   STEPS=()
   NORMALIZED_STEPS=$(echo "${ONLY_STEPS}" | tr ',' ' ')
@@ -121,7 +127,7 @@ if [[ -n "${ONLY_STEPS}" ]]; then
     if [[ -z "$clean_s" ]]; then
       continue
     fi
-    for full_step in "${ALL_STEPS[@]}"; do
+    for full_step in "${KNOWN_STEPS[@]}"; do
       if [[ "$clean_s" == "$full_step" || "$full_step" == "${clean_s}"* || "$clean_s" == "job${full_step:0:2}"* ]]; then
         clean_s="$full_step"
         break
@@ -183,7 +189,8 @@ for step in "${STEPS[@]}"; do
 --conf spark.emr-serverless.driverEnv.SILVER_BUCKET=${SILVER_BUCKET} \
 --conf spark.executorEnv.SILVER_BUCKET=${SILVER_BUCKET} \
 --conf spark.emr-serverless.driverEnv.GOLD_BUCKET=${GOLD_BUCKET} \
---conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET}"
+--conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET} \
+--conf spark.emr-serverless.driverEnv.DATASET_VERSION=${DATASET_VERSION:-v1}"
 
   # Iniciar Job Run en EMR Serverless
   JOB_RUN_ID=$(aws emr-serverless start-job-run \

@@ -9,6 +9,8 @@ Permite:
   campeón siguiendo la regla de decisión metodológica del proyecto.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -21,11 +23,11 @@ import yaml
 
 # Imports de modelos
 try:
-    from src.models.launch_manual import lanzar_training_job_manual
+    from src.models.launch_manual import lanzar_orquestador_sagemaker
     from src.models.train import main as train_main
 except ImportError:
     from launch_manual import (  # type: ignore[import-not-found,no-redef]
-        lanzar_training_job_manual,
+        lanzar_orquestador_sagemaker,
     )
     from train import main as train_main  # type: ignore[import-not-found,no-redef]
 
@@ -80,12 +82,72 @@ def validar_dataset_entrada(dataset_path: str) -> str | None:
     return None
 
 
+def resultado_desde_record(
+    exp: dict[str, Any],
+    run_id: str,
+    record_data: dict[str, Any],
+    train_seconds: float,
+    record_file: str,
+    preds_file: str,
+) -> dict[str, Any]:
+    """Convierte un run_record (C3) en la fila de resultado del experimento."""
+    exp_id = exp["id"]
+    model_name = exp["model_name"]
+    variant = exp.get("variant", "V2")
+    usa_pesos = exp.get("usa_pesos", "si")
+    elapsed = train_seconds
+
+    metricas_cv = record_data.get("metricas_cv", {})
+    cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
+    train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0) or 0.0)
+    raw_folds = metricas_cv.get("cv_pr_auc_folds", metricas_cv.get("cv_pr_auc_fold"))
+    if isinstance(raw_folds, list):
+        fold_scores = [float(x) for x in raw_folds if x is not None]
+    else:
+        fold_scores = []
+    if not fold_scores:
+        fold_scores = [
+            float(metricas_cv[f"cv_pr_auc_fold_{i}"])
+            for i in range(5)
+            if metricas_cv.get(f"cv_pr_auc_fold_{i}") is not None
+        ]
+    cv_std = float(np.std(fold_scores)) if fold_scores else 0.0
+
+    best_params = (
+        record_data.get("hiperparametros_ganadores")
+        or record_data.get("hiperparametros_optimos")
+        or {}
+    )
+
+    return {
+        "id": exp_id,
+        "run_id": run_id,
+        "model_name": model_name,
+        "variant": variant,
+        "usa_pesos": usa_pesos,
+        "priority": exp.get("priority", "MUST"),
+        "description": exp.get("description", ""),
+        "status": "SUCCESS",
+        "cv_pr_auc_mean": cv_mean,
+        "cv_pr_auc_std": cv_std,
+        "cv_folds": fold_scores,
+        "train_pr_auc": train_pr_auc,
+        "overfit_gap": round(train_pr_auc - cv_mean, 4),
+        "train_seconds": elapsed,
+        "best_params": best_params,
+        "record_file": record_file,
+        "preds_file": preds_file,
+    }
+
+
 def ejecutar_experimento_runner(
     exp: dict[str, Any],
     dataset_path: str,
     output_base_dir: str,
     seed: int,
     dataset_version: str,
+    run_tag: str = "",
+    n_jobs: int = 0,
 ) -> dict[str, Any]:
     """Ejecuta un experimento directamente en el entorno de cómputo local/runner."""
     exp_id = exp["id"]
@@ -95,6 +157,8 @@ def ejecutar_experimento_runner(
 
     pesos_suffix = "w1" if usa_pesos == "si" else "w0"
     run_id = f"ssco-run-{exp_id}-{model_name.lower()}-{variant.lower()}-{pesos_suffix}"
+    if run_tag:
+        run_id = f"{run_id}-{run_tag}"
 
     model_dir = os.path.join(output_base_dir, "models", run_id)
     preds_dir = os.path.join(output_base_dir, "predictions")
@@ -131,6 +195,9 @@ def ejecutar_experimento_runner(
         record_file,
     ]
 
+    if n_jobs:
+        cli_args.extend(["--n_jobs", str(n_jobs)])
+
     param_grid = exp.get("hyperparameters", {}).get("param_grid")
     if param_grid and isinstance(param_grid, dict):
         cli_args.extend(["--param_grid_json", json.dumps(param_grid)])
@@ -155,49 +222,9 @@ def ejecutar_experimento_runner(
         with open(record_file, "r", encoding="utf-8") as f:
             record_data = json.loads(f.readline().strip())
 
-        metricas_cv = record_data.get("metricas_cv", {})
-        cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
-        train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0) or 0.0)
-        raw_folds = metricas_cv.get(
-            "cv_pr_auc_folds", metricas_cv.get("cv_pr_auc_fold")
+        return resultado_desde_record(
+            exp, run_id, record_data, elapsed, record_file, preds_file
         )
-        if isinstance(raw_folds, list):
-            fold_scores = [float(x) for x in raw_folds if x is not None]
-        else:
-            fold_scores = []
-        if not fold_scores:
-            fold_scores = [
-                float(metricas_cv[f"cv_pr_auc_fold_{i}"])
-                for i in range(5)
-                if metricas_cv.get(f"cv_pr_auc_fold_{i}") is not None
-            ]
-        cv_std = float(np.std(fold_scores)) if fold_scores else 0.0
-
-        best_params = (
-            record_data.get("hiperparametros_ganadores")
-            or record_data.get("hiperparametros_optimos")
-            or {}
-        )
-
-        return {
-            "id": exp_id,
-            "run_id": run_id,
-            "model_name": model_name,
-            "variant": variant,
-            "usa_pesos": usa_pesos,
-            "priority": exp.get("priority", "MUST"),
-            "description": exp.get("description", ""),
-            "status": "SUCCESS",
-            "cv_pr_auc_mean": cv_mean,
-            "cv_pr_auc_std": cv_std,
-            "cv_folds": fold_scores,
-            "train_pr_auc": train_pr_auc,
-            "overfit_gap": round(train_pr_auc - cv_mean, 4),
-            "train_seconds": elapsed,
-            "best_params": best_params,
-            "record_file": record_file,
-            "preds_file": preds_file,
-        }
     except Exception as err:  # noqa: BLE001
         return {
             "id": exp_id,
@@ -211,56 +238,78 @@ def ejecutar_experimento_runner(
         }
 
 
-def ejecutar_experimento_sagemaker(
-    exp: dict[str, Any],
-    gold_bucket: str,
-    dataset_version: str,
-    role_arn: str | None = None,
-    instance_type: str = "ml.m5.xlarge",
-) -> dict[str, Any]:
-    """Despacha un experimento como SageMaker Training Job en AWS."""
-    exp_id = exp["id"]
-    model_name = exp["model_name"]
-    variant = exp.get("variant", "V2")
-    usa_pesos = exp.get("usa_pesos", "si")
+def _s3_client() -> Any:
+    import boto3
 
-    pesos_suffix = "w1" if usa_pesos == "si" else "w0"
-    run_id = f"ssco-run-{exp_id}-{model_name.lower()}-{variant.lower()}-{pesos_suffix}"
+    return boto3.client("s3")
 
+
+def _claves_s3(run_id: str) -> dict[str, str]:
+    return {
+        "record": f"model_runs/run_id={run_id}/run_record.json",
+        "preds": f"model_outputs/predictions/predictions_{run_id}.parquet",
+        "model": f"model_artifacts/{run_id}/output/model.tar.gz",
+    }
+
+
+def publicar_resultado_s3(
+    bucket: str, run_id: str, record_file: str, preds_file: str, model_dir: str
+) -> None:
+    """Sube a S3 los productos de un experimento apenas termina (sobrevive a caídas)."""
+    claves = _claves_s3(run_id)
+    s3 = _s3_client()
+    s3.upload_file(record_file, bucket, claves["record"])
+    if os.path.isfile(preds_file):
+        s3.upload_file(preds_file, bucket, claves["preds"])
+    modelo = os.path.join(model_dir, "model.tar.gz")
+    if os.path.isfile(modelo):
+        s3.upload_file(modelo, bucket, claves["model"])
+
+
+def buscar_resultado_s3(
+    bucket: str, exp: dict[str, Any], run_id: str, output_dir: str
+) -> dict[str, Any] | None:
+    """Si el experimento ya terminó en una corrida anterior, devuelve su resultado."""
+    claves = _claves_s3(run_id)
+    local = os.path.join(output_dir, "run_records", f"run_record_{run_id}.json")
+    os.makedirs(os.path.dirname(local), exist_ok=True)
     try:
-        resp = lanzar_training_job_manual(
-            run_id=run_id,
-            model_name=model_name,
-            variant=variant,
-            usa_pesos=usa_pesos,
-            dataset_version=dataset_version,
-            instance_type=instance_type,
-            role_arn=role_arn,
-            gold_bucket=gold_bucket,
-        )
-        job_arn = resp.get("TrainingJobArn", "N/A")
-        return {
-            "id": exp_id,
-            "run_id": run_id,
-            "model_name": model_name,
-            "variant": variant,
-            "usa_pesos": usa_pesos,
-            "priority": exp.get("priority", "MUST"),
-            "description": exp.get("description", ""),
-            "status": "DISPATCHED",
-            "job_arn": job_arn,
-            "note": "SageMaker Training Job creado exitosamente en AWS.",
-        }
-    except Exception as err:  # noqa: BLE001
-        return {
-            "id": exp_id,
-            "run_id": run_id,
-            "model_name": model_name,
-            "variant": variant,
-            "usa_pesos": usa_pesos,
-            "status": "FAILED",
-            "error": str(err),
-        }
+        _s3_client().download_file(bucket, claves["record"], local)
+        with open(local, "r", encoding="utf-8") as f:
+            record = json.loads(f.readline().strip())
+    except Exception:  # noqa: BLE001
+        return None
+    return resultado_desde_record(
+        exp,
+        run_id,
+        record,
+        0.0,
+        local,
+        f"s3://{bucket}/{claves['preds']}",
+    )
+
+
+def publicar_leaderboard_s3(
+    bucket: str, run_tag: str, resultados: list[dict[str, Any]], dataset_version: str
+) -> None:
+    """Publica el leaderboard parcial en S3 tras cada experimento."""
+    campeon = seleccionar_modelo_campeon(resultados)
+    md = generar_leaderboard_markdown(resultados, campeon, dataset_version)
+    cuerpo = json.dumps(
+        {
+            "dataset_version": dataset_version,
+            "campeon": campeon,
+            "experimentos": resultados,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
+    s3 = _s3_client()
+    prefijo = f"model_leaderboards/tag={run_tag or 'sin-tag'}"
+    s3.put_object(Bucket=bucket, Key=f"{prefijo}/leaderboard.md", Body=md.encode())
+    s3.put_object(
+        Bucket=bucket, Key=f"{prefijo}/leaderboard.json", Body=cuerpo.encode()
+    )
 
 
 def seleccionar_modelo_campeon(
@@ -449,14 +498,52 @@ def main(args_list: list[str] | None = None) -> int:
     parser.add_argument(
         "--train_dir",
         type=str,
-        default="",
+        default=os.getenv("SM_CHANNEL_TRAIN", ""),
         help="Ruta o URI S3 al dataset de entrada",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./data/output/orchestrator",
+        default=os.getenv("SM_OUTPUT_DATA_DIR", "./data/output/orchestrator"),
         help="Directorio base para guardar salidas y artefactos",
+    )
+    parser.add_argument(
+        "--dataset_version",
+        type=str,
+        default="",
+        help="Sobrescribe dataset_version del YAML",
+    )
+    parser.add_argument(
+        "--publicar_s3",
+        type=str,
+        choices=["si", "no"],
+        default="no",
+        help="Publicar cada resultado en el bucket Gold apenas termine (runner)",
+    )
+    parser.add_argument(
+        "--reanudar",
+        type=str,
+        choices=["si", "no"],
+        default="no",
+        help="Omitir experimentos cuyo run_record ya existe en S3 con el mismo run_tag",
+    )
+    parser.add_argument(
+        "--n_jobs",
+        type=int,
+        default=0,
+        help="Procesos paralelos de GridSearchCV (0 = valor por defecto de train.py)",
+    )
+    parser.add_argument(
+        "--sagemaker_instance_type",
+        type=str,
+        default="ml.m5.4xlarge",
+        help="Tipo de instancia de los Training Jobs de SageMaker",
+    )
+    parser.add_argument(
+        "--run_tag",
+        type=str,
+        default="",
+        help="Sufijo para los run_id de SageMaker (permite repetir corridas)",
     )
     parser.add_argument(
         "--gold_bucket",
@@ -477,12 +564,14 @@ def main(args_list: list[str] | None = None) -> int:
         help="Ruta de archivo para guardar el reporte Markdown (e.g. GITHUB_STEP_SUMMARY)",
     )
 
-    args = parser.parse_args(args_list)
+    args, desconocidos = parser.parse_known_args(args_list)
+    if desconocidos:
+        print(f"[WARN] Argumentos ignorados: {desconocidos}")
 
     print(f"[INFO] Cargando configuración desde: {args.config}")
     config = cargar_configuracion(args.config)
 
-    dataset_version = str(config.get("dataset_version", "v1"))
+    dataset_version = args.dataset_version or str(config.get("dataset_version", "v1"))
     seed = int(config.get("seed", 42))
     todos_exp = config.get("experiments", [])
 
@@ -492,13 +581,36 @@ def main(args_list: list[str] | None = None) -> int:
     )
     print(f"[INFO] Target de ejecución: {args.target}")
 
-    dataset_path = args.train_dir
-    if args.target == "runner":
-        error_dataset = validar_dataset_entrada(dataset_path)
-        if error_dataset:
-            print(f"[ERROR] {error_dataset}", file=sys.stderr)
-            return 2
+    if args.target == "sagemaker":
+        # Un único Training Job corre toda la matriz en AWS; este proceso solo lo lanza
+        # y no queda esperando: GitHub Actions no es necesario para que termine.
+        try:
+            resp = lanzar_orquestador_sagemaker(
+                run_tag=args.run_tag,
+                experiments=args.experiments,
+                dataset_version=dataset_version,
+                instance_type=args.sagemaker_instance_type,
+                n_jobs=args.n_jobs or 3,
+                role_arn=args.role_arn or None,
+                gold_bucket=args.gold_bucket,
+            )
+        except Exception as err:  # noqa: BLE001
+            print(f"[ERROR] No se pudo lanzar el Training Job: {err}", file=sys.stderr)
+            return 1
+        print(f"[SUCCESS] Training Job: {resp.get('TrainingJobArn', 'N/A')}")
+        print(
+            f"[INFO] Resultados en s3://{args.gold_bucket}/model_leaderboards/"
+            f"tag={args.run_tag or 'sin-tag'}/ y model_runs/."
+        )
+        return 0
 
+    dataset_path = args.train_dir
+    error_dataset = validar_dataset_entrada(dataset_path)
+    if error_dataset:
+        print(f"[ERROR] {error_dataset}", file=sys.stderr)
+        return 2
+
+    publicar = args.publicar_s3 == "si"
     resultados: list[dict[str, Any]] = []
 
     for exp in seleccionados:
@@ -507,23 +619,47 @@ def main(args_list: list[str] | None = None) -> int:
         print(f"  Ejecutando Experimento {exp_id}: {exp.get('description', '')}")
         print("=======================================================")
 
-        if args.target == "runner":
+        res = None
+        if publicar and args.reanudar == "si":
+            pesos = "w1" if exp.get("usa_pesos", "si") == "si" else "w0"
+            run_id = f"ssco-run-{exp_id}-{exp['model_name'].lower()}-{exp.get('variant', 'V2').lower()}-{pesos}"
+            if args.run_tag:
+                run_id = f"{run_id}-{args.run_tag}"
+            res = buscar_resultado_s3(args.gold_bucket, exp, run_id, args.output_dir)
+            if res:
+                print(f"[INFO] {exp_id} ya existe en S3; se omite (reanudar).")
+
+        if res is None:
             res = ejecutar_experimento_runner(
                 exp=exp,
                 dataset_path=dataset_path,
                 output_base_dir=args.output_dir,
                 seed=seed,
                 dataset_version=dataset_version,
+                run_tag=args.run_tag,
+                n_jobs=args.n_jobs,
             )
-        else:
-            res = ejecutar_experimento_sagemaker(
-                exp=exp,
-                gold_bucket=args.gold_bucket,
-                dataset_version=dataset_version,
-                role_arn=args.role_arn,
-            )
+            if publicar and res.get("status") == "SUCCESS":
+                try:
+                    publicar_resultado_s3(
+                        args.gold_bucket,
+                        res["run_id"],
+                        res["record_file"],
+                        res["preds_file"],
+                        os.path.join(args.output_dir, "models", res["run_id"]),
+                    )
+                except Exception as err:  # noqa: BLE001
+                    print(f"[WARN] No se pudo publicar {exp_id} en S3: {err}")
         resultados.append(res)
         print(f"[STATUS] Experimento {exp_id} -> {res.get('status')}")
+
+        if publicar:
+            try:
+                publicar_leaderboard_s3(
+                    args.gold_bucket, args.run_tag, resultados, dataset_version
+                )
+            except Exception as err:  # noqa: BLE001
+                print(f"[WARN] No se pudo publicar el leaderboard parcial: {err}")
 
     # Determinar Campeón y Leaderboard
     campeon_info = seleccionar_modelo_campeon(resultados)

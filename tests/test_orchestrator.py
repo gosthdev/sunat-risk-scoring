@@ -354,3 +354,92 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
         assert res3["cv_folds"] == []
         assert res3["cv_pr_auc_std"] == 0.0
         assert res3["best_params"] == {}
+
+
+def test_resultado_desde_record():
+    from src.models.orchestrator import resultado_desde_record
+
+    record = {
+        "metricas_cv": {
+            "cv_pr_auc_mean": 0.2,
+            "train_pr_auc": 0.5,
+            "cv_pr_auc_folds": [0.1, 0.2, 0.3],
+        },
+        "hiperparametros_ganadores": {"C": 1.0},
+    }
+    exp = {"id": "E1", "model_name": "LR", "variant": "V2", "usa_pesos": "si"}
+    out = resultado_desde_record(exp, "run", record, 10.0, "r.json", "p.parquet")
+    assert out["status"] == "SUCCESS"
+    assert out["overfit_gap"] == pytest.approx(0.3)
+    assert out["best_params"] == {"C": 1.0}
+
+
+def test_target_sagemaker_lanza_un_solo_job_y_no_espera(monkeypatch):
+    import src.models.orchestrator as orq
+
+    llamadas = []
+
+    def falso_lanzar(**kwargs):
+        llamadas.append(kwargs)
+        return {"TrainingJobArn": "arn:aws:sagemaker:::training-job/ssco-all-t1"}
+
+    monkeypatch.setattr(orq, "lanzar_orquestador_sagemaker", falso_lanzar)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--target",
+                "sagemaker",
+                "--run_tag",
+                "t1",
+                "--output_dir",
+                tmp_dir,
+            ]
+        )
+    assert code == 0
+    assert len(llamadas) == 1
+    assert llamadas[0]["run_tag"] == "t1"
+    assert llamadas[0]["experiments"] == "ALL"
+
+
+def test_reanudar_omite_experimentos_ya_publicados(monkeypatch):
+    import src.models.orchestrator as orq
+
+    record = {
+        "metricas_cv": {"cv_pr_auc_mean": 0.3, "cv_pr_auc_folds": [0.3] * 5},
+        "hiperparametros_ganadores": {"C": 1.0},
+    }
+
+    def falso_buscar(bucket, exp, run_id, output_dir):
+        assert run_id.endswith("-tag9")
+        return orq.resultado_desde_record(exp, run_id, record, 0.0, "r", "p")
+
+    def no_debe_entrenar(**kwargs):
+        raise AssertionError("no debe reentrenar un experimento ya publicado")
+
+    monkeypatch.setattr(orq, "buscar_resultado_s3", falso_buscar)
+    monkeypatch.setattr(orq, "ejecutar_experimento_runner", no_debe_entrenar)
+    monkeypatch.setattr(orq, "publicar_leaderboard_s3", lambda *a, **k: None)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=50)
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1",
+                "--train_dir",
+                data_dir,
+                "--output_dir",
+                tmp_dir,
+                "--publicar_s3",
+                "si",
+                "--reanudar",
+                "si",
+                "--run_tag",
+                "tag9",
+            ]
+        )
+    assert code == 0
