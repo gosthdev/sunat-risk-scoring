@@ -21,6 +21,8 @@ REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
 ROLE_NAME="sunat-ssco-train-ec2-role"
+SKIP_IAM_SETUP="no"
+SETUP_IAM_ONLY="no"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,16 +33,49 @@ while [ $# -gt 0 ]; do
     --n-jobs) N_JOBS="$2"; shift 2 ;;
     --max-hours) MAX_HOURS="$2"; shift 2 ;;
     --dataset-version) DATASET_VERSION="$2"; shift 2 ;;
+    --skip-iam-setup) SKIP_IAM_SETUP="yes"; shift ;;   # CI: el rol ya existe y el rol de GitHub no administra IAM
+    --setup-iam-only) SETUP_IAM_ONLY="yes"; shift ;;   # crea el rol/perfil de la instancia y termina
     *) echo "Argumento desconocido: $1" >&2; exit 2 ;;
   esac
 done
-[ -n "${TAG}" ] || { echo "Falta --tag <nombre-de-la-corrida>" >&2; exit 2; }
+[ "${SETUP_IAM_ONLY}" = "yes" ] || [ -n "${TAG}" ] || { echo "Falta --tag <nombre-de-la-corrida>" >&2; exit 2; }
 export AWS_DEFAULT_REGION="${REGION}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
 echo "[INFO] Cuenta: $(aws sts get-caller-identity --query Arn --output text)"
+
+# Rol de instancia (se crea una sola vez): S3 + SSM, nada más.
+setup_iam() {
+  if ! aws iam get-role --role-name "${ROLE_NAME}" >/dev/null 2>&1; then
+    echo "[INFO] Creando rol ${ROLE_NAME}"
+    aws iam create-role --role-name "${ROLE_NAME}" --assume-role-policy-document '{
+      "Version":"2012-10-17",
+      "Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+    aws iam attach-role-policy --role-name "${ROLE_NAME}" \
+      --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+    aws iam put-role-policy --role-name "${ROLE_NAME}" --policy-name s3-gold-and-artifacts --policy-document "{
+      \"Version\":\"2012-10-17\",
+      \"Statement\":[
+        {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:ListBucket\"],
+         \"Resource\":[\"arn:aws:s3:::${GOLD_BUCKET}\",\"arn:aws:s3:::${GOLD_BUCKET}/*\"]},
+        {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],
+         \"Resource\":[\"arn:aws:s3:::${ARTIFACTS_BUCKET}/train_ec2/*\"]}]}"
+  fi
+  if ! aws iam get-instance-profile --instance-profile-name "${ROLE_NAME}" >/dev/null 2>&1; then
+    aws iam create-instance-profile --instance-profile-name "${ROLE_NAME}" >/dev/null
+    aws iam add-role-to-instance-profile --instance-profile-name "${ROLE_NAME}" --role-name "${ROLE_NAME}"
+    echo "[INFO] Esperando a que IAM propague el perfil de instancia..."
+    sleep 15
+  fi
+}
+
+if [ "${SETUP_IAM_ONLY}" = "yes" ]; then
+  setup_iam
+  echo "[OK] Rol y perfil de instancia listos: ${ROLE_NAME}"
+  exit 0
+fi
 
 # 1. Código: se entrena exactamente lo commiteado en HEAD.
 if [ -n "$(git status --porcelain src config)" ]; then
@@ -51,27 +86,9 @@ CODE_KEY="train_ec2/${TAG}/code.tgz"
 git archive --format=tar.gz HEAD src config | aws s3 cp - "s3://${ARTIFACTS_BUCKET}/${CODE_KEY}" --only-show-errors
 echo "[INFO] Código subido: s3://${ARTIFACTS_BUCKET}/${CODE_KEY} ($(git rev-parse --short HEAD))"
 
-# 2. Rol de instancia (se crea una sola vez): S3 + SSM, nada más.
-if ! aws iam get-role --role-name "${ROLE_NAME}" >/dev/null 2>&1; then
-  echo "[INFO] Creando rol ${ROLE_NAME}"
-  aws iam create-role --role-name "${ROLE_NAME}" --assume-role-policy-document '{
-    "Version":"2012-10-17",
-    "Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
-  aws iam attach-role-policy --role-name "${ROLE_NAME}" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-  aws iam put-role-policy --role-name "${ROLE_NAME}" --policy-name s3-gold-and-artifacts --policy-document "{
-    \"Version\":\"2012-10-17\",
-    \"Statement\":[
-      {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:ListBucket\"],
-       \"Resource\":[\"arn:aws:s3:::${GOLD_BUCKET}\",\"arn:aws:s3:::${GOLD_BUCKET}/*\"]},
-      {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],
-       \"Resource\":[\"arn:aws:s3:::${ARTIFACTS_BUCKET}/train_ec2/*\"]}]}"
-fi
-if ! aws iam get-instance-profile --instance-profile-name "${ROLE_NAME}" >/dev/null 2>&1; then
-  aws iam create-instance-profile --instance-profile-name "${ROLE_NAME}" >/dev/null
-  aws iam add-role-to-instance-profile --instance-profile-name "${ROLE_NAME}" --role-name "${ROLE_NAME}"
-  echo "[INFO] Esperando a que IAM propague el perfil de instancia..."
-  sleep 15
+# 2. Rol de instancia
+if [ "${SKIP_IAM_SETUP}" != "yes" ]; then
+  setup_iam
 fi
 
 # 3. User data: instala, descarga el dataset (misma región: sin costo de salida),

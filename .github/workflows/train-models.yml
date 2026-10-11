@@ -1,7 +1,8 @@
 name: Train & Benchmark SSCO Models
 
-# GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en un
-# SageMaker Training Job que no depende de este workflow. Ningún dato se procesa en el runner.
+# GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en una
+# instancia EC2 efímera que entrena toda la matriz en paralelo, publica en S3 y se termina
+# sola. Ningún dato se procesa en el runner.
 
 on:
   workflow_dispatch:
@@ -22,10 +23,20 @@ on:
         type: boolean
         default: false
       instance_type:
-        description: "Instancia de SageMaker para cada Training Job"
+        description: "Tipo de instancia EC2 (la cuota de la cuenta es de 32 vCPU: r6i.8xlarge es el máximo)"
         required: false
         type: string
-        default: "ml.m5.4xlarge"
+        default: "r6i.8xlarge"
+      parallel:
+        description: "Experimentos que corren a la vez en la instancia (cada uno pica ~22 GiB de RAM)"
+        required: false
+        type: string
+        default: "5"
+      n_jobs:
+        description: "Procesos del GridSearchCV por experimento"
+        required: false
+        type: string
+        default: "3"
       run_tag:
         description: "Sufijo de la corrida (vacío = id de esta ejecución). Repetir el mismo tag reanuda sin repetir experimentos terminados."
         required: false
@@ -102,24 +113,13 @@ jobs:
           aws s3 ls "${PREFIX}" --recursive --human-readable --summarize | tail -2
 
   train:
-    name: Launch training (SageMaker)
+    name: Launch training (EC2)
     needs: [prepare-dataset]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r src/models/requirements.txt
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -127,34 +127,30 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Package training code
-        run: |
-          bash scripts/package_training_code.sh "${GOLD_BUCKET}"
-
-      - name: Launch the SageMaker Training Job
+      - name: Launch the EC2 training instance
         env:
           RUN_TAG: ${{ inputs.run_tag != '' && inputs.run_tag || github.run_id }}
+          EXPERIMENTS: ${{ inputs.experiments }}
+          INSTANCE_TYPE: ${{ inputs.instance_type }}
+          PARALLEL: ${{ inputs.parallel }}
+          N_JOBS: ${{ inputs.n_jobs }}
         run: |
           set -euo pipefail
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          export SAGEMAKER_ROLE_ARN="${{ vars.SAGEMAKER_ROLE_ARN || secrets.SAGEMAKER_ROLE_ARN || '' }}"
-          if [ -z "${SAGEMAKER_ROLE_ARN}" ]; then
-            SAGEMAKER_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/sunat-ssco-sagemaker-execution-role"
-          fi
-          # Un solo job en AWS ejecuta toda la matriz y publica cada resultado en S3.
-          # Este workflow termina aquí: no hace falta que siga vivo para que el entrenamiento acabe.
-          python -m src.models.orchestrator \
-            --config config/experiments.yml \
-            --experiments "${{ inputs.experiments }}" \
-            --target sagemaker \
-            --dataset_version "${DATASET_VERSION}" \
-            --sagemaker_instance_type "${{ inputs.instance_type }}" \
-            --run_tag "${RUN_TAG}" \
-            --gold_bucket "${GOLD_BUCKET}"
+          # Una sola instancia entrena toda la matriz y publica cada resultado en S3.
+          # Este workflow termina aquí: la instancia se apaga sola al acabar (tope de 12 h).
+          bash scripts/train_ec2.sh \
+            --tag "${RUN_TAG}" \
+            --experiments "${EXPERIMENTS}" \
+            --instance-type "${INSTANCE_TYPE}" \
+            --parallel "${PARALLEL}" \
+            --n-jobs "${N_JOBS}" \
+            --dataset-version "${DATASET_VERSION}" \
+            --skip-iam-setup
           {
-            echo "### Training Job lanzado"
+            echo "### Entrenamiento lanzado en EC2"
             echo ""
-            echo "- Job: \`ssco-all-${RUN_TAG}\`"
+            echo "- Tag: \`${RUN_TAG}\`"
+            echo "- Instancia: \`${INSTANCE_TYPE}\`, ${PARALLEL} experimentos a la vez"
             echo "- Resultados: \`s3://${GOLD_BUCKET}/model_leaderboards/tag=${RUN_TAG}/\`"
             echo "- Para ver el avance: ejecuta el workflow *Collect Training Results* con \`run_tag=${RUN_TAG}\`."
           } >> "$GITHUB_STEP_SUMMARY"
