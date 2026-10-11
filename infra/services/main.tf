@@ -92,6 +92,33 @@ module "glue_crawler_gold" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/"
   table_prefix   = "gold_"
+  # model_* se catalogan con crawlers dedicados (4 tablas exactas, sin prefijo gold_)
+  extra_exclusions = [
+    "model_inputs/**",
+    "model_outputs/**",
+    "model_runs/**",
+    "model_metrics/**",
+  ]
+}
+
+module "glue_crawler_model_inputs" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-model-inputs-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_inputs/"
+  table_prefix   = ""
+  table_level    = null
+}
+
+module "glue_crawler_predictions" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-predictions-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_outputs/predictions/"
+  table_prefix   = ""
+  table_level    = null
 }
 
 module "glue_crawler_model_runs" {
@@ -99,9 +126,9 @@ module "glue_crawler_model_runs" {
   crawler_name   = "sunat-ssco-model-runs-crawler"
   database_name  = module.glue_database.database_name
   role_arn       = module.iam_glue_crawler_role.role_arn
-  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_runs/"
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_runs/"
   table_prefix   = ""
-  table_level    = 1
+  table_level    = null
 }
 
 module "glue_crawler_model_metrics" {
@@ -109,9 +136,9 @@ module "glue_crawler_model_metrics" {
   crawler_name   = "sunat-ssco-model-metrics-crawler"
   database_name  = module.glue_database.database_name
   role_arn       = module.iam_glue_crawler_role.role_arn
-  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_metrics/"
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_metrics/"
   table_prefix   = ""
-  table_level    = 1
+  table_level    = null
 }
 
 ############ Athena ############

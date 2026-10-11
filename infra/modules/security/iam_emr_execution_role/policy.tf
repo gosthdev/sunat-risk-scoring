@@ -63,10 +63,10 @@ resource "aws_iam_role_policy" "s3_access" {
           "s3:ListMultipartUploadParts"
         ]
         Resource = [
-          "${var.gold_bucket_arn}/gold/ruc_features/*",
-          "${var.gold_bucket_arn}/gold/regional_summary/*",
-          "${var.gold_bucket_arn}/gold/scoring_dataset/*",
-          "${var.gold_bucket_arn}/gold/model_inputs/*"
+          "${var.gold_bucket_arn}/ruc_features/*",
+          "${var.gold_bucket_arn}/regional_summary/*",
+          "${var.gold_bucket_arn}/scoring_dataset/*",
+          "${var.gold_bucket_arn}/model_inputs/*"
         ]
       },
       {

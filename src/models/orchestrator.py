@@ -218,7 +218,9 @@ def ejecutar_experimento_runner(
         metricas_cv = record_data.get("metricas_cv", {})
         cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
         train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0) or 0.0)
-        raw_folds = metricas_cv.get("cv_pr_auc_fold")
+        raw_folds = metricas_cv.get(
+            "cv_pr_auc_folds", metricas_cv.get("cv_pr_auc_fold")
+        )
         if isinstance(raw_folds, list):
             fold_scores = [float(x) for x in raw_folds if x is not None]
         else:
@@ -539,7 +541,7 @@ def main(args_list: list[str] | None = None) -> int:
     print(f"[INFO] Cargando configuración desde: {args.config}")
     config = cargar_configuracion(args.config)
 
-    dataset_version = str(config.get("dataset_version", "v01"))
+    dataset_version = str(config.get("dataset_version", "v1"))
     seed = int(config.get("seed", 42))
     todos_exp = config.get("experiments", [])
 

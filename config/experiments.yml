@@ -1,7 +1,7 @@
 # Especificación Oficial de Matriz de Experimentos de Machine Learning (Contrato C5)
 # Detección de Sujetos sin Capacidad Operativa (SSCO) - SUNAT Risk Scoring
 
-dataset_version: "v01"
+dataset_version: "v1"
 seed: 42
 scoring_metric: "average_precision"
 

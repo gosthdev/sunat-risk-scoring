@@ -22,7 +22,7 @@ resource "aws_iam_role_policy" "s3_access" {
           "s3:GetObjectVersion"
         ]
         Resource = [
-          "${var.gold_bucket_arn}/gold/model_inputs/*"
+          "${var.gold_bucket_arn}/model_inputs/*"
         ]
       },
       {
@@ -36,10 +36,10 @@ resource "aws_iam_role_policy" "s3_access" {
           "s3:ListMultipartUploadParts"
         ]
         Resource = [
-          "${var.gold_bucket_arn}/gold/model_outputs/*",
-          "${var.gold_bucket_arn}/gold/model_artifacts/*",
-          "${var.gold_bucket_arn}/gold/model_runs/*",
-          "${var.gold_bucket_arn}/gold/model_metrics/*"
+          "${var.gold_bucket_arn}/model_outputs/*",
+          "${var.gold_bucket_arn}/model_artifacts/*",
+          "${var.gold_bucket_arn}/model_runs/*",
+          "${var.gold_bucket_arn}/model_metrics/*"
         ]
       },
       {

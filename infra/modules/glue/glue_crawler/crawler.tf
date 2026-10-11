@@ -9,15 +9,15 @@ resource "aws_glue_crawler" "this" {
     CrawlerOutput = {
       Tables = { AddOrUpdateBehavior = "MergeNewColumns" }
     }
-    Grouping = {
-      TableGroupingPolicy     = "CombineCompatibleSchemas"
-      TableLevelConfiguration = var.table_level
-    }
+    Grouping = merge(
+      { TableGroupingPolicy = "CombineCompatibleSchemas" },
+      var.table_level == null ? {} : { TableLevelConfiguration = var.table_level }
+    )
   })
 
   s3_target {
     path       = var.s3_target_path
-    exclusions = ["_markers/**", "**/_markers/**"]
+    exclusions = concat(["_markers/**", "**/_markers/**"], var.extra_exclusions)
   }
 
   schema_change_policy {

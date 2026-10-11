@@ -176,7 +176,7 @@ def test_generar_leaderboard_markdown():
         "campeon_model": "LR",
         "justificacion": "Mejor modelo candidato oficial.",
     }
-    md = generar_leaderboard_markdown(resultados, campeon_info, "v01")
+    md = generar_leaderboard_markdown(resultados, campeon_info, "v1")
     assert "# Leaderboard Oficial" in md
     assert "| `E1` | **LR** |" in md
     assert "🏆 **CHAMPION**" in md
@@ -211,7 +211,7 @@ def test_orchestrator_main_end_to_end():
 
         with open(json_leaderboard, "r", encoding="utf-8") as f:
             data = json.load(f)
-            assert data["dataset_version"] == "v01"
+            assert data["dataset_version"] == "v1"
             assert "campeon" in data
             assert len(data["experimentos"]) == 1
             exp0 = data["experimentos"][0]
@@ -270,7 +270,7 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
                         {
                             "metricas_cv": {
                                 "cv_pr_auc_mean": 0.35,
-                                "cv_pr_auc_fold": [0.31, 0.33, 0.37, 0.39, 0.35],
+                                "cv_pr_auc_folds": [0.31, 0.33, 0.37, 0.39, 0.35],
                                 "train_pr_auc": 0.40,
                             },
                             "hiperparametros_ganadores": {"model__C": 0.1},
@@ -281,7 +281,7 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
             return 0
 
         monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_c3)
-        res1 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v01")
+        res1 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v1")
         assert res1["status"] == "SUCCESS"
         assert res1["cv_folds"] == [0.31, 0.33, 0.37, 0.39, 0.35]
         assert np.isclose(
@@ -314,7 +314,7 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
             return 0
 
         monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_legacy)
-        res2 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v01")
+        res2 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v1")
         assert res2["status"] == "SUCCESS"
         assert res2["cv_folds"] == [0.25, 0.29, 0.30, 0.26, 0.30]
         assert res2["cv_pr_auc_std"] > 0
@@ -341,7 +341,7 @@ def test_orchestrator_fold_scores_and_params_fallbacks(monkeypatch):
             return 0
 
         monkeypatch.setattr("src.models.orchestrator.train_main", mock_train_nulls)
-        res3 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v01")
+        res3 = ejecutar_experimento_runner(exp, tmp_dir, tmp_dir, 42, "v1")
         assert res3["status"] == "SUCCESS"
         assert res3["cv_folds"] == []
         assert res3["cv_pr_auc_std"] == 0.0

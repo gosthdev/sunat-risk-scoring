@@ -7,11 +7,13 @@ Garantiza el cumplimiento estricto de:
 
 import json
 import os
+import subprocess
 from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import sklearn
 
 
 def _clean_float(val: Any, decimals: int = 4) -> float:
@@ -21,6 +23,24 @@ def _clean_float(val: Any, decimals: int = 4) -> float:
         return 0.0 if np.isnan(f) else round(f, decimals)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _resolver_git_commit() -> str:
+    """SHA del commit: variable GIT_COMMIT (CI/SageMaker), luego `git`, si no 'unknown'."""
+    env_sha = os.getenv("GIT_COMMIT", "").strip()
+    if env_sha:
+        return env_sha
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
 
 
 def exportar_predicciones_y_run_record(
@@ -35,10 +55,13 @@ def exportar_predicciones_y_run_record(
     elapsed_time: float,
     best_params: dict[str, Any],
     grilla_probada: dict[str, Any] | None = None,
-    git_commit: str = "HEAD",
-    version_sklearn: str = "1.3.2",
+    git_commit: str | None = None,
+    version_sklearn: str | None = None,
 ) -> dict[str, Any]:
     """Genera y exporta el Parquet de predicciones (C2) y el archivo run_record.json (C3)."""
+    git_commit = git_commit or _resolver_git_commit()
+    version_sklearn = version_sklearn or sklearn.__version__
+
     # 1. Calcular predicciones de probabilidad sobre toda la población
     probs = best_pipeline.predict_proba(X_all)[:, 1]
 
@@ -59,11 +82,17 @@ def exportar_predicciones_y_run_record(
             "score": probs.astype(float),
             "label": df_all["label"].astype(int).values,
             "split": df_all["split"].astype(str).values,
+            "departamento": (
+                df_all["departamento"].astype("string").values
+                if "departamento" in df_all.columns
+                else pd.array([None] * len(df_all), dtype="string")
+            ),
+            "run_id": str(args.run_id),
         }
     )
 
     # Calcular rank_global descendente por score (1 = mayor probabilidad de riesgo)
-    # En caso de empates, method="min" asigna el rango mínimo y desempatamos por ruc
+    # En caso de empates se desempata por ruc ascendente
     df_preds = df_preds.sort_values(
         by=["score", "ruc"], ascending=[False, True]
     ).reset_index(drop=True)
@@ -101,6 +130,12 @@ def exportar_predicciones_y_run_record(
             for k, v in grilla_probada.items()
         }
 
+    # Calcular desviación estándar de los folds para C3 y Leaderboard
+    valid_fold_scores = [
+        float(x) for x in cv_folds_scores if x is not None and not np.isnan(float(x))
+    ]
+    cv_std = float(np.std(valid_fold_scores)) if valid_fold_scores else 0.0
+
     run_record = {
         "run_id": args.run_id,
         "fecha": datetime.now(UTC).isoformat(),
@@ -123,7 +158,8 @@ def exportar_predicciones_y_run_record(
         "segundos_entrenamiento": _clean_float(elapsed_time, 2),
         "metricas_cv": {
             "cv_pr_auc_mean": _clean_float(cv_mean, 4),
-            "cv_pr_auc_fold": [_clean_float(x, 4) for x in cv_folds_scores],
+            "cv_pr_auc_std": _clean_float(cv_std, 4),
+            "cv_pr_auc_folds": [_clean_float(x, 4) for x in cv_folds_scores],
             "train_pr_auc": _clean_float(train_pr_auc, 4),
         },
     }

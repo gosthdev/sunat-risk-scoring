@@ -16,7 +16,7 @@
 Para prevenir ejecuciones duplicadas accidentales y asegurar trazabilidad biunívoca en auditorías tributarias:
 - **Regla Estricta:** `TrainingJobName == run_id`
 - La API de Amazon SageMaker rechaza la creación de cualquier job con un nombre idéntico a uno existente (`ResourceInUse` / `Cannot create training job with duplicate name`), garantizando idempotencia a nivel de plataforma AWS.
-- El `run_id` codifica los metadatos de la corrida (e.g. `ssco-lr-v2-pesos-v01-20261009180000`).
+- El `run_id` codifica los metadatos de la corrida (e.g. `ssco-lr-v2-pesos-v1-20261009180000`).
 
 ---
 
@@ -24,19 +24,19 @@ Para prevenir ejecuciones duplicadas accidentales y asegurar trazabilidad biuní
 
 ### A. Canales de Entrada (Input Channels)
 - **Canal `train`:**
-  - URI S3: `s3://<gold-bucket>/gold/model_inputs/dataset_version=<v>/`
+  - URI S3: `s3://<gold-bucket>/model_inputs/dataset_version=<v>/`
   - Formato: Apache Parquet (Contrato C1).
   - En SageMaker, el servicio monta automáticamente los archivos en la ruta `/opt/ml/input/data/train/`.
 
 ### B. Canales de Salida (Output Paths)
 - **Predicciones Globales (Contrato C2):**
-  - URI S3: `s3://<gold-bucket>/gold/model_outputs/predictions_<run_id>.parquet`
+  - URI S3: `s3://<gold-bucket>/model_outputs/predictions_<run_id>.parquet`
   - Contiene: `ruc`, `score`, `label`, `split`, `rank_global` ordenado por `[score DESC, ruc ASC]`.
 - **Run Record NDJSON (Contrato C3):**
-  - URI S3: `s3://<gold-bucket>/gold/model_outputs/run_record_<run_id>.json`
+  - URI S3: `s3://<gold-bucket>/model_outputs/run_record_<run_id>.json`
   - Contiene: metadatos de la corrida, hiperparámetros y métricas en formato estricto de una sola línea (Single-line NDJSON).
 - **Artefactos del Modelo Entrenado:**
-  - URI S3: `s3://<gold-bucket>/gold/model_artifacts/<run_id>/output/model.tar.gz`
+  - URI S3: `s3://<gold-bucket>/model_artifacts/<run_id>/output/model.tar.gz`
   - Contiene: `model.joblib` con el pipeline completo ajustado (`ColumnTransformer` + Estimador).
 
 ---
@@ -47,17 +47,13 @@ SageMaker captura métricas de entrenamiento parseando las líneas emitidas por 
 
 | Nombre de Métrica (`Name`) | Expresión Regular (`Regex`) | Tipo | Descripción |
 | :--- | :--- | :--- | :--- |
-| `cv_pr_auc_mean` | `\[METRIC\] cv_pr_auc_mean=([0-9\.]+)` | Float | Media de PR-AUC (Average Precision) en validación cruzada de 5 folds. |
-| `cv_pr_auc_fold_0` | `\[METRIC\] cv_pr_auc_fold_0=([0-9\.]+)` | Float | Métrica PR-AUC en Fold 0 de CV. |
-| `cv_pr_auc_fold_1` | `\[METRIC\] cv_pr_auc_fold_1=([0-9\.]+)` | Float | Métrica PR-AUC en Fold 1 de CV. |
-| `cv_pr_auc_fold_2` | `\[METRIC\] cv_pr_auc_fold_2=([0-9\.]+)` | Float | Métrica PR-AUC en Fold 2 de CV. |
-| `cv_pr_auc_fold_3` | `\[METRIC\] cv_pr_auc_fold_3=([0-9\.]+)` | Float | Métrica PR-AUC en Fold 3 de CV. |
-| `cv_pr_auc_fold_4` | `\[METRIC\] cv_pr_auc_fold_4=([0-9\.]+)` | Float | Métrica PR-AUC en Fold 4 de CV. |
-| `train_pr_auc` | `\[METRIC\] train_pr_auc=([0-9\.]+)` | Float | Métrica PR-AUC evaluada sobre la totalidad de `train`. |
-| `n_train` | `\[METRIC\] n_train=([0-9]+)` | Int | Total de filas de entrenamiento procesadas. |
-| `n_pos_train` | `\[METRIC\] n_pos_train=([0-9]+)` | Int | Total de casos positivos (SSCO=1) en el conjunto de entrenamiento. |
-| `n_features_transformadas` | `\[METRIC\] n_features_transformadas=([0-9]+)` | Int | Dimensión del vector de entrada tras el preprocesamiento (`ColumnTransformer`). |
-| `train_seconds` | `\[METRIC\] train_seconds=([0-9\.]+)` | Float | Tiempo neto de entrenamiento y búsqueda de hiperparámetros en segundos. |
+| `cv_pr_auc_mean` | `cv_pr_auc_mean=([0-9\.]+)` | Float | Media de PR-AUC (Average Precision) en validación cruzada de 5 folds. |
+| `cv_pr_auc_fold` | `cv_pr_auc_fold=([0-9\.]+)` | Float | PR-AUC de cada fold de CV (un dato por fold). |
+| `train_pr_auc` | `train_pr_auc=([0-9\.]+)` | Float | Métrica PR-AUC evaluada sobre la totalidad de `train`. |
+| `n_train` | `n_train=([0-9]+)` | Int | Total de filas de entrenamiento procesadas. |
+| `n_pos_train` | `n_pos_train=([0-9]+)` | Int | Total de casos positivos (SSCO=1) en el conjunto de entrenamiento. |
+| `n_features_transformadas` | `n_features_transformadas=([0-9]+)` | Int | Dimensión del vector de entrada tras el preprocesamiento (`ColumnTransformer`). |
+| `train_seconds` | `train_seconds=([0-9\.]+)` | Float | Tiempo neto de entrenamiento y búsqueda de hiperparámetros en segundos. |
 
 ---
 
@@ -69,7 +65,7 @@ SageMaker captura métricas de entrenamiento parseando las líneas emitidas por 
 | `--variant` | String | `V1`, `V2` | `V2` | Variante de features: V2 oficial (sin fuga) o V1 (control de techo). |
 | `--usa_pesos` | String | `si`, `no` | `si` | Balanceo de clases (`class_weight="balanced"`). |
 | `--run_id` | String | Texto alfanumérico | Auto-generado | Identificador único de la corrida. |
-| `--dataset_version` | String | Texto | `v01` | Versión del dataset en S3 (`dataset_version=v1`). |
+| `--dataset_version` | String | Texto | `v1` | Versión del dataset en S3 (`dataset_version=v1`). |
 | `--seed` | Int | Entero positivo | `42` | Semilla del generador pseudoaleatorio. |
 | `--train_dir` | String | Ruta / URI S3 | Env / `/opt/ml/input/data/train` | Directorio o archivo de entrada Parquet. |
 | `--model_dir` | String | Ruta local | Env / `/opt/ml/model` | Directorio para artefactos del modelo. |

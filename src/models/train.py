@@ -48,6 +48,26 @@ except ImportError:
     )
 
 
+# Variables monetarias y de conteo asimétricas (log1p). El resto de numéricas
+# (porcentajes, binarias, índices) solo se imputa y estandariza.
+COLS_LOG1P = {
+    "monto_total_soles",
+    "monto_mediano_soles",
+    "monto_maximo_soles",
+    "n_ordenes",
+    "total_ordenes_validas",
+    "n_entidades_distintas",
+    "antiguedad_contratacion_estado_dias",
+    "antiguedad_meses",
+    "nro_trabajadores",
+    "monto_por_trabajador",
+}
+
+# Tope de categorías por variable (D-A4): ~25 departamentos, ~30 el resto (CIIU, etc.).
+MAX_CATEGORIAS = {"departamento": 25}
+MAX_CATEGORIAS_DEFAULT = 30
+
+
 class Log1pTransformer(BaseEstimator, TransformerMixin):
     """Transformador para compresión de sesgo en variables monetarias y conteos (np.log1p)."""
 
@@ -55,8 +75,12 @@ class Log1pTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X: Any) -> np.ndarray:
-        arr = np.nan_to_num(np.asarray(X, dtype=np.float64), nan=0.0)
+        # Preserva NaN: la imputación con mediana (y su bandera de nulo) ocurre después.
+        arr = np.asarray(X, dtype=np.float64)
         return np.log1p(np.maximum(0.0, arr))
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        return np.asarray(input_features, dtype=object)
 
 
 def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
@@ -82,7 +106,7 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model_name", type=str, choices=["LR", "DT"], required=True)
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
-    parser.add_argument("--dataset_version", type=str, default="v01")
+    parser.add_argument("--dataset_version", type=str, default="v1")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
@@ -162,34 +186,44 @@ def construir_pipeline_preprocesamiento(
     es_lr: bool = True,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
-    num_steps: list[tuple[str, Any]] = [
-        ("log1p", Log1pTransformer()),
-        ("imputer", SimpleImputer(strategy="median")),
-    ]
-    if es_lr:
-        num_steps.append(("scaler", StandardScaler()))
 
-    num_pipeline = Pipeline(num_steps)
+    def _num_pipeline(con_log: bool) -> Pipeline:
+        steps: list[tuple[str, Any]] = []
+        if con_log:
+            steps.append(("log1p", Log1pTransformer()))
+        steps.append(("imputer", SimpleImputer(strategy="median", add_indicator=True)))
+        if es_lr:
+            steps.append(("scaler", StandardScaler()))
+        return Pipeline(steps)
 
-    cat_pipeline = Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="constant", fill_value="DESCONOCIDO")),
-            (
-                "ohe",
-                OneHotEncoder(
-                    handle_unknown="infrequent_if_exist",
-                    max_categories=30,
-                    sparse_output=False,
+    def _cat_pipeline(max_categories: int) -> Pipeline:
+        return Pipeline(
+            [
+                (
+                    "imputer",
+                    SimpleImputer(strategy="constant", fill_value="DESCONOCIDO"),
                 ),
-            ),
-        ]
-    )
+                (
+                    "ohe",
+                    OneHotEncoder(
+                        handle_unknown="infrequent_if_exist",
+                        max_categories=max_categories,
+                        sparse_output=False,
+                    ),
+                ),
+            ]
+        )
 
-    transformers = []
-    if num_cols:
-        transformers.append(("num", num_pipeline, num_cols))
-    if cat_cols:
-        transformers.append(("cat", cat_pipeline, cat_cols))
+    transformers: list[tuple[str, Any, list[str]]] = []
+    num_log = [c for c in num_cols if c in COLS_LOG1P]
+    num_lin = [c for c in num_cols if c not in COLS_LOG1P]
+    if num_log:
+        transformers.append(("num_log", _num_pipeline(True), num_log))
+    if num_lin:
+        transformers.append(("num_lin", _num_pipeline(False), num_lin))
+    for col in cat_cols:
+        tope = MAX_CATEGORIAS.get(col, MAX_CATEGORIAS_DEFAULT)
+        transformers.append((f"cat_{col}", _cat_pipeline(tope), [col]))
 
     return ColumnTransformer(transformers=transformers, remainder="drop")
 
@@ -315,7 +349,7 @@ def main(args_list: list[str] | None = None) -> int:
     for idx, f_key in enumerate(fold_keys):
         f_score = float(grid_search.cv_results_[f_key][best_index])
         cv_folds_scores.append(f_score)
-        print(f"[METRIC] cv_pr_auc_fold_{idx}={f_score:.4f}")
+        print(f"[METRIC] cv_pr_auc_fold={f_score:.4f}")
 
     print(f"[METRIC] cv_pr_auc_mean={cv_mean:.4f}")
 

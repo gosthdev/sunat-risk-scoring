@@ -20,7 +20,7 @@ on:
         description: "Versión del dataset en S3 o local"
         required: false
         type: string
-        default: "v01"
+        default: "v1"
       use_synthetic:
         description: "Generar y usar dataset sintético (para pruebas de CI sin descargar de S3)"
         required: false
@@ -71,8 +71,8 @@ jobs:
           DATASET_VERSION: ${{ inputs.dataset_version }}
         run: |
           mkdir -p ./data/input
-          echo "Descargando dataset desde s3://${GOLD_BUCKET}/gold/model_inputs/dataset_version=${DATASET_VERSION}/"
-          if aws s3 cp "s3://${GOLD_BUCKET}/gold/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive; then
+          echo "Descargando dataset desde s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
+          if aws s3 cp "s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive; then
             echo "Dataset descargado exitosamente."
           else
             echo "WARN: No se pudo descargar desde S3. Se activará fallback sintético si no hay datos locales."

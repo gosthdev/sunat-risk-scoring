@@ -67,7 +67,7 @@ def test_costo_estimado_correcto(mock_boto_client):
 
     result = get_job_cost_info("ssco-run-test")
 
-    precio = INSTANCE_PRICE_MAP["ml.m5.xlarge"]  # 0.269 USD/hora
+    precio = INSTANCE_PRICE_MAP["ml.m5.xlarge"]  # 0.23 USD/hora (aprox.)
     esperado = round(1800 / 3600 * precio, 4)
     assert result["costo_estimado_usd"] == esperado
 

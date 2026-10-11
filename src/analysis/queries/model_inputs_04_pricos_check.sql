@@ -7,7 +7,7 @@
 SELECT
     COUNT(*) AS rucs_in_pricos  -- debe ser 0
 FROM sunat_ssco.model_inputs mi
-INNER JOIN sunat_ssco.pricos p
+INNER JOIN sunat_ssco.silver_pricos p
     ON mi.ruc = p.ruc
 WHERE mi.dataset_version = 'v1';
 
@@ -17,6 +17,6 @@ WHERE mi.dataset_version = 'v1';
 --
 -- SELECT mi.ruc, mi.label, mi.split
 -- FROM sunat_ssco.model_inputs mi
--- INNER JOIN sunat_ssco.pricos p ON mi.ruc = p.ruc
+-- INNER JOIN sunat_ssco.silver_pricos p ON mi.ruc = p.ruc
 -- WHERE mi.dataset_version = 'v1'
 -- LIMIT 20;

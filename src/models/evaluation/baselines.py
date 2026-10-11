@@ -38,6 +38,10 @@ def baseline_analyst_rule(df: pd.DataFrame) -> pd.DataFrame:
     3. Contrata con el Estado teniendo 1 o 0 trabajadores.
 
     Score normalizado en [0.0, 1.0] (puntos / 3.0).
+
+    Nota: B1 usa la columna de control `Condicion`, que el modelo oficial V2 excluye
+    (D11). Es válido como regla heurística de referencia, pero no es comparable con
+    V2 en términos de fuga retrospectiva.
     """
     res = df.copy()
     puntos = np.zeros(len(res), dtype=float)
@@ -135,7 +139,7 @@ def evaluate_and_export_baseline(
         Conjunto de test con columnas 'label' y 'split' (contrato C2 parcial).
     output_path: str
         Destino del metrics.json. Soporta ruta local y s3://bucket/key.
-        Convención: gold/model_metrics/run_id=<run_id>/metrics.json
+        Convención: <gold-bucket>/model_metrics/run_id=<run_id>/metrics.json
     ks: list[int] | None
         Cortes K absolutos (por defecto [100, 500]).
     n_bootstrap: int
