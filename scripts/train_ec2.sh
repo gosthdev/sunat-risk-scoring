@@ -12,8 +12,8 @@ set -euo pipefail
 
 TAG=""
 EXPERIMENTS="ALL"
-INSTANCE_TYPE="r6i.4xlarge"   # 16 vCPU / 128 GiB
-PARALLEL=3                    # experimentos a la vez (cada uno pica ~22 GiB; medido con muestras)
+INSTANCE_TYPE="r6i.12xlarge"  # 48 vCPU / 384 GiB
+PARALLEL=10                   # experimentos a la vez (cada uno pica ~22 GiB; medido con muestras)
 N_JOBS=1                      # procesos del GridSearchCV por experimento (cada uno copia X_train)
 MAX_HOURS=12                  # tope de seguridad: la instancia se apaga sola
 DATASET_VERSION="v1"
