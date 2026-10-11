@@ -35,6 +35,7 @@ from src.models.export_outputs import (
 from src.models.launch_manual import SAGEMAKER_METRIC_DEFINITIONS
 from src.models.train import (
     Log1pTransformer,
+    WinsorizerSuperior,
     construir_pipeline_preprocesamiento,
 )
 from src.models.train import (
@@ -377,3 +378,15 @@ def test_train_main_custom_param_grid(synthetic_dataframe):
         with open(record_file, "r", encoding="utf-8") as f:
             record_data = json.loads(f.readline().strip())
         assert record_data["hiperparametros_ganadores"].get("C") == 0.05
+
+
+def test_winsorizer_recorta_cola_y_no_aplasta_columnas_en_cero():
+    rng = np.random.default_rng(0)
+    montos = np.concatenate([rng.uniform(1, 100, 999), [1e8]])
+    ceros = np.zeros(1000)
+    X = np.column_stack([montos, ceros])
+    w = WinsorizerSuperior(cuantil=0.995).fit(X)
+    out = w.transform(X)
+    assert out[:, 0].max() < 1e3
+    assert np.array_equal(out[:, 1], ceros)
+    assert np.isnan(w.transform(np.array([[np.nan, 0.0]]))[0, 0])
