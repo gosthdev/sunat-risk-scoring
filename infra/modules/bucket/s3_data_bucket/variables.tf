@@ -29,3 +29,14 @@ variable "noncurrent_version_expiration_days" {
     error_message = "noncurrent_version_expiration_days debe ser al menos 1."
   }
 }
+
+variable "protect_versions" {
+  description = "true deniega s3:DeleteObjectVersion a todos: los datos no se pueden borrar de forma permanente. Requiere versioning_enabled."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.protect_versions || var.versioning_enabled
+    error_message = "protect_versions solo tiene sentido con versioning_enabled = true."
+  }
+}
