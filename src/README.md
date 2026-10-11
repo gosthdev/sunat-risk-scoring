@@ -97,6 +97,11 @@ Los workflows ejecutan las tareas en runners seguros asumiendo el rol IAM vía O
 
 ## Decisiones y limitaciones conocidas
 
+- **Publicación en dos pasos.** Los steps 02–05 escriben en `<bucket>/_staging/`
+  y el orquestador publica a la ruta viva (`aws s3 sync --delete`) solo si el
+  step termina en `SUCCESS`. Un step fallido se reintenta (`STEP_MAX_ATTEMPTS`,
+  2 por defecto) y, si persiste, no toca lo ya publicado.
+
 - **Calidad de RUC en Silver (`02_clean_silver.py`).** Un RUC válido tiene
   exactamente 11 dígitos. Las filas con RUC inválido (Padrón, `ruc_entidad` y
   `ruc_contratista` cuando viene informado) no entran a Silver: van a
