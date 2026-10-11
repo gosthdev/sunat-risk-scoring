@@ -94,6 +94,26 @@ module "glue_crawler_gold" {
   table_prefix   = "gold_"
 }
 
+module "glue_crawler_model_runs" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-model-runs-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_runs/"
+  table_prefix   = ""
+  table_level    = 1
+}
+
+module "glue_crawler_model_metrics" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-model-metrics-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_metrics/"
+  table_prefix   = ""
+  table_level    = 1
+}
+
 ############ Athena ############
 module "athena_workgroup" {
   source                         = "../modules/athena_workgroup"
