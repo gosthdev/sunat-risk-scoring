@@ -156,20 +156,104 @@ echo "Total de Steps    : ${TOTAL_STEPS}"
 echo "========================================================================"
 
 # ------------------------------------------------------------------------------
-# 3. Ejecución secuencial y monitoreo
+# 3. Rutas de salida y publicación
+#
+# Los steps de Silver y Gold escriben en <bucket>/_staging/... y solo cuando el
+# job termina bien se publican a la ruta viva con `aws s3 sync --delete`. Si un
+# job falla a medias, la ruta viva (la que lee Athena) conserva la última
+# versión válida.
 # ------------------------------------------------------------------------------
-CURRENT_STEP=0
+IS_SINGLE_BUCKET=0
+if [[ "$RAW_BUCKET" == "$BRONZE_BUCKET" && "$BRONZE_BUCKET" == "$SILVER_BUCKET" && "$SILVER_BUCKET" == "$GOLD_BUCKET" ]]; then
+  IS_SINGLE_BUCKET=1
+fi
 
-for step in "${STEPS[@]}"; do
-  CURRENT_STEP=$((CURRENT_STEP + 1))
-  SCRIPT_NAME="${step}.py"
-  ENTRY_POINT="s3://${ARTIFACTS_BUCKET}/jobs/${SCRIPT_NAME}"
-  JOB_NAME="sunat-ssco-${step}"
+# live_uri <bucket> <capa> <subruta>
+live_uri() {
+  if [[ "$IS_SINGLE_BUCKET" -eq 1 ]]; then
+    echo "s3://$1/$2/$3"
+  else
+    echo "s3://$1/$3"
+  fi
+}
 
-  echo ""
-  echo "------------------------------------------------------------------------"
-  echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step} (${SCRIPT_NAME})"
-  echo "------------------------------------------------------------------------"
+# staging_uri <bucket> <capa> <subruta>  (espejo de staging_de en s3_paths.py)
+staging_uri() {
+  if [[ "$IS_SINGLE_BUCKET" -eq 1 ]]; then
+    echo "s3://$1/_staging/$2/$3"
+  else
+    echo "s3://$1/_staging/$3"
+  fi
+}
+
+# Salidas que cada step deja en staging: "<bucket> <capa> <subruta> <opcional 0|1>".
+# Las opcionales (cuarentena) pueden no existir si no hubo filas rechazadas.
+step_outputs() {
+  case "$1" in
+    02_clean_silver)
+      echo "$SILVER_BUCKET silver padron_ruc 0"
+      echo "$SILVER_BUCKET silver ordenes_compra 0"
+      echo "$SILVER_BUCKET silver quarantine_padron_ruc 1"
+      echo "$SILVER_BUCKET silver quarantine_ordenes_compra 1"
+      echo "$SILVER_BUCKET silver quality_report 0"
+      ;;
+    03_feature_gold) echo "$GOLD_BUCKET gold ruc_features 0" ;;
+    04_regional_gold) echo "$GOLD_BUCKET gold regional_summary 0" ;;
+    05_scoring_dataset_gold) echo "$GOLD_BUCKET gold scoring_dataset 0" ;;
+  esac
+}
+
+s3_prefix_has_objects() {
+  [[ -n "$(aws s3 ls "$1/" 2>/dev/null | head -n 1)" ]]
+}
+
+clear_staging() {
+  local bucket layer sub optional
+  while read -r bucket layer sub optional; do
+    [[ -z "$bucket" ]] && continue
+    aws s3 rm "$(staging_uri "$bucket" "$layer" "$sub")/" --recursive --only-show-errors >/dev/null 2>&1 || true
+  done < <(step_outputs "$1")
+}
+
+# Publica staging -> ruta viva. Primero verifica que toda salida obligatoria exista:
+# si falta alguna no se toca nada de lo publicado.
+publish_step() {
+  local step="$1" bucket layer sub optional staging live
+  while read -r bucket layer sub optional; do
+    [[ -z "$bucket" ]] && continue
+    staging="$(staging_uri "$bucket" "$layer" "$sub")"
+    if [[ "$optional" -eq 0 ]] && ! s3_prefix_has_objects "$staging"; then
+      echo "✗ ERROR: '${step}' terminó sin dejar ${staging}; no se publica nada." >&2
+      return 1
+    fi
+  done < <(step_outputs "$step")
+
+  while read -r bucket layer sub optional; do
+    [[ -z "$bucket" ]] && continue
+    staging="$(staging_uri "$bucket" "$layer" "$sub")"
+    live="$(live_uri "$bucket" "$layer" "$sub")"
+    if s3_prefix_has_objects "$staging"; then
+      echo "Publicando ${staging} -> ${live}"
+      aws s3 sync "${staging}/" "${live}/" --delete --only-show-errors
+    else
+      echo "Sin ${staging} (salida opcional): se limpia ${live}"
+      aws s3 rm "${live}/" --recursive --only-show-errors >/dev/null 2>&1 || true
+    fi
+  done < <(step_outputs "$step")
+
+  clear_staging "$step"
+}
+
+# ------------------------------------------------------------------------------
+# 4. Ejecución de un step (un intento) y monitoreo
+# ------------------------------------------------------------------------------
+# run_step_once <step>: devuelve 0 si el Job Run termina en SUCCESS, 1 en otro caso.
+run_step_once() {
+  local step="$1"
+  local SCRIPT_NAME="${step}.py"
+  local ENTRY_POINT="s3://${ARTIFACTS_BUCKET}/jobs/${SCRIPT_NAME}"
+  local JOB_NAME="sunat-ssco-${step}"
+  local JOB_RUN_ID STATE TIMESTAMP SPARK_PARAMS
 
   # Parámetros spark-submit: empaquetado común, variables de buckets y dimensionamiento controlado
   SPARK_PARAMS="--py-files ${PY_FILES_URI} \
@@ -215,7 +299,7 @@ for step in "${STEPS[@]}"; do
       }
     }" \
     --query 'jobRunId' \
-    --output text)
+    --output text) || { echo "✗ No se pudo lanzar el Job Run de '${step}'." >&2; return 1; }
 
   echo "Job Run ID asignado: ${JOB_RUN_ID}"
   echo "Esperando finalización (sondeo cada ${POLL_INTERVAL_SECONDS}s)..."
@@ -227,7 +311,7 @@ for step in "${STEPS[@]}"; do
       --application-id "${EMR_APPLICATION_ID}" \
       --job-run-id "${JOB_RUN_ID}" \
       --query 'jobRun.state' \
-      --output text)
+      --output text) || { echo "✗ No se pudo consultar el estado del Job Run ${JOB_RUN_ID}." >&2; return 1; }
 
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[${TIMESTAMP}] Step: ${step} | Estado: ${STATE}"
@@ -235,10 +319,10 @@ for step in "${STEPS[@]}"; do
     case "${STATE}" in
       SUCCESS)
         echo "✓ Step '${step}' completado con éxito."
-        break
+        return 0
         ;;
       FAILED|CANCELLED|CANCELLING)
-        echo "✗ ERROR: El step '${step}' terminó con estado '${STATE}'." >&2
+        echo "✗ El step '${step}' terminó con estado '${STATE}'." >&2
         echo "Detalles del error:" >&2
         aws emr-serverless get-job-run \
           --region "${AWS_REGION}" \
@@ -247,7 +331,7 @@ for step in "${STEPS[@]}"; do
           --query 'jobRun.stateDetails' \
           --output text 2>/dev/null || true
         echo "Revisar logs en: ${LOG_URI}applications/${EMR_APPLICATION_ID}/jobs/${JOB_RUN_ID}/" >&2
-        exit 1
+        return 1
         ;;
       SUBMITTED|PENDING|SCHEDULED|RUNNING)
         sleep "${POLL_INTERVAL_SECONDS}"
@@ -258,6 +342,31 @@ for step in "${STEPS[@]}"; do
         ;;
     esac
   done
+}
+
+# ------------------------------------------------------------------------------
+# 5. Ejecución secuencial
+# ------------------------------------------------------------------------------
+CURRENT_STEP=0
+
+for step in "${STEPS[@]}"; do
+  CURRENT_STEP=$((CURRENT_STEP + 1))
+
+  echo ""
+  echo "------------------------------------------------------------------------"
+  echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step}"
+  echo "------------------------------------------------------------------------"
+
+  # Un intento anterior pudo dejar archivos a medias en staging.
+  clear_staging "$step"
+  if ! run_step_once "$step"; then
+    echo "✗ ERROR: '${step}' falló." >&2
+    echo "  La ruta publicada no se modificó: Athena sigue sirviendo la última versión válida." >&2
+    clear_staging "$step"
+    exit 1
+  fi
+
+  publish_step "$step" || exit 1
 done
 
 echo ""

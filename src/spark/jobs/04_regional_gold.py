@@ -36,6 +36,7 @@ from s3_paths import (
     SILVER_INGRESOS_TRIBUTARIOS,
     SILVER_PADRON_RUC,
     SILVER_PRICOS,
+    staging_de,
 )
 from spark_session_factory import create_spark_session
 
@@ -175,7 +176,9 @@ def main():
             )
         )
 
-        resumen.coalesce(1).write.mode("overwrite").parquet(GOLD_REGIONAL_SUMMARY)
+        resumen.coalesce(1).write.mode("overwrite").parquet(
+            staging_de(GOLD_REGIONAL_SUMMARY)
+        )
     finally:
         spark.stop()
 

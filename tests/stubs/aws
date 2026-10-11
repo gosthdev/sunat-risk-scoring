@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Doble de `aws` para probar 05_submit_spark_steps.sh sin tocar AWS.
+# Registra cada llamada en $AWS_LOG. Variables de control:
+#   AWS_STATES_FILE : un estado de Job Run por línea; se consume uno por consulta
+#                     (el último se repite).
+#   AWS_EMPTY_STAGING=1 : `s3 ls` sobre _staging no devuelve objetos.
+#   AWS_EMPTY_MATCH=txt : `s3 ls` sobre _staging cuya ruta contiene txt no devuelve objetos.
+echo "$*" >> "$AWS_LOG"
+
+case "$1 $2" in
+  "emr-serverless start-job-run")
+    echo "jr-$(wc -l < "$AWS_LOG" | tr -d ' ')"
+    ;;
+  "emr-serverless get-job-run")
+    if [[ "$*" == *stateDetails* ]]; then
+      echo "stub: job failed"
+    else
+      state="$(head -n 1 "$AWS_STATES_FILE")"
+      if [[ "$(wc -l < "$AWS_STATES_FILE")" -gt 1 ]]; then
+        tail -n +2 "$AWS_STATES_FILE" > "$AWS_STATES_FILE.tmp" && mv "$AWS_STATES_FILE.tmp" "$AWS_STATES_FILE"
+      fi
+      echo "$state"
+    fi
+    ;;
+  "s3 ls")
+    if [[ "$3" == *_staging* && "${AWS_EMPTY_STAGING:-0}" == "1" ]]; then
+      exit 0
+    fi
+    if [[ "$3" == *_staging* && -n "${AWS_EMPTY_MATCH:-}" && "$3" == *"$AWS_EMPTY_MATCH"* ]]; then
+      exit 0
+    fi
+    echo "2026-10-11 10:00:00       123 part-0000.parquet"
+    ;;
+esac
+exit 0

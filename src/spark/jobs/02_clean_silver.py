@@ -42,6 +42,7 @@ from s3_paths import (
     SILVER_PADRON_RUC,
     SILVER_PADRON_RUC_QUARANTINE,
     SILVER_QUALITY_REPORT,
+    staging_de,
 )
 from schema_contracts import validar_esquema
 from silver_transforms import (
@@ -112,12 +113,14 @@ def _procesar(
             # Antes de escribir nada: si la fuente cambió de formato, Silver no se toca.
             verificar_tasa_cuarentena(reporte, MAX_TASA_CUARENTENA_RUC)
 
+            # Se escribe en staging: la publicación a la ruta viva la hace el
+            # orquestador solo si el job completo termina bien.
             silver.write.mode("overwrite").partitionBy("anio", "mes").parquet(
-                silver_path
+                staging_de(silver_path)
             )
-            _write_if_not_empty(cuarentena, silver_quarantine_path)
+            _write_if_not_empty(cuarentena, staging_de(silver_quarantine_path))
             reporte.write.mode("overwrite").partitionBy("fuente").parquet(
-                SILVER_QUALITY_REPORT
+                staging_de(SILVER_QUALITY_REPORT)
             )
         finally:
             reporte.unpersist()
