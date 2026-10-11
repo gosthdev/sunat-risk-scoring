@@ -29,6 +29,8 @@ GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
 INSTANCE_PROFILE="sunat-ssco-train-ec2-role"   # creado por Terraform
 SG_NAME="sunat-ssco-train-ec2-sg"
+PROFILE_RETRIES="${PROFILE_RETRIES:-6}"          # reintentos mientras IAM propaga el perfil recién creado
+PROFILE_RETRY_SLEEP="${PROFILE_RETRY_SLEEP:-10}"
 
 fail() { echo "[ERROR] $*" >&2; exit 1; }
 
@@ -120,7 +122,7 @@ SUBNETS="$(aws ec2 describe-subnets \
 
 IID=""
 for SUBNET in ${SUBNETS}; do
-  for attempt in 1 2 3 4 5 6; do
+  for attempt in $(seq 1 "${PROFILE_RETRIES}"); do
     if IID="$(aws ec2 run-instances \
       --image-id "${AMI}" --instance-type "${INSTANCE_TYPE}" \
       --iam-instance-profile "Name=${INSTANCE_PROFILE}" \
@@ -135,9 +137,14 @@ for SUBNET in ${SUBNETS}; do
     fi
     IID=""
     if grep -qi "instance profile" "${ERR_FILE}"; then
-      echo "[WARN] Perfil de instancia aún no disponible (intento ${attempt}/6); espero 10 s..."
-      sleep 10
-      continue
+      # El perfil lo crea Terraform: si acaba de aplicarse, IAM tarda unos segundos en propagarlo.
+      if [ "${attempt}" -lt "${PROFILE_RETRIES}" ]; then
+        echo "[WARN] Perfil de instancia aún no disponible (intento ${attempt}/${PROFILE_RETRIES}); espero ${PROFILE_RETRY_SLEEP} s..."
+        sleep "${PROFILE_RETRY_SLEEP}"
+        continue
+      fi
+      cat "${ERR_FILE}" >&2
+      fail "Falta el perfil de instancia ${INSTANCE_PROFILE}: aplica Terraform en infra/services (módulo iam_train_ec2_role)."
     fi
     if grep -qiE "InsufficientInstanceCapacity|Unsupported" "${ERR_FILE}"; then
       echo "[WARN] Sin capacidad de ${INSTANCE_TYPE} en ${SUBNET}; pruebo otra zona."
@@ -149,10 +156,7 @@ for SUBNET in ${SUBNETS}; do
 done
 if [ -z "${IID}" ]; then
   cat "${ERR_FILE}" >&2
-  if grep -qi "instance profile" "${ERR_FILE}"; then
-    fail "Falta el perfil de instancia ${INSTANCE_PROFILE}: aplica Terraform en infra/services (módulo iam_train_ec2_role)."
-  fi
-  fail "No se pudo lanzar ${INSTANCE_TYPE} en ninguna zona."
+  fail "No se pudo lanzar ${INSTANCE_TYPE} en ninguna zona (sin capacidad)."
 fi
 
 echo "[OK] Instancia ${IID} (${INSTANCE_TYPE}) lanzada. Termina sola al acabar."
