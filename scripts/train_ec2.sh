@@ -12,9 +12,9 @@ set -euo pipefail
 
 TAG=""
 EXPERIMENTS="ALL"
-INSTANCE_TYPE="r6i.12xlarge"  # 48 vCPU / 384 GiB
+INSTANCE_TYPE="r6i.16xlarge"  # 64 vCPU / 512 GiB
 PARALLEL=10                   # experimentos a la vez (cada uno pica ~22 GiB; medido con muestras)
-N_JOBS=1                      # procesos del GridSearchCV por experimento (cada uno copia X_train)
+N_JOBS=3                      # procesos del GridSearchCV por experimento (cada uno copia X_train)
 MAX_HOURS=12                  # tope de seguridad: la instancia se apaga sola
 DATASET_VERSION="v1"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
