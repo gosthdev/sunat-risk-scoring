@@ -217,6 +217,7 @@ def test_ranking_invariante_c2(synthetic_dataframe):
         )
 
         assert record["metricas_cv"]["cv_pr_auc_mean"] == 0.0
+        assert "cv_pr_auc_std" in record["metricas_cv"]
         assert record["metricas_cv"]["cv_pr_auc_fold"][1] == 0.0
         assert os.path.exists(preds_path)
         df_preds = pd.read_parquet(preds_path)

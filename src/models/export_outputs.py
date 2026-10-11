@@ -101,6 +101,12 @@ def exportar_predicciones_y_run_record(
             for k, v in grilla_probada.items()
         }
 
+    # Calcular desviación estándar de los folds para C3 y Leaderboard
+    valid_fold_scores = [
+        float(x) for x in cv_folds_scores if x is not None and not np.isnan(float(x))
+    ]
+    cv_std = float(np.std(valid_fold_scores)) if valid_fold_scores else 0.0
+
     run_record = {
         "run_id": args.run_id,
         "fecha": datetime.now(UTC).isoformat(),
@@ -123,6 +129,7 @@ def exportar_predicciones_y_run_record(
         "segundos_entrenamiento": _clean_float(elapsed_time, 2),
         "metricas_cv": {
             "cv_pr_auc_mean": _clean_float(cv_mean, 4),
+            "cv_pr_auc_std": _clean_float(cv_std, 4),
             "cv_pr_auc_fold": [_clean_float(x, 4) for x in cv_folds_scores],
             "train_pr_auc": _clean_float(train_pr_auc, 4),
         },
