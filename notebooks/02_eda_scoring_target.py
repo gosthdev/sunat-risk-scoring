@@ -46,7 +46,9 @@ n_false = counts.get(False, 0)
 n_true = counts.get(True, 0)
 
 fig, ax = plt.subplots(figsize=(6, 4))
-bars = ax.bar(["No SSCO (0)", "SSCO (1)"], [n_false, n_true], color=["#2ecc71", "#e74c3c"])
+bars = ax.bar(
+    ["No SSCO (0)", "SSCO (1)"], [n_false, n_true], color=["#2ecc71", "#e74c3c"]
+)
 for bar, val in zip(bars, [n_false, n_true]):
     ax.text(
         bar.get_x() + bar.get_width() / 2,
@@ -155,7 +157,9 @@ for i in range(len(corr.columns)):
     for j in range(i + 1, len(corr.columns)):
         r = corr.iloc[i, j]
         if abs(r) >= 0.7:
-            print(f"⚠ Alerta de colinealidad alta: {corr.columns[i]} ↔ {corr.columns[j]} (r = {r:.2f})")
+            print(
+                f"⚠ Alerta de colinealidad alta: {corr.columns[i]} ↔ {corr.columns[j]} (r = {r:.2f})"
+            )
 
 # %% [markdown]
 # **Interpretación del hallazgo:**

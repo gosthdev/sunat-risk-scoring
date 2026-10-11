@@ -53,7 +53,9 @@ ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_xlabel("Monto total contratado (S/.) — escala logarítmica")
 ax.set_ylabel("Frecuencia de contribuyentes — escala logarítmica")
-ax.set_title("Distribución del monto total contratado con el Estado (RUCs con contratos > 0)")
+ax.set_title(
+    "Distribución del monto total contratado con el Estado (RUCs con contratos > 0)"
+)
 plt.tight_layout()
 plt.show()
 
