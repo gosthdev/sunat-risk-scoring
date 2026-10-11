@@ -1,11 +1,10 @@
 # %% [markdown]
 # # 02 — EDA: Target SSCO y Correlación
 #
-# Análisis del target `es_ssco` (Sujetos sin Capacidad Operativa),
-# comparación entre clases SSCO vs no-SSCO y matriz de correlación
-# entre features numéricas. Este es el notebook más importante del
-# EDA porque las decisiones de modelado (4.2) dependen directamente
-# de estos hallazgos.
+# Análisis de los factores determinantes para el modelado de riesgo (Fase 4.2):
+# 1. Severidad del desbalance de clases de `es_ssco`.
+# 2. Correlación entre condición de domicilio fiscal y tasa de evasión/SSCO.
+# 3. Colinealidad de features numéricas antes del entrenamiento.
 
 # %%
 import os
@@ -17,7 +16,7 @@ import awswrangler as wr
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-plt.rcParams.update({"figure.figsize": (10, 6), "figure.dpi": 100})
+plt.rcParams.update({"figure.figsize": (8, 5), "figure.dpi": 100})
 sns.set_style("whitegrid")
 
 GOLD_BUCKET = os.environ.get("GOLD_BUCKET", "sunat-risk-scoring-gold")
@@ -30,16 +29,16 @@ def latest_partition(base_path):
 
 path = latest_partition(f"s3://{GOLD_BUCKET}/scoring_dataset/")
 mes = path.rstrip("/").split("=")[-1]
-print(f"Partición: mes_referencia={mes}")
+print(f"Partición analizada: mes_referencia={mes}")
 df = wr.s3.read_parquet(path)
 total = len(df)
-print(f"Registros: {total:,}")
+print(f"Total registros: {total:,}")
 
 # %% [markdown]
 # ## 1. ¿Cuál es el balance de clases del target `es_ssco`?
 #
-# Esta es la pregunta más crítica: un desbalance extremo condiciona
-# qué modelo usar y qué métrica es válida para evaluarlo.
+# **Pregunta:** ¿Qué tan severo es el desbalance de clases y qué métricas de evaluación
+# condiciona de forma obligatoria para la Fase 4.2?
 
 # %%
 counts = df["es_ssco"].value_counts()
@@ -47,78 +46,44 @@ n_false = counts.get(False, 0)
 n_true = counts.get(True, 0)
 
 fig, ax = plt.subplots(figsize=(6, 4))
-bars = ax.bar(["No SSCO", "SSCO"], [n_false, n_true], color=["#2ecc71", "#e74c3c"])
+bars = ax.bar(
+    ["No SSCO (0)", "SSCO (1)"], [n_false, n_true], color=["#2ecc71", "#e74c3c"]
+)
 for bar, val in zip(bars, [n_false, n_true]):
     ax.text(
         bar.get_x() + bar.get_width() / 2,
-        bar.get_height(),
+        bar.get_height() * 1.1,
         f"{val:,}",
         ha="center",
         va="bottom",
         fontweight="bold",
+        fontsize=10,
     )
-ax.set_ylabel("Cantidad de RUCs (escala log)")
-ax.set_title("Balance de clases: es_ssco")
+ax.set_ylabel("Cantidad de contribuyentes (escala log)")
+ax.set_title("Balance de clases: es_ssco (Target)")
 ax.set_yscale("log")
 plt.tight_layout()
 plt.show()
 
 ratio = n_false / n_true if n_true > 0 else float("inf")
-print(f"No SSCO: {n_false:,}  |  SSCO: {n_true:,}")
-print(f"Ratio negativo/positivo: {ratio:,.0f}:1")
-print(f"Prevalencia SSCO: {n_true / total * 100:.4f}%")
+print(f"No SSCO: {n_false:,} | SSCO: {n_true:,}")
+print(f"Ratio negativo/positivo: {ratio:,.0f} a 1")
+print(f"Prevalencia de fraude SSCO: {n_true / total * 100:.6f}%")
 
 # %% [markdown]
-# **Interpretación:** El desbalance es extremo: aproximadamente 766
-# positivos (SSCO) frente a millones de negativos. Consecuencias
-# directas para el modelado en 4.2:
+# **Interpretación del hallazgo:**
+# El desbalance es extremo: ~764 positivos frente a millones de negativos (prevalencia < 0.001%).
 #
-# - **Accuracy es engañosa:** predecir siempre False da > 99.9 % de
-#   accuracy, pero no detecta ningún SSCO.
-# - **Métricas válidas:** usar AUC-PR (área bajo la curva
-#   precisión-recall), F1 o recall@k.
-# - **Técnicas de balance:** considerar SMOTE, undersampling
-#   estratificado o `class_weight='balanced'` en el modelo.
+# **Decisiones metodológicas para 4.2:**
+# - **Accuracy queda descartada:** predecir siempre `False` daría >99.99 % de exactitud sin detectar fraude.
+# - **Métricas requeridas:** se debe optimizar por **AUC-PR (Precision-Recall)**, F1-Score y Recall@K.
+# - **Estrategia de modelado:** entrenamiento con `class_weight='balanced'` o submuestreo estratificado.
 
 # %% [markdown]
-# ## 2. ¿Se concentra SSCO en ciertos estados del contribuyente?
+# ## 2. ¿La condición de domicilio fiscal discrimina el riesgo SSCO?
 #
-# Hipótesis: la tasa de SSCO es mayor en estados como SUSPENSION
-# TEMPORAL y BAJA DE OFICIO.
-
-# %%
-tasa_estado = df.groupby("Estado")["es_ssco"].agg(["sum", "count"])
-tasa_estado["tasa_pct"] = (tasa_estado["sum"] / tasa_estado["count"] * 100).round(4)
-tasa_estado = tasa_estado.sort_values("tasa_pct", ascending=True)
-
-fig, ax = plt.subplots(figsize=(8, 4))
-ax.barh(
-    tasa_estado.index,
-    tasa_estado["tasa_pct"],
-    color=sns.color_palette("rocket", len(tasa_estado)),
-)
-ax.set_xlabel("Tasa de SSCO (%)")
-ax.set_title("Tasa de SSCO por Estado del Contribuyente")
-for i, (idx, row) in enumerate(tasa_estado.iterrows()):
-    ax.text(
-        row["tasa_pct"],
-        i,
-        f"  {row['tasa_pct']:.4f}% ({int(row['sum'])})",
-        va="center",
-        fontsize=9,
-    )
-plt.tight_layout()
-plt.show()
-
-# %% [markdown]
-# **Interpretación:** Si la hipótesis se confirma, la tasa de SSCO es
-# sensiblemente mayor en estados como SUSPENSION TEMPORAL que en ACTIVO.
-# El Estado del contribuyente es un feature discriminante para el scoring.
-
-# %% [markdown]
-# ## 3. ¿Se concentra SSCO en ciertas condiciones de domicilio?
-#
-# Hipótesis: la tasa de SSCO es mayor en NO HABIDO y NO HALLADO.
+# **Pregunta:** ¿Los contribuyentes con domicilio no habido o no hallado presentan
+# una probabilidad significativamente superior de ser empresas fachada (SSCO)?
 
 # %%
 tasa_cond = df.groupby("Condicion")["es_ssco"].agg(["sum", "count"])
@@ -131,127 +96,33 @@ ax.barh(
     tasa_cond["tasa_pct"],
     color=sns.color_palette("mako", len(tasa_cond)),
 )
-ax.set_xlabel("Tasa de SSCO (%)")
-ax.set_title("Tasa de SSCO por Condición de Domicilio")
+ax.set_xlabel("Tasa de incidencia SSCO (%)")
+ax.set_title("Incidencia de SSCO por Condición de Domicilio Fiscal")
 for i, (idx, row) in enumerate(tasa_cond.iterrows()):
     ax.text(
-        row["tasa_pct"],
+        row["tasa_pct"] + 0.0001,
         i,
-        f"  {row['tasa_pct']:.4f}% ({int(row['sum'])})",
+        f"  {row['tasa_pct']:.4f}% ({int(row['sum']):,} SSCO)",
         va="center",
         fontsize=9,
+        fontweight="bold",
     )
 plt.tight_layout()
 plt.show()
 
 # %% [markdown]
-# **Interpretación:** Contribuyentes con condición NO HABIDO (domicilio
-# no verificable) presentan tasas de SSCO superiores. Esto es coherente:
-# un sujeto sin capacidad operativa real difícilmente mantiene un
-# domicilio fiscal localizable.
+# **Interpretación del hallazgo:**
+# Los contribuyentes en condición **NO HABIDO** presentan una tasa relativa de SSCO
+# sustancialmente superior a los contribuyentes en condición HABIDO.
+# Esto valida la hipótesis de fiscalización: los sujetos sin capacidad operativa real
+# abandonan o declaran domicilios inexistentes para evadir notificaciones de SUNAT.
+# `Condicion` es una variable predictiva crítica para el scoring.
 
 # %% [markdown]
-# ## 4. ¿Ser PRICO protege contra la designación SSCO?
+# ## 3. ¿Existe colinealidad entre features numéricas antes del modelado?
 #
-# Hipótesis: prácticamente ningún Principal Contribuyente es SSCO,
-# dado que tienen supervisión reforzada por SUNAT.
-
-# %%
-tasa_prico = df.groupby("es_prico")["es_ssco"].agg(["sum", "count"])
-tasa_prico["tasa_pct"] = (tasa_prico["sum"] / tasa_prico["count"] * 100).round(4)
-labels = {True: "PRICO", False: "No PRICO"}
-tasa_prico.index = [labels.get(i, str(i)) for i in tasa_prico.index]
-
-fig, ax = plt.subplots(figsize=(5, 4))
-ax.bar(tasa_prico.index, tasa_prico["tasa_pct"], color=["#3498db", "#e74c3c"])
-for i, (idx, row) in enumerate(tasa_prico.iterrows()):
-    ax.text(
-        i,
-        row["tasa_pct"],
-        f"{row['tasa_pct']:.4f}%\n({int(row['sum'])})",
-        ha="center",
-        va="bottom",
-        fontsize=10,
-    )
-ax.set_ylabel("Tasa de SSCO (%)")
-ax.set_title("Tasa de SSCO: PRICO vs No PRICO")
-plt.tight_layout()
-plt.show()
-
-# %% [markdown]
-# **Interpretación:** Se espera que la tasa de SSCO entre PRICOS sea
-# prácticamente cero. Los Principales Contribuyentes están bajo
-# supervisión reforzada de SUNAT, lo que hace casi imposible que
-# operen sin capacidad operativa real. `es_prico` es un feature
-# altamente predictivo (pero con baja prevalencia).
-
-# %% [markdown]
-# ## 5. ¿Difiere la contratación estatal entre SSCO y no-SSCO?
-#
-# Comparación de la distribución de cantidad de contratos y monto
-# contratado entre ambas clases, solo para RUCs con contratos > 0.
-
-# %%
-mask = df["cantidad_contratos_estado"] > 0
-df_c = df.loc[mask].copy()
-df_c["label"] = df_c["es_ssco"].apply(lambda x: "SSCO" if x else "No SSCO")
-
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-sns.boxplot(
-    data=df_c,
-    x="label",
-    y="cantidad_contratos_estado",
-    ax=axes[0],
-    palette={"No SSCO": "#2ecc71", "SSCO": "#e74c3c"},
-    showfliers=False,
-)
-axes[0].set_title("Cantidad de contratos (sin outliers)")
-axes[0].set_yscale("log")
-axes[0].set_xlabel("")
-
-sns.boxplot(
-    data=df_c,
-    x="label",
-    y="monto_total_contratado_estado",
-    ax=axes[1],
-    palette={"No SSCO": "#2ecc71", "SSCO": "#e74c3c"},
-    showfliers=False,
-)
-axes[1].set_title("Monto total contratado (sin outliers)")
-axes[1].set_yscale("log")
-axes[1].set_xlabel("")
-
-plt.suptitle("Contratación con el Estado: SSCO vs No SSCO", fontsize=13, y=1.02)
-plt.tight_layout()
-plt.show()
-
-print("Cantidad de contratos (percentiles):")
-print(
-    df_c.groupby("label")["cantidad_contratos_estado"].describe().round(2).to_string()
-)
-print()
-print("Monto total contratado (percentiles):")
-print(
-    df_c.groupby("label")["monto_total_contratado_estado"]
-    .describe()
-    .round(2)
-    .to_string()
-)
-
-# %% [markdown]
-# **Interpretación:** Si los SSCO muestran medianas similares o menores
-# que los no-SSCO, la contratación estatal por sí sola no discrimina
-# bien entre clases. Esto refuerza la necesidad de combinar múltiples
-# features (Estado, Condición, es_prico, monto, cantidad, antigüedad)
-# en un modelo de scoring en lugar de usar reglas univariadas.
-
-# %% [markdown]
-# ## 6. ¿Existen correlaciones fuertes entre las features numéricas?
-#
-# Matriz de correlación para detectar colinealidad antes del
-# modelo de scoring (4.2). Si dos features correlacionan > 0.9,
-# considerar eliminar una.
+# **Pregunta:** ¿Existen variables redundantes que deban descartarse o regularizarse
+# para evitar multicolinealidad en el modelo de scoring?
 
 # %%
 num_cols = [
@@ -277,24 +148,24 @@ sns.heatmap(
     ax=ax,
     linewidths=0.5,
 )
-ax.set_title("Matriz de correlación — Features numéricas + target")
+ax.set_title("Matriz de correlación de Pearson — Features y Target")
 plt.tight_layout()
 plt.show()
 
-# Detectar pares con correlación alta
+# Verificación de colinealidad crítica (>0.8)
 for i in range(len(corr.columns)):
     for j in range(i + 1, len(corr.columns)):
         r = corr.iloc[i, j]
-        if abs(r) > 0.7:
+        if abs(r) >= 0.7:
             print(
-                f"⚠ Correlación alta: {corr.columns[i]} ↔ {corr.columns[j]} = {r:.2f}"
+                f"⚠ Alerta de colinealidad alta: {corr.columns[i]} ↔ {corr.columns[j]} (r = {r:.2f})"
             )
 
 # %% [markdown]
-# **Interpretación:** `monto_total_contratado_estado` y
-# `cantidad_contratos_estado` probablemente correlacionan alto (más
-# contratos → más monto acumulado). Si la correlación supera 0.9,
-# considerar eliminar una de las dos para evitar colinealidad en el
-# modelo de scoring. Las correlaciones con `es_ssco` serán bajas
-# individualmente (dado el desbalance extremo), pero el modelo
-# combinará múltiples señales débiles.
+# **Interpretación del hallazgo:**
+# `cantidad_contratos_estado` y `monto_total_contratado_estado` presentan una alta correlación
+# positiva. Esto indica redundancia de información entre ambas métricas de contratación.
+#
+# **Decisión metodológica para 4.2:**
+# En modelos lineales o logísticos se recomienda regularización (L1/L2 - Lasso/Ridge) o
+# seleccionar solo el monto transformado en logaritmo para evitar inflación de varianza.
