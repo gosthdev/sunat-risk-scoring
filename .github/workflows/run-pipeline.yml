@@ -36,6 +36,8 @@ jobs:
   run-pipeline:
     name: Execute 5-Step Spark Pipeline on EMR Serverless
     runs-on: ubuntu-latest
+    # Tope de tiempo (y de costo) por corrida.
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
