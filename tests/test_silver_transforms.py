@@ -5,12 +5,14 @@ import unittest
 
 from silver_transforms import (
     MOTIVO_COL,
+    CuarentenaExcedidaError,
     construir_reporte_calidad,
     preparar_ordenes_compra,
     preparar_padron_ruc,
     ruc_valido,
     separar_ordenes_compra,
     separar_padron_ruc,
+    verificar_tasa_cuarentena,
 )
 
 HAS_JAVA = shutil.which("java") is not None
@@ -160,6 +162,13 @@ class TestSilverTransforms(unittest.TestCase):
         self.assertEqual(febrero["filas_cuarentena_ruc"], 0)
         self.assertEqual(febrero["tasa_cuarentena_ruc"], 0.0)
         self.assertEqual(febrero["filas_cuarentena_bronze"], 0)
+
+    def test_tasa_sobre_el_maximo_aborta_antes_de_escribir(self):
+        reporte = self._reporte()
+        verificar_tasa_cuarentena(reporte, 0.5)  # 20 % < 50 %: no lanza
+        with self.assertRaises(CuarentenaExcedidaError) as ctx:
+            verificar_tasa_cuarentena(reporte, 0.1)
+        self.assertIn("padron_ruc 2025-1", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -162,3 +162,26 @@ def construir_reporte_calidad(
         .otherwise(lit(0.0))
         .alias("tasa_cuarentena_ruc"),
     )
+
+
+class CuarentenaExcedidaError(RuntimeError):
+    """La tasa de cuarentena supera el máximo tolerado: se aborta antes de escribir Silver."""
+
+
+def verificar_tasa_cuarentena(reporte: DataFrame, maximo: float) -> None:
+    """Falla si algún (fuente, anio, mes) supera la tasa máxima de cuarentena por RUC.
+
+    Es una válvula de seguridad: un cambio sistemático en el formato de la
+    fuente (p. ej. RUC con decimales) mandaría casi todo a cuarentena y dejaría
+    un Silver vacío. Mejor abortar antes de escribir que publicar eso.
+    """
+    excedidos = reporte.filter(col("tasa_cuarentena_ruc") > maximo).collect()
+    if excedidos:
+        detalle = ", ".join(
+            f"{r['fuente']} {r['anio']}-{r['mes']}: {r['tasa_cuarentena_ruc']:.1%}"
+            for r in excedidos
+        )
+        raise CuarentenaExcedidaError(
+            f"Tasa de cuarentena por RUC sobre el máximo {maximo:.1%} en: {detalle}. "
+            "Se aborta sin escribir Silver; revisar el formato de la fuente."
+        )
