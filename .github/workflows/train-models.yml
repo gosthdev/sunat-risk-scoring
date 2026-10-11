@@ -28,11 +28,6 @@ on:
         required: false
         type: number
         default: 2
-      max_parallel:
-        description: "Experimentos que corren a la vez"
-        required: false
-        type: number
-        default: 4
       run_tag:
         description: "Sufijo de la corrida (vacío = id de esta ejecución). Repetir el mismo tag reanuda sin repetir experimentos terminados."
         required: false
@@ -203,7 +198,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.max_parallel }}
+      max-parallel: 4
       matrix:
         experiment: ${{ fromJSON(needs.plan.outputs.experiments) }}
     env:
@@ -249,7 +244,7 @@ jobs:
             --train_dir ./data/input \
             --output_dir ./data/output/orchestrator \
             --dataset_version "${DATASET_VERSION}" \
-            --n_jobs "${{ inputs.n_jobs }}" \
+            --n_jobs "${{ inputs.n_jobs || 2 }}" \
             --run_tag "${RUN_TAG}" \
             --gold_bucket "${GOLD_BUCKET}" \
             --publicar_s3 si \
@@ -299,6 +294,10 @@ jobs:
           EXPERIMENTS: ${{ join(fromJSON(needs.plan.outputs.experiments), ',') }}
         run: |
           set -euo pipefail
+          echo "train=${{ needs.train.result }} experimentos=${EXPERIMENTS}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.train.result }}" = "skipped" ]; then
+            echo "::error::El job train no se ejecutó (matriz vacía o job omitido)."
+          fi
           python -m src.models.orchestrator \
             --config config/experiments.yml \
             --experiments "${EXPERIMENTS}" \
