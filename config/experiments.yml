@@ -69,3 +69,52 @@ experiments:
       param_grid:
         model__max_depth: [3, 5, 6]
         model__min_samples_leaf: [50, 200]
+
+  # Experimentos adicionales sobre el mismo dataset: exploran la grilla de cada
+  # familia (V2 con pesos) y compiten con E1/E2 por el puesto de campeón.
+  - id: "E9"
+    model_name: "LR"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "SHOULD"
+    description: "Exploración LR V2: rango de regularización C ampliado"
+    hyperparameters:
+      param_grid:
+        model__C: [0.001, 0.003, 0.03, 0.3, 3.0, 30.0, 100.0]
+
+  - id: "E10"
+    model_name: "DT"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "SHOULD"
+    description: "Exploración DT V2: árboles más profundos con hojas más grandes"
+    hyperparameters:
+      param_grid:
+        model__max_depth: [8, 10, 12]
+        model__min_samples_leaf: [20, 100, 500]
+
+  - id: "E11"
+    model_name: "DT"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "SHOULD"
+    description: "Exploración DT V2: criterio de entropía y poda por complejidad"
+    hyperparameters:
+      param_grid:
+        model__criterion: ["entropy"]
+        model__max_depth: [5, 8]
+        model__min_samples_leaf: [50, 200]
+        model__ccp_alpha: [0.0, 0.00001, 0.0001]
+
+  - id: "E12"
+    model_name: "DT"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "SHOULD"
+    description: "Exploración DT V2: criterio de Gini con divisiones mínimas amplias"
+    hyperparameters:
+      param_grid:
+        model__criterion: ["gini"]
+        model__max_depth: [4, 7]
+        model__min_samples_split: [100, 500, 2000]
+        model__min_samples_leaf: [50, 200]
