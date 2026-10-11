@@ -32,6 +32,7 @@ import sys
 import time
 
 from pyspark.sql.functions import col, lit, year
+from pyspark.sql.types import StructType
 from s3_paths import (
     BRONZE_ORDENES_COMPRA,
     BRONZE_ORDENES_COMPRA_QUARANTINE,
@@ -58,11 +59,13 @@ def _read_raw(spark, path, schema):
     con el esquema no se pierdan: quedan con _corrupt_record poblado en vez
     de ser descartadas por Spark sin dejar rastro.
     """
+    # Copia: StructType.add muta el esquema y contaminaría el contrato.
+    schema_con_corrupto = StructType(list(schema.fields)).add(CORRUPT_COLUMN, "string")
     return (
         spark.read.option("header", "true")
         .option("mode", "PERMISSIVE")
         .option("columnNameOfCorruptRecord", CORRUPT_COLUMN)
-        .schema(schema.add(CORRUPT_COLUMN, "string"))
+        .schema(schema_con_corrupto)
         .csv(path)
     )
 
