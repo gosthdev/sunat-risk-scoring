@@ -563,3 +563,17 @@ def test_graficos_genera_y_publica_los_png_de_cada_experimento(monkeypatch):
     assert prefijo == "model_reports/run_id=ssco-run-E1-lr-v2-w1-t5"
     nombres = {os.path.basename(a) for a in archivos}
     assert {"pr_curve.png", "gain_curve.png", "score_distribution.png"} <= nombres
+
+
+def test_resultado_desde_record_usa_el_tiempo_del_run_record_al_consolidar():
+    from src.models.orchestrator import resultado_desde_record
+
+    record = {
+        "metricas_cv": {"cv_pr_auc_mean": 0.3, "cv_pr_auc_folds": [0.3] * 5},
+        "segundos_entrenamiento": 123.4,
+    }
+    exp = {"id": "E1", "model_name": "LR"}
+    desde_s3 = resultado_desde_record(exp, "run", record, 0.0, "r", "p")
+    medido = resultado_desde_record(exp, "run", record, 9.0, "r", "p")
+    assert desde_s3["train_seconds"] == 123.4
+    assert medido["train_seconds"] == 9.0

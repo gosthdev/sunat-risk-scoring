@@ -95,7 +95,8 @@ def resultado_desde_record(
     model_name = exp["model_name"]
     variant = exp.get("variant", "V2")
     usa_pesos = exp.get("usa_pesos", "si")
-    elapsed = train_seconds
+    # Al consolidar desde S3 no hay cronómetro propio: se usa el tiempo del run_record.
+    elapsed = train_seconds or float(record_data.get("segundos_entrenamiento") or 0.0)
 
     metricas_cv = record_data.get("metricas_cv", {})
     cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
