@@ -73,6 +73,8 @@ SILVER_PADRON_RUC_QUARANTINE = _build_path(
 SILVER_ORDENES_COMPRA_QUARANTINE = _build_path(
     SILVER_BUCKET, "silver", "quarantine_ordenes_compra"
 )
+# Tasa de cuarentena por fuente, año y mes (particionado por fuente).
+SILVER_QUALITY_REPORT = _build_path(SILVER_BUCKET, "silver", "quality_report")
 
 # ---------------------------------------------------------------- GOLD ----
 GOLD_RUC_FEATURES = _build_path(GOLD_BUCKET, "gold", "ruc_features")
