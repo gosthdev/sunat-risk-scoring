@@ -24,10 +24,10 @@ on:
         type: boolean
         default: false
       n_jobs:
-        description: "Procesos paralelos del GridSearchCV en cada job (cada uno copia X_train: bajar si falta RAM)"
+        description: "Procesos paralelos del GridSearchCV en cada job (cada uno copia X_train: con 10 M de filas, subir solo si sobra RAM)"
         required: false
         type: number
-        default: 2
+        default: 1
       run_tag:
         description: "Sufijo de la corrida (vacío = id de esta ejecución). Repetir el mismo tag reanuda sin repetir experimentos terminados."
         required: false
@@ -246,7 +246,7 @@ jobs:
             --train_dir ./data/input \
             --output_dir ./data/output/orchestrator \
             --dataset_version "${DATASET_VERSION}" \
-            --n_jobs "${{ inputs.n_jobs || 2 }}" \
+            --n_jobs "${{ inputs.n_jobs || 1 }}" \
             --run_tag "${RUN_TAG}" \
             --gold_bucket "${GOLD_BUCKET}" \
             --publicar_s3 si \
