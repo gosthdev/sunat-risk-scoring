@@ -83,6 +83,34 @@ class Log1pTransformer(BaseEstimator, TransformerMixin):
         return np.asarray(input_features, dtype=object)
 
 
+class WinsorizerSuperior(BaseEstimator, TransformerMixin):
+    """Recorta la cola extrema por arriba con un percentil ajustado solo en train.
+
+    Con montos casi siempre en cero y máximos de cientos de millones, unos pocos
+    registros dominan la escala de la regresión logística. Si el percentil es 0
+    (columna casi toda en cero) no se recorta, para no aplastar la señal.
+    """
+
+    def __init__(self, cuantil: float = 0.995) -> None:
+        self.cuantil = cuantil
+
+    def fit(self, X: Any, y: Any = None) -> "WinsorizerSuperior":
+        arr = np.asarray(X, dtype=np.float64)
+        with np.errstate(all="ignore"):
+            topes = np.nanquantile(arr, self.cuantil, axis=0)
+        topes = np.atleast_1d(topes).astype(np.float64)
+        topes[~(topes > 0)] = np.inf
+        self.topes_ = topes
+        return self
+
+    def transform(self, X: Any) -> np.ndarray:
+        arr = np.asarray(X, dtype=np.float64)
+        return np.minimum(arr, self.topes_)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        return np.asarray(input_features, dtype=object)
+
+
 def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     """Parsea argumentos de línea de comandos para el entrenamiento."""
     parser = argparse.ArgumentParser(
@@ -190,6 +218,9 @@ def construir_pipeline_preprocesamiento(
     def _num_pipeline(con_log: bool) -> Pipeline:
         steps: list[tuple[str, Any]] = []
         if con_log:
+            # Solo la regresión logística es sensible a la escala de la cola extrema.
+            if es_lr:
+                steps.append(("winsor", WinsorizerSuperior()))
             steps.append(("log1p", Log1pTransformer()))
         steps.append(("imputer", SimpleImputer(strategy="median", add_indicator=True)))
         if es_lr:
