@@ -97,6 +97,15 @@ Los workflows ejecutan las tareas en runners seguros asumiendo el rol IAM vía O
 
 ## Decisiones y limitaciones conocidas
 
+- **Calidad de RUC en Silver (`02_clean_silver.py`).** Un RUC válido tiene
+  exactamente 11 dígitos. Las filas con RUC inválido (Padrón, `ruc_entidad` y
+  `ruc_contratista` cuando viene informado) no entran a Silver: van a
+  `silver/quarantine_padron_ruc/` y `silver/quarantine_ordenes_compra/` con la
+  columna `motivo_cuarentena`. La tasa por fuente, año y mes queda en
+  `silver/quality_report/` (y la imprime `06_data_quality_report.py`). Si la tasa
+  por RUC supera `MAX_TASA_CUARENTENA_RUC` (0.5 por defecto) el job aborta antes de
+  escribir Silver, porque indica un cambio de formato en la fuente.
+
 - **`antiguedad_contratacion_estado_dias` (03_feature_gold.py) no es la
   antigüedad real del RUC.** El Padrón RUC no trae fecha de inscripción
   (confirmado en el diccionario de datos), así que no hay forma de calcular
