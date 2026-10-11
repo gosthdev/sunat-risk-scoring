@@ -48,3 +48,15 @@ Siguiendo la **Decisión D11**:
 - **Variante V1 (Techo Experimental / Control de Fuga):** Incluye `Estado` y `Condicion`. Se entrena exclusivamente como punto de referencia experimental ("benchmark de techo superior") para cuantificar exactamente qué proporción del poder predictivo se debe a marcadores registrales que podrían estar contaminados temporalmente por la fiscalización previa.
 
 Si la diferencia de rendimiento entre V1 y V2 es moderada, valida que las variables de comportamiento contractual y capacidad operativa (V2) contienen señal suficiente y robusta para la detección temprana sin depender de etiquetas sintomáticas tardías.
+
+---
+
+## 4. Limitaciones conocidas de `Condicion` (EDA)
+
+El EDA mostró una asociación fuerte entre `Condicion = NO HALLADO` y la etiqueta SSCO. Esa asociación **no debe leerse como un hallazgo firme**, por tres razones:
+
+1. **Posible consecuencia de la etiqueta.** `NO HALLADO` forma parte del proceso con el que SUNAT llega a declarar a un RUC como SSCO. Puede ser un efecto del proceso y no una señal previa a él. Que el corte del Padrón (30-jun-2025) sea anterior a la publicación de la lista (30-sep-2026) no descarta esto: el proceso de verificación pudo comenzar antes del corte.
+2. **Fecha de publicación pendiente de verificar.** Si la lista oficial trae fecha de publicación o de inclusión por RUC, debe comprobarse que sea posterior al corte del Padrón. Si no la trae, esta limitación queda documentada y no puede cerrarse con los datos disponibles.
+3. **Intervalo muy ancho.** Con solo 8 observaciones, la incidencia en `NO HALLADO` va de aproximadamente 0,11 % a 0,48 %. La razón de 44,5 veces frente al resto es frágil y no debe citarse sin ese intervalo.
+
+**Consecuencia operativa:** se mantiene la decisión de la sección 3. `Condicion` queda fuera de la variante oficial (V2) y solo se usa en V1 como techo experimental. Ningún resultado del informe debe apoyarse en la razón de 44,5 veces.
