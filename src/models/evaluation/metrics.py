@@ -366,9 +366,15 @@ def flatten_metrics(
         "n": nested.get("n"),
         "n_positivos": nested.get("n_positivos"),
         "prevalencia": nested.get("prevalencia"),
-        "pr_auc": pr_auc_block.get("valor") if isinstance(pr_auc_block, dict) else pr_auc_block,
-        "pr_auc_ic_bajo": pr_auc_block.get("ic_bajo") if isinstance(pr_auc_block, dict) else None,
-        "pr_auc_ic_alto": pr_auc_block.get("ic_alto") if isinstance(pr_auc_block, dict) else None,
+        "pr_auc": pr_auc_block.get("valor")
+        if isinstance(pr_auc_block, dict)
+        else pr_auc_block,
+        "pr_auc_ic_bajo": pr_auc_block.get("ic_bajo")
+        if isinstance(pr_auc_block, dict)
+        else None,
+        "pr_auc_ic_alto": pr_auc_block.get("ic_alto")
+        if isinstance(pr_auc_block, dict)
+        else None,
         "roc_auc": nested.get("roc_auc"),
         "brier": nested.get("brier"),
         "recall_at_100": recall_k.get("100"),
@@ -440,7 +446,9 @@ def export_metrics_flat(
             ContentType="application/x-ndjson",
         )
     else:
-        os.makedirs(os.path.dirname(output_path), exist_ok=True) if os.path.dirname(output_path) else None
+        os.makedirs(os.path.dirname(output_path), exist_ok=True) if os.path.dirname(
+            output_path
+        ) else None
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(line)
 

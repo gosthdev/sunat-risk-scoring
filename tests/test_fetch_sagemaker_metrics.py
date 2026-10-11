@@ -5,11 +5,8 @@ Mockea el cliente boto3 para no necesitar credenciales AWS reales.
 
 import json
 import os
-import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.models.fetch_sagemaker_metrics import INSTANCE_PRICE_MAP, get_job_cost_info
 
@@ -22,8 +19,8 @@ def _make_describe_response(
     instance_count: int = 1,
 ) -> dict:
     """Construye una respuesta ficticia de describe_training_job."""
-    t0 = datetime(2026, 10, 8, 10, 0, 0, tzinfo=timezone.utc)
-    t1 = datetime(2026, 10, 8, 11, 0, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 10, 8, 10, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 10, 8, 11, 0, 0, tzinfo=UTC)
     return {
         "TrainingJobName": "ssco-run-test",
         "TrainingJobStatus": status,
@@ -102,11 +99,14 @@ def test_output_json_guarda_archivo(mock_boto_client, tmp_path):
     output_file = str(tmp_path / "cost.json")
 
     import sys
+
     argv_original = sys.argv
     sys.argv = [
         "fetch_sagemaker_metrics",
-        "--run_id", "ssco-run-test",
-        "--output_json", output_file,
+        "--run_id",
+        "ssco-run-test",
+        "--output_json",
+        output_file,
     ]
     try:
         main()

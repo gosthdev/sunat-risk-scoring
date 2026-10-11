@@ -9,7 +9,8 @@ Modelos baselines implementados:
 Todos los métodos retornan un DataFrame respetando el contrato C2 de predicciones.
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd

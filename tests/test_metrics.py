@@ -2,13 +2,13 @@
 Pruebas unitarias para la librería de métricas (B2) y baselines (B3).
 """
 
-import numpy as np
-import pandas as pd
-import pytest
-
 import json
 import os
 import tempfile
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from src.models.evaluation.baselines import (
     baseline_analyst_rule,
@@ -236,16 +236,42 @@ def test_b2_random_reproducible():
 # ---------------------------------------------------------------------------
 
 C4_SCALAR_FIELDS = [
-    "run_id", "split", "n", "n_positivos", "prevalencia",
-    "pr_auc", "pr_auc_ic_bajo", "pr_auc_ic_alto",
-    "roc_auc", "brier",
-    "recall_at_100", "recall_at_500", "recall_at_1pct", "recall_at_5pct",
-    "precision_at_100", "precision_at_500", "precision_at_1pct", "precision_at_5pct",
-    "lift_at_100", "lift_at_500", "lift_at_1pct", "lift_at_5pct",
-    "tp_1pct", "fp_1pct", "fn_1pct", "tn_1pct",
-    "tp_5pct", "fp_5pct", "fn_5pct", "tn_5pct",
-    "recall_lima", "recall_resto",
-    "sagemaker_job_name", "instancia", "segundos_facturables", "costo_estimado_usd",
+    "run_id",
+    "split",
+    "n",
+    "n_positivos",
+    "prevalencia",
+    "pr_auc",
+    "pr_auc_ic_bajo",
+    "pr_auc_ic_alto",
+    "roc_auc",
+    "brier",
+    "recall_at_100",
+    "recall_at_500",
+    "recall_at_1pct",
+    "recall_at_5pct",
+    "precision_at_100",
+    "precision_at_500",
+    "precision_at_1pct",
+    "precision_at_5pct",
+    "lift_at_100",
+    "lift_at_500",
+    "lift_at_1pct",
+    "lift_at_5pct",
+    "tp_1pct",
+    "fp_1pct",
+    "fn_1pct",
+    "tn_1pct",
+    "tp_5pct",
+    "fp_5pct",
+    "fn_5pct",
+    "tn_5pct",
+    "recall_lima",
+    "recall_resto",
+    "sagemaker_job_name",
+    "instancia",
+    "segundos_facturables",
+    "costo_estimado_usd",
 ]
 
 
@@ -254,14 +280,16 @@ def _make_df_for_flatten(n: int = 1000, prevalence: float = 0.05) -> pd.DataFram
     n_pos = max(1, int(n * prevalence))
     labels = [1] * n_pos + [0] * (n - n_pos)
     scores = np.linspace(1, 0, n).tolist()
-    return pd.DataFrame({
-        "ruc": [f"20{i:09d}" for i in range(n)],
-        "label": labels,
-        "score": scores,
-        "split": ["test"] * n,
-        "departamento": ["LIMA"] * (n // 2) + ["AREQUIPA"] * (n - n // 2),
-        "run_id": ["run_test"] * n,
-    })
+    return pd.DataFrame(
+        {
+            "ruc": [f"20{i:09d}" for i in range(n)],
+            "label": labels,
+            "score": scores,
+            "split": ["test"] * n,
+            "departamento": ["LIMA"] * (n // 2) + ["AREQUIPA"] * (n - n // 2),
+            "run_id": ["run_test"] * n,
+        }
+    )
 
 
 def test_flatten_all_c4_fields_present():
@@ -321,19 +349,22 @@ def test_flatten_sagemaker_fields_populated():
 # Tests de evaluate_and_export_baseline (B3 persistencia)
 # ---------------------------------------------------------------------------
 
+
 def _make_test_df_for_baselines(n: int = 1000) -> pd.DataFrame:
     np.random.seed(7)
     n_pos = 10
     labels = [1] * n_pos + [0] * (n - n_pos)
     scores_placeholder = np.zeros(n)
-    return pd.DataFrame({
-        "ruc": [f"20{i:09d}" for i in range(n)],
-        "label": labels,
-        "score": scores_placeholder,
-        "split": ["test"] * n,
-        "departamento": ["LIMA"] * (n // 2) + ["AREQUIPA"] * (n - n // 2),
-        "run_id": ["placeholder"] * n,
-    })
+    return pd.DataFrame(
+        {
+            "ruc": [f"20{i:09d}" for i in range(n)],
+            "label": labels,
+            "score": scores_placeholder,
+            "split": ["test"] * n,
+            "departamento": ["LIMA"] * (n // 2) + ["AREQUIPA"] * (n - n // 2),
+            "run_id": ["placeholder"] * n,
+        }
+    )
 
 
 def test_evaluate_and_export_baseline_b0_produces_ndjson():

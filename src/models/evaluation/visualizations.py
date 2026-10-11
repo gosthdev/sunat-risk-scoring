@@ -50,14 +50,20 @@ def _get_test(df: pd.DataFrame) -> pd.DataFrame:
 def _add_footer(fig: plt.Figure, run_id: str) -> None:
     if run_id:
         fig.text(
-            0.99, 0.01, f"run_id: {run_id}",
-            ha="right", va="bottom", fontsize=7, color="gray",
+            0.99,
+            0.01,
+            f"run_id: {run_id}",
+            ha="right",
+            va="bottom",
+            fontsize=7,
+            color="gray",
         )
 
 
 # ---------------------------------------------------------------------------
 # 1. Curva Precisión–Recall
 # ---------------------------------------------------------------------------
+
 
 def plot_pr_curve(
     entries: list[PredEntry],
@@ -89,7 +95,10 @@ def plot_pr_curve(
 
     if prevalence_ref is not None:
         ax.axhline(
-            prevalence_ref, color="gray", lw=1.2, ls="--",
+            prevalence_ref,
+            color="gray",
+            lw=1.2,
+            ls="--",
             label=f"Azar (prevalencia={prevalence_ref:.4f})",
         )
 
@@ -108,6 +117,7 @@ def plot_pr_curve(
 # 2. Curva ROC
 # ---------------------------------------------------------------------------
 
+
 def plot_roc_curve(
     entries: list[PredEntry],
     run_id: str = "",
@@ -125,6 +135,7 @@ def plot_roc_curve(
 
         fpr, tpr, _ = roc_curve(y_true, y_score)
         from sklearn.metrics import roc_auc_score
+
         auc = roc_auc_score(y_true, y_score)
         ax.plot(fpr, tpr, lw=1.8, label=f"{entry['label']} (AUC={auc:.3f})")
 
@@ -143,6 +154,7 @@ def plot_roc_curve(
 # ---------------------------------------------------------------------------
 # 3. Curva de captura acumulada (Gain Curve)
 # ---------------------------------------------------------------------------
+
 
 def plot_gain_curve(
     entries: list[PredEntry],
@@ -179,8 +191,12 @@ def plot_gain_curve(
         prev = float(df0["label"].mean())
         if prev > 0:
             ax.plot(
-                [0, prev * 100, 100], [0, 100, 100],
-                color="black", lw=0.8, ls=":", label="Perfecto",
+                [0, prev * 100, 100],
+                [0, 100, 100],
+                color="black",
+                lw=0.8,
+                ls=":",
+                label="Perfecto",
             )
 
     ax.set_xlabel("% de la población revisada")
@@ -197,6 +213,7 @@ def plot_gain_curve(
 # ---------------------------------------------------------------------------
 # 4. Curva de Lift
 # ---------------------------------------------------------------------------
+
 
 def plot_lift_curve(
     entries: list[PredEntry],
@@ -240,6 +257,7 @@ def plot_lift_curve(
 # 5. Matrices de confusión al top-1% y top-5%
 # ---------------------------------------------------------------------------
 
+
 def plot_confusion_matrices(
     entry: PredEntry,
     run_id: str = "",
@@ -270,8 +288,9 @@ def plot_confusion_matrices(
 
         for i, row in enumerate(cm):
             for j, val in enumerate(row):
-                ax.text(j, i, str(val), ha="center", va="center",
-                        fontsize=13, color="black")
+                ax.text(
+                    j, i, str(val), ha="center", va="center", fontsize=13, color="black"
+                )
 
         ax.set_xticks([0, 1])
         ax.set_yticks([0, 1])
@@ -288,6 +307,7 @@ def plot_confusion_matrices(
 # ---------------------------------------------------------------------------
 # 6. Curva de calibración
 # ---------------------------------------------------------------------------
+
 
 def plot_calibration_curve(
     entries: list[PredEntry],
@@ -309,20 +329,26 @@ def plot_calibration_curve(
             continue
 
         from sklearn.metrics import brier_score_loss
+
         brier = brier_score_loss(y_true, y_score)
 
         frac_pos, mean_pred = calibration_curve(
             y_true, y_score, n_bins=n_bins, strategy="uniform"
         )
         ax.plot(
-            mean_pred, frac_pos, marker="o", lw=1.5,
+            mean_pred,
+            frac_pos,
+            marker="o",
+            lw=1.5,
             label=f"{entry['label']} (Brier={brier:.4f})",
         )
 
     ax.plot([0, 1], [0, 1], color="gray", lw=1.2, ls="--", label="Calibración perfecta")
     ax.set_xlabel("Score predicho (medio del bin)")
     ax.set_ylabel("Fracción real de positivos")
-    ax.set_title("Curva de Calibración\n(scores inflados por pesos de clase — esperado)")
+    ax.set_title(
+        "Curva de Calibración\n(scores inflados por pesos de clase — esperado)"
+    )
     ax.legend(fontsize=8)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
@@ -334,6 +360,7 @@ def plot_calibration_curve(
 # ---------------------------------------------------------------------------
 # 7. Distribución de scores por clase
 # ---------------------------------------------------------------------------
+
 
 def plot_score_distribution(
     entry: PredEntry,
@@ -351,10 +378,22 @@ def plot_score_distribution(
 
     fig, ax = plt.subplots(figsize=(8, 4))
 
-    ax.hist(scores_neg, bins=bins, alpha=0.6, color="steelblue",
-            label=f"No SSCO (n={len(scores_neg):,})", density=True)
-    ax.hist(scores_pos, bins=bins, alpha=0.7, color="tomato",
-            label=f"SSCO (n={len(scores_pos):,})", density=True)
+    ax.hist(
+        scores_neg,
+        bins=bins,
+        alpha=0.6,
+        color="steelblue",
+        label=f"No SSCO (n={len(scores_neg):,})",
+        density=True,
+    )
+    ax.hist(
+        scores_pos,
+        bins=bins,
+        alpha=0.7,
+        color="tomato",
+        label=f"SSCO (n={len(scores_pos):,})",
+        density=True,
+    )
 
     ax.set_xlabel("Score de riesgo")
     ax.set_ylabel("Densidad")
@@ -368,6 +407,7 @@ def plot_score_distribution(
 # ---------------------------------------------------------------------------
 # save_all — genera y exporta los 7 gráficos
 # ---------------------------------------------------------------------------
+
 
 def save_all(
     entries: list[PredEntry],
@@ -408,12 +448,12 @@ def save_all(
                 break
 
     plots: list[tuple[str, plt.Figure]] = [
-        ("pr_curve.png",           plot_pr_curve(entries, run_id=run_id)),
-        ("roc_curve.png",          plot_roc_curve(entries, run_id=run_id)),
-        ("gain_curve.png",         plot_gain_curve(entries, run_id=run_id)),
-        ("lift_curve.png",         plot_lift_curve(entries, run_id=run_id)),
+        ("pr_curve.png", plot_pr_curve(entries, run_id=run_id)),
+        ("roc_curve.png", plot_roc_curve(entries, run_id=run_id)),
+        ("gain_curve.png", plot_gain_curve(entries, run_id=run_id)),
+        ("lift_curve.png", plot_lift_curve(entries, run_id=run_id)),
         ("confusion_matrices.png", plot_confusion_matrices(champion, run_id=run_id)),
-        ("calibration_curve.png",  plot_calibration_curve(entries, run_id=run_id)),
+        ("calibration_curve.png", plot_calibration_curve(entries, run_id=run_id)),
         ("score_distribution.png", plot_score_distribution(champion, run_id=run_id)),
     ]
 
