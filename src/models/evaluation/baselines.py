@@ -39,7 +39,12 @@ def baseline_analyst_rule(df: pd.DataFrame) -> pd.DataFrame:
 
     # 1. Condición tributaria
     col_cond = None
-    for cand in ["condicion", "condicion_domicilio", "Condicion", "Condicion_domicilio"]:
+    for cand in [
+        "condicion",
+        "condicion_domicilio",
+        "Condicion",
+        "Condicion_domicilio",
+    ]:
         if cand in res.columns:
             col_cond = cand
             break
@@ -79,7 +84,9 @@ def baseline_analyst_rule(df: pd.DataFrame) -> pd.DataFrame:
     if col_contrata is not None:
         # Manejar seguro booleano y numérico (> 0)
         contrata_numeric = pd.to_numeric(res[col_contrata], errors="coerce").fillna(0)
-        contrata_bool = (contrata_numeric > 0) | (res[col_contrata].astype(str).str.lower().isin(["true", "t", "1"]))
+        contrata_bool = (contrata_numeric > 0) | (
+            res[col_contrata].astype(str).str.lower().isin(["true", "t", "1"])
+        )
         puntos += (contrata_bool & (trab_vals <= 1)).astype(float)
 
     res["score"] = puntos / 3.0
