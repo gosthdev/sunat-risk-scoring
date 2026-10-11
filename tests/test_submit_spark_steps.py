@@ -22,6 +22,8 @@ def _ejecutar(tmp_path, estados, step="03_feature_gold", extra_env=None):
         "EMR_APPLICATION_ID": "app-1",
         "EMR_EXECUTION_ROLE_ARN": "arn:aws:iam::1:role/emr",
         "POLL_INTERVAL_SECONDS": "0",
+        "RETRY_BACKOFF_SECONDS": "0",
+        "STEP_MAX_ATTEMPTS": "2",
         **(extra_env or {}),
     }
     res = subprocess.run(
@@ -54,10 +56,17 @@ def test_exito_publica_staging_a_la_ruta_viva(tmp_path):
     ]
 
 
+def test_un_fallo_se_reintenta_y_luego_publica(tmp_path):
+    res, llamadas = _ejecutar(tmp_path, ["FAILED", "SUCCESS"])
+    assert res.returncode == 0, res.stderr
+    assert len(_lanzamientos(llamadas)) == 2
+    assert len(_syncs(llamadas)) == 1
+
+
 def test_fallo_persistente_no_publica_y_conserva_lo_vigente(tmp_path):
     res, llamadas = _ejecutar(tmp_path, ["FAILED"])
     assert res.returncode == 1
-    assert len(_lanzamientos(llamadas)) == 1
+    assert len(_lanzamientos(llamadas)) == 2
     assert _syncs(llamadas) == []
     assert "Athena sigue sirviendo la última versión válida" in res.stderr
 

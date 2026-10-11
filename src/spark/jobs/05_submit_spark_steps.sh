@@ -19,12 +19,16 @@
 # Variables opcionales:
 #   - AWS_REGION             : Región AWS (por defecto: us-east-1)
 #   - POLL_INTERVAL_SECONDS  : Intervalo de sondeo en segundos (por defecto: 15)
+#   - STEP_MAX_ATTEMPTS      : Intentos por step antes de abortar (por defecto: 2)
+#   - RETRY_BACKOFF_SECONDS  : Espera entre intentos (por defecto: 30)
 # ==============================================================================
 
 set -euo pipefail
 
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-15}"
+STEP_MAX_ATTEMPTS="${STEP_MAX_ATTEMPTS:-2}"
+RETRY_BACKOFF_SECONDS="${RETRY_BACKOFF_SECONDS:-30}"
 EMR_APPLICATION_NAME="${EMR_APPLICATION_NAME:-sunat-ssco-spark}"
 DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring-raw}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
@@ -345,7 +349,7 @@ run_step_once() {
 }
 
 # ------------------------------------------------------------------------------
-# 5. Ejecución secuencial
+# 5. Ejecución secuencial con reintentos
 # ------------------------------------------------------------------------------
 CURRENT_STEP=0
 
@@ -357,10 +361,23 @@ for step in "${STEPS[@]}"; do
   echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step}"
   echo "------------------------------------------------------------------------"
 
-  # Un intento anterior pudo dejar archivos a medias en staging.
-  clear_staging "$step"
-  if ! run_step_once "$step"; then
-    echo "✗ ERROR: '${step}' falló." >&2
+  ok=0
+  for attempt in $(seq 1 "${STEP_MAX_ATTEMPTS}"); do
+    echo "Intento ${attempt}/${STEP_MAX_ATTEMPTS} de '${step}'"
+    # Un intento fallido pudo dejar archivos a medias en staging.
+    clear_staging "$step"
+    if run_step_once "$step"; then
+      ok=1
+      break
+    fi
+    if [[ "$attempt" -lt "$STEP_MAX_ATTEMPTS" ]]; then
+      echo "Reintentando '${step}' en ${RETRY_BACKOFF_SECONDS}s..."
+      sleep "${RETRY_BACKOFF_SECONDS}"
+    fi
+  done
+
+  if [[ "$ok" -ne 1 ]]; then
+    echo "✗ ERROR: '${step}' falló tras ${STEP_MAX_ATTEMPTS} intento(s)." >&2
     echo "  La ruta publicada no se modificó: Athena sigue sirviendo la última versión válida." >&2
     clear_staging "$step"
     exit 1
