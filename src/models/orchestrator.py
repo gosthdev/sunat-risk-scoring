@@ -457,17 +457,22 @@ def seleccionar_modelo_campeon(
             "justificacion": motivo,
         }
 
-    exitosos = [r for r in resultados if r.get("status") == "SUCCESS"]
-    if exitosos:
-        mejor = max(exitosos, key=lambda x: x.get("cv_pr_auc_mean", 0.0))
+    # Solo una familia tiene resultado válido: gana por falta de rival, pero siempre entre los
+    # candidatos oficiales. Nunca un V1 (con fuga) ni una ablación sin pesos.
+    unico = r_lr or r_dt
+    if unico:
         return {
-            "campeon_id": mejor.get("id"),
-            "campeon_model": mejor.get("model_name"),
-            "campeon_pr_auc": mejor.get("cv_pr_auc_mean"),
+            "campeon_id": unico.get("id"),
+            "campeon_model": unico.get("model_name"),
+            "campeon_pr_auc": unico.get("cv_pr_auc_mean"),
             "retador_id": "N/A",
             "retador_model": "N/A",
             "retador_pr_auc": 0.0,
-            "justificacion": f"Mejor modelo disponible por PR-AUC ({mejor.get('cv_pr_auc_mean'):.4f}).",
+            "justificacion": (
+                f"Solo {unico.get('model_name')} ({unico.get('id')}) tiene un resultado válido entre "
+                f"los candidatos oficiales (V2 con pesos), con PR-AUC {unico.get('cv_pr_auc_mean', 0.0):.4f}. "
+                "No hubo comparación entre familias: repetir los experimentos que fallaron."
+            ),
         }
 
     return {
@@ -477,7 +482,7 @@ def seleccionar_modelo_campeon(
         "retador_id": "N/A",
         "retador_model": "N/A",
         "retador_pr_auc": 0.0,
-        "justificacion": "No se encontraron ejecuciones exitosas para determinar un campeón.",
+        "justificacion": "Ningún candidato oficial (V2 con pesos) terminó con éxito: no hay campeón.",
     }
 
 

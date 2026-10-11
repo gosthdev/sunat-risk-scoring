@@ -577,3 +577,40 @@ def test_resultado_desde_record_usa_el_tiempo_del_run_record_al_consolidar():
     medido = resultado_desde_record(exp, "run", record, 9.0, "r", "p")
     assert desde_s3["train_seconds"] == 123.4
     assert medido["train_seconds"] == 9.0
+
+
+def _resultado(id_, modelo, variante, pesos, auc, status="SUCCESS"):
+    return {
+        "id": id_,
+        "model_name": modelo,
+        "variant": variante,
+        "usa_pesos": pesos,
+        "status": status,
+        "cv_pr_auc_mean": auc,
+    }
+
+
+def test_campeon_nunca_es_un_benchmark_con_fuga_ni_una_ablacion():
+    # Las regresiones logísticas oficiales fallaron: el V1 y el V2 sin pesos puntúan más alto,
+    # pero no pueden ser campeones. Gana el árbol oficial.
+    resultados = [
+        _resultado("E1", "LR", "V2", "si", 0.0, status="FAILED"),
+        _resultado("E9", "LR", "V2", "si", 0.0, status="FAILED"),
+        _resultado("E3", "LR", "V1", "si", 0.9),
+        _resultado("E5", "LR", "V2", "no", 0.8),
+        _resultado("E2", "DT", "V2", "si", 0.4),
+        _resultado("E10", "DT", "V2", "si", 0.45),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "E10"
+    assert "no hubo comparación" in campeon["justificacion"].lower()
+
+
+def test_sin_candidatos_oficiales_no_hay_campeon():
+    resultados = [
+        _resultado("E3", "LR", "V1", "si", 0.9),
+        _resultado("E5", "LR", "V2", "no", 0.8),
+        _resultado("E1", "LR", "V2", "si", 0.0, status="FAILED"),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "N/A"
