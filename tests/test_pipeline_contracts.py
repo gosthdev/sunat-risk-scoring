@@ -77,3 +77,14 @@ def test_bootstrap_descarta_remuestreos_sin_positivos():
     low, high = _bootstrap_pr_auc_ci(y, s, n_bootstrap=200, seed=1)
     # Con un solo positivo, contar los remuestreos vacíos como 0.0 arrastraba el IC a 0.
     assert low > 0.0 and high >= low
+
+
+def test_lanzador_rechaza_buckets_de_perf():
+    import pytest
+
+    from src.models.launch_manual import lanzar_training_job_manual
+
+    with pytest.raises(ValueError, match="rendimiento"):
+        lanzar_training_job_manual(
+            run_id="r", model_name="LR", gold_bucket="sunat-risk-scoring-perf-x10"
+        )

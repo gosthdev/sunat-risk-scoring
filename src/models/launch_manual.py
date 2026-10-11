@@ -51,6 +51,12 @@ def lanzar_training_job_manual(
     if not gold_bucket:
         gold_bucket = os.getenv("GOLD_BUCKET", "sunat-risk-scoring-gold")
 
+    if "perf" in gold_bucket.lower():
+        raise ValueError(
+            f"El bucket '{gold_bucket}' pertenece a los experimentos de rendimiento "
+            "y no puede usarse para entrenar modelos."
+        )
+
     if not role_arn:
         role_arn = os.getenv("SAGEMAKER_ROLE_ARN", "")
         if not role_arn:
@@ -69,14 +75,12 @@ def lanzar_training_job_manual(
     # REGLA DE IDEMPOTENCIA: El TrainingJobName es exactamente el run_id
     job_name = run_id
 
-    s3_input_uri = (
-        f"s3://{gold_bucket}/gold/model_inputs/dataset_version={dataset_version}/"
+    s3_input_uri = f"s3://{gold_bucket}/model_inputs/dataset_version={dataset_version}/"
+    s3_output_uri = f"s3://{gold_bucket}/model_artifacts/{run_id}"
+    s3_preds_uri = (
+        f"s3://{gold_bucket}/model_outputs/predictions/predictions_{run_id}.parquet"
     )
-    s3_output_uri = f"s3://{gold_bucket}/gold/model_artifacts/{run_id}"
-    s3_preds_uri = f"s3://{gold_bucket}/gold/model_outputs/predictions/predictions_{run_id}.parquet"
-    s3_record_uri = (
-        f"s3://{gold_bucket}/gold/model_runs/run_id={run_id}/run_record.json"
-    )
+    s3_record_uri = f"s3://{gold_bucket}/model_runs/run_id={run_id}/run_record.json"
 
     print(f"[INFO] Verificando existencia previa de Training Job: {job_name}")
     try:
