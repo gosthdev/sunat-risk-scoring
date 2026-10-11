@@ -39,7 +39,8 @@ resource "aws_iam_role_policy" "s3_access" {
           "${var.gold_bucket_arn}/model_outputs/*",
           "${var.gold_bucket_arn}/model_artifacts/*",
           "${var.gold_bucket_arn}/model_runs/*",
-          "${var.gold_bucket_arn}/model_metrics/*"
+          "${var.gold_bucket_arn}/model_metrics/*",
+          "${var.gold_bucket_arn}/model_leaderboards/*"
         ]
       },
       {
