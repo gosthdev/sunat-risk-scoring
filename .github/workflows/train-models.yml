@@ -21,11 +21,6 @@ on:
         required: false
         type: string
         default: "v1"
-      use_synthetic:
-        description: "Generar y usar dataset sintético (para pruebas de CI sin descargar de S3)"
-        required: false
-        type: boolean
-        default: false
       gold_bucket:
         description: "Bucket Gold de AWS S3 (dejar vacío para usar default de vars/secrets)"
         required: false
@@ -40,6 +35,7 @@ jobs:
   train-and-benchmark:
     name: Run ML Experiments Matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -57,56 +53,46 @@ jobs:
           if [ -f src/models/requirements.txt ]; then pip install -r src/models/requirements.txt; fi
 
       - name: Configure AWS Credentials (OIDC)
-        if: ${{ inputs.use_synthetic == false || inputs.target == 'sagemaker' }}
         uses: aws-actions/configure-aws-credentials@v4
-        continue-on-error: true
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
 
-      - name: Prepare Dataset (Download from S3 if Runner mode without synthetic)
-        if: ${{ inputs.target == 'runner' && inputs.use_synthetic == false }}
+      - name: Download dataset from S3
+        if: ${{ inputs.target == 'runner' }}
         env:
           GOLD_BUCKET: ${{ inputs.gold_bucket != '' && inputs.gold_bucket || vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
           DATASET_VERSION: ${{ inputs.dataset_version }}
         run: |
+          set -euo pipefail
           mkdir -p ./data/input
           echo "Descargando dataset desde s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
-          if aws s3 cp "s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive; then
-            echo "Dataset descargado exitosamente."
-          else
-            echo "WARN: No se pudo descargar desde S3. Se activará fallback sintético si no hay datos locales."
+          aws s3 cp "s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive
+          if [ -z "$(find ./data/input -name '*.parquet' -print -quit)" ]; then
+            echo "ERROR: no hay archivos .parquet en el dataset descargado" >&2
+            exit 1
           fi
+          du -sh ./data/input
 
       - name: Execute ML Orchestrator
         env:
           GOLD_BUCKET: ${{ inputs.gold_bucket != '' && inputs.gold_bucket || vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
           SAGEMAKER_ROLE_ARN: ${{ vars.SAGEMAKER_ROLE_ARN || secrets.SAGEMAKER_ROLE_ARN || '' }}
         run: |
-          OUTPUT_DIR="./data/output/orchestrator"
-          EXTRA_FLAGS=""
-
-          if [ "${{ inputs.use_synthetic }}" = "true" ]; then
-            EXTRA_FLAGS="--synthetic"
-          fi
-
+          set -euo pipefail
           TRAIN_ARG=""
-          if [ -d "./data/input" ] && [ "$(ls -A ./data/input 2>/dev/null)" ]; then
+          if [ "${{ inputs.target }}" = "runner" ]; then
             TRAIN_ARG="--train_dir ./data/input"
-          elif [ "${{ inputs.use_synthetic }}" != "true" ] && [ "${{ inputs.target }}" = "runner" ]; then
-            echo "No se detectaron archivos en ./data/input. Activando --synthetic para garantizar ejecución."
-            EXTRA_FLAGS="--synthetic"
           fi
 
           python -m src.models.orchestrator \
             --config config/experiments.yml \
             --experiments "${{ inputs.experiments }}" \
             --target "${{ inputs.target }}" \
-            --output_dir "${OUTPUT_DIR}" \
+            --output_dir ./data/output/orchestrator \
             --gold_bucket "${GOLD_BUCKET}" \
             --output_summary_file "${GITHUB_STEP_SUMMARY}" \
-            ${TRAIN_ARG} \
-            ${EXTRA_FLAGS}
+            ${TRAIN_ARG}
 
       - name: Upload Experiment Artifacts
         if: always()

@@ -4,7 +4,6 @@ Permite:
 - Cargar y ejecutar la matriz oficial de experimentos (E1..E6) definida en YAML.
 - Ejecutar en modo runner local (para CI/CD ultrarrápido sin costo) o despachar
   a AWS SageMaker (para corridas oficiales en producción).
-- Generar datos sintéticos para pruebas deterministas y validación en entornos CI.
 - Consolidar métricas de validación cruzada (5 folds) y PR-AUC.
 - Generar un Leaderboard en Markdown y JSON con selección automática del modelo
   campeón siguiendo la regla de decisión metodológica del proyecto.
@@ -18,7 +17,6 @@ import time
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import yaml
 
 # Imports de modelos
@@ -68,76 +66,18 @@ def filtrar_experimentos(
     return seleccionados
 
 
-def generar_dataset_sintetico(
-    output_dir: str, n_rows: int = 500, seed: int = 42
-) -> str:
-    """Genera un archivo Parquet sintético reproducible para pruebas de runner o CI."""
-    os.makedirs(output_dir, exist_ok=True)
-    target_parquet = os.path.join(output_dir, "dataset_scoring_synthetic.parquet")
-
-    np.random.seed(seed)
-    n_train = int(n_rows * 0.8)
-
-    rucs = [f"{20100000000 + i:011d}" for i in range(1, n_rows + 1)]
-    splits = ["train" if i < n_train else "test" for i in range(n_rows)]
-    folds = [(i % 5) if splits[i] == "train" else -1 for i in range(n_rows)]
-    # Prevalencia baja pero con suficientes positivos para 5 folds
-    labels = [1 if (i % 8 == 0) else 0 for i in range(n_rows)]
-
-    montos = np.random.exponential(scale=35000, size=n_rows)
-    montos[::9] = np.nan
-    medianas = montos / np.random.randint(1, 8, size=n_rows)
-    medianas[::7] = np.nan
-
-    n_ordenes = np.random.poisson(lam=5, size=n_rows)
-    antiguedad = np.random.randint(1, 120, size=n_rows)
-    n_trabajadores = np.random.choice(
-        [0, 1, 3, 10, 50], size=n_rows, p=[0.4, 0.3, 0.15, 0.1, 0.05]
+def validar_dataset_entrada(dataset_path: str) -> str | None:
+    """Devuelve un mensaje de error si no hay un dataset real en la ruta; None si es válido."""
+    if not dataset_path:
+        return "Modo runner requiere --train_dir con el dataset real (no se generan datos)."
+    if not os.path.isdir(dataset_path):
+        return f"El directorio de entrada no existe: {dataset_path}"
+    hay_parquet = any(
+        f.endswith(".parquet") for _, _, files in os.walk(dataset_path) for f in files
     )
-    sin_trabajadores = (n_trabajadores == 0).astype(int)
-
-    ciius = np.random.choice(["4659", "4100", "4711", "9999", ""], size=n_rows)
-    dept_choices = np.array(["LIMA", "AREQUIPA", "CUSCO", "LORETO", None], dtype=object)
-    depts = np.random.choice(dept_choices, size=n_rows)
-    tipos = np.random.choice(["SOCIEDAD ANONIMA", "PERSONA NATURAL"], size=n_rows)
-    estados = np.random.choice(
-        ["ACTIVO", "BAJA DE OFICIO", "SUSPENSION TEMPORAL"], size=n_rows
-    )
-    condiciones = np.random.choice(["HABIDO", "NO HABIDO", "NO HALLADO"], size=n_rows)
-
-    df = pd.DataFrame(
-        {
-            "ruc": rucs,
-            "split": splits,
-            "fold": folds,
-            "label": labels,
-            "monto_total_soles": montos,
-            "monto_mediano_soles": medianas,
-            "monto_maximo_soles": montos * 1.2,
-            "n_ordenes": n_ordenes,
-            "total_ordenes_validas": n_ordenes,
-            "n_entidades_distintas": np.maximum(1, n_ordenes // 2),
-            "pct_monto_en_entidad_principal": np.random.uniform(0.1, 1.0, size=n_rows),
-            "pct_ordenes_anuladas": np.random.uniform(0.0, 0.2, size=n_rows),
-            "antiguedad_contratacion_estado_dias": antiguedad * 30,
-            "antiguedad_meses": antiguedad,
-            "nro_trabajadores": n_trabajadores,
-            "sin_trabajadores": sin_trabajadores,
-            "monto_por_trabajador": montos / np.maximum(1, n_trabajadores),
-            "informalidad_epen_departamento": np.random.uniform(
-                50.0, 85.0, size=n_rows
-            ),
-            "ciiu_principal": ciius,
-            "actividad_economica_principal": ciius,
-            "departamento": depts,
-            "tipo_contribuyente": tipos,
-            "Estado": estados,
-            "Condicion": condiciones,
-        }
-    )
-
-    df.to_parquet(target_parquet, index=False)
-    return target_parquet
+    if not hay_parquet:
+        return f"No se encontraron archivos .parquet en: {dataset_path}"
+    return None
 
 
 def ejecutar_experimento_runner(
@@ -329,9 +269,10 @@ def seleccionar_modelo_campeon(
     """Selecciona el modelo campeón conforme a la Regla de Decisión del proyecto.
 
     Regla Oficial (informe_modelado_ssco.md Sección 4.2.3.F):
-    1. Se comparan exclusivamente los candidatos V2 con pesos balanceados (E1 vs E2).
-    2. Si cv_pr_auc_mean(LR) >= cv_pr_auc_mean(DT): Campeón es LR (E1) por parsimonia y estabilidad.
-    3. Si cv_pr_auc_mean(DT) > cv_pr_auc_mean(LR): Campeón es DT (E2).
+    1. Se comparan exclusivamente los candidatos V2 con pesos balanceados: la mejor
+       configuración de LR (E1 y variantes) contra la mejor de DT (E2 y variantes).
+    2. Si cv_pr_auc_mean(LR) >= cv_pr_auc_mean(DT): Campeón es LR por parsimonia y estabilidad.
+    3. Si cv_pr_auc_mean(DT) > cv_pr_auc_mean(LR): Campeón es DT.
     4. En empate estadístico, rige el principio de la Navaja de Ockham (LR).
     """
     candidatos_oficiales = [
@@ -342,8 +283,13 @@ def seleccionar_modelo_campeon(
         and r.get("usa_pesos") == "si"
     ]
 
-    r_lr = next((r for r in candidatos_oficiales if r.get("model_name") == "LR"), None)
-    r_dt = next((r for r in candidatos_oficiales if r.get("model_name") == "DT"), None)
+    def _mejor_de(familia: str) -> dict[str, Any] | None:
+        de_familia = [r for r in candidatos_oficiales if r.get("model_name") == familia]
+        return max(de_familia, key=lambda r: r.get("cv_pr_auc_mean", 0.0), default=None)
+
+    # Cada familia compite con su mejor configuración V2 con pesos (E1/E2 y variantes).
+    r_lr = _mejor_de("LR")
+    r_dt = _mejor_de("DT")
 
     if r_lr and r_dt:
         score_lr = r_lr.get("cv_pr_auc_mean", 0.0)
@@ -354,7 +300,7 @@ def seleccionar_modelo_campeon(
             campeon = r_lr
             retador = r_dt
             motivo = (
-                f"Regresión Logística (E1) supera o iguala a Árbol de Decisión (E2) en PR-AUC "
+                f"Regresión Logística ({r_lr.get('id')}) supera o iguala a Árbol de Decisión ({r_dt.get('id')}) en PR-AUC "
                 f"({score_lr:.4f} vs {score_dt:.4f}, diff = +{diff:.4f}). "
                 f"Se selecciona LR como Modelo Oficial por estabilidad asintótica, menor sobreajuste "
                 f"y el principio de parsimonia (Navaja de Ockham)."
@@ -363,7 +309,7 @@ def seleccionar_modelo_campeon(
             campeon = r_dt
             retador = r_lr
             motivo = (
-                f"Árbol de Decisión (E2) supera a Regresión Logística (E1) en PR-AUC "
+                f"Árbol de Decisión ({r_dt.get('id')}) supera a Regresión Logística ({r_lr.get('id')}) en PR-AUC "
                 f"({score_dt:.4f} vs {score_lr:.4f}, diff = +{abs(diff):.4f}). "
                 f"Se selecciona DT por mayor capacidad no lineal en la captura de no-linealidades tributarias."
             )
@@ -513,11 +459,6 @@ def main(args_list: list[str] | None = None) -> int:
         help="Directorio base para guardar salidas y artefactos",
     )
     parser.add_argument(
-        "--synthetic",
-        action="store_true",
-        help="Generar y usar dataset sintético para pruebas rápidas y deterministas",
-    )
-    parser.add_argument(
         "--gold_bucket",
         type=str,
         default=os.getenv("GOLD_BUCKET", "sunat-risk-scoring-gold"),
@@ -552,11 +493,11 @@ def main(args_list: list[str] | None = None) -> int:
     print(f"[INFO] Target de ejecución: {args.target}")
 
     dataset_path = args.train_dir
-    if args.synthetic or (not dataset_path and args.target == "runner"):
-        synthetic_dir = os.path.join(args.output_dir, "synthetic_dataset")
-        print(f"[INFO] Generando dataset sintético en: {synthetic_dir}")
-        dataset_path = generar_dataset_sintetico(synthetic_dir, n_rows=600, seed=seed)
-        print(f"[SUCCESS] Dataset sintético generado en: {dataset_path}")
+    if args.target == "runner":
+        error_dataset = validar_dataset_entrada(dataset_path)
+        if error_dataset:
+            print(f"[ERROR] {error_dataset}", file=sys.stderr)
+            return 2
 
     resultados: list[dict[str, Any]] = []
 

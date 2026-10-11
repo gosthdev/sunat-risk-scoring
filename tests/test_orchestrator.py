@@ -6,6 +6,8 @@ import tempfile
 
 import pytest
 
+from tests._dataset_minimo import escribir_parquet_minimo
+
 pytest.importorskip("yaml", reason="pyyaml is required for orchestrator tests")
 pytest.importorskip("pandas", reason="pandas is required for orchestrator tests")
 pytest.importorskip("sklearn", reason="scikit-learn is required for orchestrator tests")
@@ -14,9 +16,9 @@ from src.models.orchestrator import (
     cargar_configuracion,
     ejecutar_experimento_runner,
     filtrar_experimentos,
-    generar_dataset_sintetico,
     generar_leaderboard_markdown,
     seleccionar_modelo_campeon,
+    validar_dataset_entrada,
 )
 from src.models.orchestrator import (
     main as orchestrator_main,
@@ -78,30 +80,30 @@ def test_filtrar_experimentos():
         filtrar_experimentos(todos, "E99")
 
 
-def test_generar_dataset_sintetico():
-    """Verifica que el generador sintético produzca un parquet válido con todos los contratos."""
-    import pandas as pd
-
+def test_validar_dataset_entrada():
+    assert validar_dataset_entrada("") is not None
+    assert validar_dataset_entrada("/ruta/que/no/existe") is not None
     with tempfile.TemporaryDirectory() as tmp_dir:
-        parquet_path = generar_dataset_sintetico(tmp_dir, n_rows=150, seed=42)
-        assert os.path.exists(parquet_path)
+        assert "parquet" in validar_dataset_entrada(tmp_dir)
+        escribir_parquet_minimo(tmp_dir, n_rows=50)
+        assert validar_dataset_entrada(tmp_dir) is None
 
-        df = pd.read_parquet(parquet_path)
-        assert len(df) == 150
-        assert "ruc" in df.columns
-        assert "split" in df.columns
-        assert "fold" in df.columns
-        assert "label" in df.columns
-        assert "monto_total_soles" in df.columns
-        assert "ciiu_principal" in df.columns
 
-        # Validar partición de folds
-        train_df = df[df["split"] == "train"]
-        test_df = df[df["split"] == "test"]
-        assert len(train_df) == 120
-        assert len(test_df) == 30
-        assert set(train_df["fold"].unique()) == {0, 1, 2, 3, 4}
-        assert list(test_df["fold"].unique()) == [-1]
+def test_orchestrator_falla_sin_dataset_real():
+    """Sin --train_dir el modo runner debe fallar y no inventar datos."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        exit_code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1",
+                "--output_dir",
+                tmp_dir,
+            ]
+        )
+        assert exit_code == 2
+        assert not os.path.exists(os.path.join(tmp_dir, "leaderboard.json"))
 
 
 def test_seleccionar_modelo_campeon_regla_oficial():
@@ -184,15 +186,18 @@ def test_generar_leaderboard_markdown():
 
 
 def test_orchestrator_main_end_to_end():
-    """Ejecución end-to-end completa del orquestador en modo runner con synthetic data."""
+    """Ejecución end-to-end completa del orquestador en modo runner con un dataset mínimo de prueba."""
     with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=600)
         summary_file = os.path.join(tmp_dir, "test_summary.md")
         cli_args = [
             "--config",
             "config/experiments.yml",
             "--experiments",
             "E1",
-            "--synthetic",
+            "--train_dir",
+            data_dir,
             "--output_dir",
             tmp_dir,
             "--output_summary_file",
@@ -225,13 +230,16 @@ def test_orchestrator_main_end_to_end():
 def test_orchestrator_main_nested_summary_file():
     """Verifica que el orquestador cree directorios padres inexistentes para output_summary_file."""
     with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=600)
         nested_summary = os.path.join(tmp_dir, "nested", "deep", "custom_summary.md")
         cli_args = [
             "--config",
             "config/experiments.yml",
             "--experiments",
             "E1",
-            "--synthetic",
+            "--train_dir",
+            data_dir,
             "--output_dir",
             tmp_dir,
             "--output_summary_file",
