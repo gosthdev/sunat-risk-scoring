@@ -226,6 +226,7 @@ def test_ranking_invariante_c2(synthetic_dataframe):
             "label",
             "split",
             "departamento",
+            "contrata_con_estado",
             "run_id",
             "rank_global",
         ]

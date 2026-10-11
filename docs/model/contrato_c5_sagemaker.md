@@ -31,7 +31,7 @@ Para prevenir ejecuciones duplicadas accidentales y asegurar trazabilidad biuní
 ### B. Canales de Salida (Output Paths)
 - **Predicciones Globales (Contrato C2):**
   - URI S3: `s3://<gold-bucket>/model_outputs/predictions_<run_id>.parquet`
-  - Contiene: `ruc`, `score`, `label`, `split`, `rank_global` ordenado por `[score DESC, ruc ASC]`.
+  - Contiene: `ruc`, `score`, `label`, `split`, `departamento`, `contrata_con_estado`, `run_id`, `rank_global` ordenado por `[score DESC, ruc ASC]`.
 - **Run Record NDJSON (Contrato C3):**
   - URI S3: `s3://<gold-bucket>/model_outputs/run_record_<run_id>.json`
   - Contiene: metadatos de la corrida, hiperparámetros y métricas en formato estricto de una sola línea (Single-line NDJSON).

@@ -87,6 +87,11 @@ def exportar_predicciones_y_run_record(
                 if "departamento" in df_all.columns
                 else pd.array([None] * len(df_all), dtype="string")
             ),
+            "contrata_con_estado": (
+                df_all["contrata_con_estado"].fillna(0).astype(int).values
+                if "contrata_con_estado" in df_all.columns
+                else pd.array([None] * len(df_all), dtype="Int64")
+            ),
             "run_id": str(args.run_id),
         }
     )

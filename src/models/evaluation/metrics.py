@@ -94,6 +94,37 @@ def _bootstrap_pr_auc_ci(
     return (ic_low, ic_high)
 
 
+MIN_POSITIVOS_SEGMENTO = 30
+
+
+def _evaluar_segmento_contratacion(seg_df: pd.DataFrame) -> dict[str, Any] | None:
+    """Métricas de un corte por contratación estatal; None si no hay positivos."""
+    seg_n = len(seg_df)
+    y = seg_df["label"].to_numpy().astype(int)
+    n_pos = int(np.sum(y))
+    if seg_n == 0 or n_pos == 0:
+        return None
+    prev = n_pos / seg_n
+    k1 = max(1, int(np.ceil(0.01 * seg_n)))
+    k5 = max(1, int(np.ceil(0.05 * seg_n)))
+    top1 = int(np.sum(y[:k1]))
+    return {
+        "n": seg_n,
+        "n_positivos": n_pos,
+        "prevalencia": float(prev),
+        "pr_auc": float(
+            average_precision_score(y, seg_df["score"].to_numpy().astype(float))
+        )
+        if n_pos < seg_n
+        else 1.0,
+        "recall_at_1pct": float(top1 / n_pos),
+        "recall_at_5pct": float(np.sum(y[:k5]) / n_pos),
+        "lift_at_1pct": float((top1 / k1) / prev),
+        # Con pocos positivos las métricas del corte son frágiles: leer con cautela.
+        "advertencia_pocos_positivos": n_pos < MIN_POSITIVOS_SEGMENTO,
+    }
+
+
 def compute_metrics(
     df: pd.DataFrame,
     ks: list[int] | None = None,
@@ -307,6 +338,16 @@ def compute_metrics(
                     "recall_at_5pct": seg_rec_5,
                 }
 
+    # Cortes por contratación estatal: todos los RUC (métricas globales) vs contratistas
+    if "contrata_con_estado" in work_df.columns:
+        es_contratista = work_df["contrata_con_estado"].fillna(0).astype(int) == 1
+        por_segmento["CONTRATISTAS"] = _evaluar_segmento_contratacion(
+            work_df[es_contratista]
+        )
+        por_segmento["NO_CONTRATISTAS"] = _evaluar_segmento_contratacion(
+            work_df[~es_contratista]
+        )
+
     run_id = (
         str(work_df["run_id"].iloc[0]) if "run_id" in work_df.columns else "default_run"
     )
@@ -370,6 +411,7 @@ def flatten_metrics(
 
     lima = por_seg.get("LIMA") or {}
     resto = por_seg.get("RESTO") or {}
+    contratistas = por_seg.get("CONTRATISTAS") or {}
 
     sm = sagemaker_metadata or {}
 
@@ -420,6 +462,10 @@ def flatten_metrics(
         "tn_5pct": cm5.get("TN"),
         "recall_lima": lima.get("recall_at_5pct"),
         "recall_resto": resto.get("recall_at_5pct"),
+        "n_contratistas": contratistas.get("n"),
+        "n_positivos_contratistas": contratistas.get("n_positivos"),
+        "pr_auc_contratistas": contratistas.get("pr_auc"),
+        "recall_1pct_contratistas": contratistas.get("recall_at_1pct"),
         "sagemaker_job_name": sm.get("sagemaker_job_name"),
         "instancia": sm.get("instancia"),
         "segundos_facturables": sm.get("segundos_facturables"),
