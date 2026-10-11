@@ -16,20 +16,16 @@ import boto3
 
 # Métrica regex oficial del Contrato C5
 SAGEMAKER_METRIC_DEFINITIONS = [
-    {"Name": "cv_pr_auc_mean", "Regex": r"\[METRIC\] cv_pr_auc_mean=([0-9\.]+)"},
-    {"Name": "cv_pr_auc_fold_0", "Regex": r"\[METRIC\] cv_pr_auc_fold_0=([0-9\.]+)"},
-    {"Name": "cv_pr_auc_fold_1", "Regex": r"\[METRIC\] cv_pr_auc_fold_1=([0-9\.]+)"},
-    {"Name": "cv_pr_auc_fold_2", "Regex": r"\[METRIC\] cv_pr_auc_fold_2=([0-9\.]+)"},
-    {"Name": "cv_pr_auc_fold_3", "Regex": r"\[METRIC\] cv_pr_auc_fold_3=([0-9\.]+)"},
-    {"Name": "cv_pr_auc_fold_4", "Regex": r"\[METRIC\] cv_pr_auc_fold_4=([0-9\.]+)"},
-    {"Name": "train_pr_auc", "Regex": r"\[METRIC\] train_pr_auc=([0-9\.]+)"},
-    {"Name": "n_train", "Regex": r"\[METRIC\] n_train=([0-9]+)"},
-    {"Name": "n_pos_train", "Regex": r"\[METRIC\] n_pos_train=([0-9]+)"},
+    {"Name": "cv_pr_auc_mean", "Regex": r"cv_pr_auc_mean=([0-9\.]+)"},
+    {"Name": "cv_pr_auc_fold", "Regex": r"cv_pr_auc_fold=([0-9\.]+)"},
+    {"Name": "train_pr_auc", "Regex": r"train_pr_auc=([0-9\.]+)"},
+    {"Name": "n_train", "Regex": r"n_train=([0-9]+)"},
+    {"Name": "n_pos_train", "Regex": r"n_pos_train=([0-9]+)"},
     {
         "Name": "n_features_transformadas",
-        "Regex": r"\[METRIC\] n_features_transformadas=([0-9]+)",
+        "Regex": r"n_features_transformadas=([0-9]+)",
     },
-    {"Name": "train_seconds", "Regex": r"\[METRIC\] train_seconds=([0-9\.]+)"},
+    {"Name": "train_seconds", "Regex": r"train_seconds=([0-9\.]+)"},
 ]
 
 # Imagen ECR oficial de Scikit-Learn 1.3-1 en us-east-1
@@ -43,7 +39,7 @@ def lanzar_training_job_manual(
     model_name: str,
     variant: str = "V2",
     usa_pesos: str = "si",
-    dataset_version: str = "v01",
+    dataset_version: str = "v1",
     instance_type: str = "ml.m5.xlarge",
     role_arn: str | None = None,
     gold_bucket: str | None = None,
@@ -77,7 +73,7 @@ def lanzar_training_job_manual(
         f"s3://{gold_bucket}/gold/model_inputs/dataset_version={dataset_version}/"
     )
     s3_output_uri = f"s3://{gold_bucket}/gold/model_artifacts/{run_id}"
-    s3_preds_uri = f"s3://{gold_bucket}/gold/model_outputs/predictions/run_id={run_id}/predictions.parquet"
+    s3_preds_uri = f"s3://{gold_bucket}/gold/model_outputs/predictions/predictions_{run_id}.parquet"
     s3_record_uri = (
         f"s3://{gold_bucket}/gold/model_runs/run_id={run_id}/run_record.json"
     )
@@ -162,7 +158,7 @@ def parse_args():
     parser.add_argument("--model_name", type=str, choices=["LR", "DT"], required=True)
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
-    parser.add_argument("--dataset_version", type=str, default="v01")
+    parser.add_argument("--dataset_version", type=str, default="v1")
     parser.add_argument("--instance_type", type=str, default="ml.m5.xlarge")
     parser.add_argument("--role_arn", type=str, default="")
     parser.add_argument("--gold_bucket", type=str, default="")
