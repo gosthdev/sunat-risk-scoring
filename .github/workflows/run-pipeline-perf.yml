@@ -1,0 +1,92 @@
+name: Run EMR Pipeline (Perf)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scale_factor:
+        description: "Factor de escala: x1, x10 o x100"
+        required: true
+        type: choice
+        options: ["x1", "x10", "x100"]
+      steps:
+        description: "Steps a ejecutar (vacío = todos). Ej: 01_ingest_bronze,02_clean_silver"
+        required: false
+        type: string
+        default: ""
+      shuffle_partitions:
+        description: "spark.sql.shuffle.partitions (64 / 640 / 6400)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run-pipeline-perf:
+    name: Execute Spark Pipeline on Perf (${{ inputs.scale_factor }})
+    runs-on: ubuntu-latest
+
+    env:
+      SCALE_FACTOR: ${{ inputs.scale_factor }}
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+      ARTIFACTS_BUCKET: ${{ vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+      # App y rol perf — hardcoded para proteger producción
+      EMR_APPLICATION_ID: "00g9dmeddmpavm09"
+      EMR_EXECUTION_ROLE_ARN: "arn:aws:iam::733515672593:role/sunat-ssco-perf-emr-role"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve perf bucket name
+        id: buckets
+        run: |
+          PERF_BUCKET="sunat-risk-scoring-perf-${{ inputs.scale_factor }}"
+          # Guardia: nunca apuntar a producción
+          if [[ "$PERF_BUCKET" != *"-perf-"* ]]; then
+            echo "SEGURIDAD: bucket '$PERF_BUCKET' no contiene '-perf-'. Abortando." >&2
+            exit 1
+          fi
+          echo "perf_bucket=$PERF_BUCKET" >> "$GITHUB_OUTPUT"
+
+          # shuffle_partitions por defecto según factor
+          if [[ -n "${{ inputs.shuffle_partitions }}" ]]; then
+            SP="${{ inputs.shuffle_partitions }}"
+          else
+            case "${{ inputs.scale_factor }}" in
+              x1)   SP=64  ;;
+              x10)  SP=640 ;;
+              x100) SP=6400 ;;
+              *)    SP=64  ;;
+            esac
+          fi
+          echo "shuffle_partitions=$SP" >> "$GITHUB_OUTPUT"
+
+      - name: Package Shared Common Modules
+        run: bash src/spark/jobs/package_jobs.sh
+
+      - name: Upload Artifacts and Jobs to S3
+        run: |
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Submit Pipeline Steps to EMR Serverless (Perf)
+        env:
+          SHUFFLE_PARTITIONS: ${{ steps.buckets.outputs.shuffle_partitions }}
+          RAW_BUCKET: ${{ steps.buckets.outputs.perf_bucket }}
+          BRONZE_BUCKET: ${{ steps.buckets.outputs.perf_bucket }}
+          SILVER_BUCKET: ${{ steps.buckets.outputs.perf_bucket }}
+          GOLD_BUCKET: ${{ steps.buckets.outputs.perf_bucket }}
+          DATALAKE_BUCKET: ${{ steps.buckets.outputs.perf_bucket }}
+          EMR_APPLICATION_NAME: "sunat-ssco-perf-spark"
+        run: |
+          ONLY="${{ inputs.steps }}"
+          bash src/spark/jobs/05_submit_spark_steps.sh ${ONLY:+--only-steps "$ONLY"}
