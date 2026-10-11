@@ -72,14 +72,18 @@ def _bootstrap_pr_auc_ci(
         sample_y = y_true[indices]
         sample_score = y_score[indices]
 
-        # Si el remuestreo no tiene positivos o solo tiene positivos
+        # PR-AUC no está definida sin positivos: se descarta el remuestreo en lugar
+        # de contarlo como 0.0 (que sesgaría el IC hacia abajo).
         if np.sum(sample_y) == 0:
-            boot_scores.append(0.0)
-        elif np.sum(sample_y) == n:
+            continue
+        if np.sum(sample_y) == n:
             boot_scores.append(1.0)
         else:
             score_val = average_precision_score(sample_y, sample_score)
             boot_scores.append(float(score_val))
+
+    if not boot_scores:
+        return (0.0, 0.0)
 
     low_p = (alpha / 2.0) * 100
     high_p = (1.0 - alpha / 2.0) * 100
@@ -406,6 +410,19 @@ def flatten_metrics(
     }
 
 
+def _sanear_nan(value: Any) -> Any:
+    """NaN/inf no son JSON válido ni los lee Athena: se reemplazan por null."""
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def _serializar_ndjson(flat: dict[str, Any]) -> str:
+    """Serializa el registro C4 en exactamente una línea, sin NaN."""
+    limpio = {k: _sanear_nan(v) for k, v in flat.items()}
+    return json.dumps(limpio, ensure_ascii=False, allow_nan=False) + "\n"
+
+
 def export_metrics_flat(
     df: pd.DataFrame,
     output_path: str,
@@ -432,7 +449,7 @@ def export_metrics_flat(
     """
     nested = compute_metrics(df, **kwargs)
     flat = flatten_metrics(nested, sagemaker_metadata=sagemaker_metadata)
-    line = json.dumps(flat, ensure_ascii=False) + "\n"
+    line = _serializar_ndjson(flat)
 
     if output_path.startswith("s3://"):
         import boto3
@@ -453,3 +470,45 @@ def export_metrics_flat(
             f.write(line)
 
     return flat
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI: evalúa un Parquet de predicciones C2 y escribe metrics.json (C4).
+
+    Con --sagemaker_job consulta el Training Job y completa los campos de costo.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Evaluación oficial de test (C4)")
+    parser.add_argument(
+        "--predictions", required=True, help="Parquet C2 (local o s3://)"
+    )
+    parser.add_argument("--output", required=True, help="Destino de metrics.json")
+    parser.add_argument(
+        "--sagemaker_job", default="", help="TrainingJobName (= run_id)"
+    )
+    parser.add_argument("--region", default=os.getenv("AWS_REGION", "us-east-1"))
+    args = parser.parse_args(argv)
+
+    df = pd.read_parquet(args.predictions)
+    metadata = None
+    if args.sagemaker_job:
+        from src.models.fetch_sagemaker_metrics import get_job_cost_info
+
+        info = get_job_cost_info(args.sagemaker_job, region=args.region)
+        metadata = {
+            k: info[k]
+            for k in (
+                "sagemaker_job_name",
+                "instancia",
+                "segundos_facturables",
+                "costo_estimado_usd",
+            )
+        }
+    export_metrics_flat(df, args.output, sagemaker_metadata=metadata)
+    print(f"[OK] metrics.json escrito en {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
