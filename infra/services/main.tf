@@ -92,6 +92,33 @@ module "glue_crawler_gold" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/"
   table_prefix   = "gold_"
+  # model_* se catalogan con crawlers dedicados (4 tablas exactas, sin prefijo gold_)
+  extra_exclusions = [
+    "gold/model_inputs/**",
+    "gold/model_outputs/**",
+    "gold/model_runs/**",
+    "gold/model_metrics/**",
+  ]
+}
+
+module "glue_crawler_model_inputs" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-model-inputs-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_inputs/"
+  table_prefix   = ""
+  table_level    = 2
+}
+
+module "glue_crawler_predictions" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-predictions-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_outputs/predictions/"
+  table_prefix   = ""
+  table_level    = 3
 }
 
 module "glue_crawler_model_runs" {
@@ -101,7 +128,7 @@ module "glue_crawler_model_runs" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_runs/"
   table_prefix   = ""
-  table_level    = 1
+  table_level    = 2
 }
 
 module "glue_crawler_model_metrics" {
@@ -111,7 +138,7 @@ module "glue_crawler_model_metrics" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_metrics/"
   table_prefix   = ""
-  table_level    = 1
+  table_level    = 2
 }
 
 ############ Athena ############

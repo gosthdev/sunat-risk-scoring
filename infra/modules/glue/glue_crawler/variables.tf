@@ -23,8 +23,14 @@ variable "table_prefix" {
   type        = string
 }
 
+variable "extra_exclusions" {
+  description = "Patrones S3 adicionales a excluir (relativos a s3_target_path)."
+  type        = list(string)
+  default     = []
+}
+
 variable "table_level" {
-  description = "TableLevelConfiguration: 1 = una tabla por bucket, 2 = una tabla por subcarpeta (recomendado)."
+  description = "TableLevelConfiguration: nivel ABSOLUTO desde la raíz del bucket donde se crea la tabla (carpeta de primer nivel = 1)."
   type        = number
   default     = 2
 }
