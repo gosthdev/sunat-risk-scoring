@@ -58,6 +58,11 @@ def _read_raw(spark, path, schema):
     PERMISSIVE + columnNameOfCorruptRecord hace que las filas que no calzan
     con el esquema no se pierdan: quedan con _corrupt_record poblado en vez
     de ser descartadas por Spark sin dejar rastro.
+
+    enforceSchema=false hace que Spark compare la cabecera del CSV con los
+    nombres del esquema: si la fuente renombra, quita o reordena una columna
+    el job falla aquí, en vez de mapear las columnas por posición y llenar
+    bronze con datos en la columna equivocada.
     """
     # Copia: StructType.add muta el esquema y contaminaría el contrato.
     schema_con_corrupto = StructType(list(schema.fields)).add(CORRUPT_COLUMN, "string")
@@ -65,6 +70,7 @@ def _read_raw(spark, path, schema):
         spark.read.option("header", "true")
         .option("mode", "PERMISSIVE")
         .option("columnNameOfCorruptRecord", CORRUPT_COLUMN)
+        .option("enforceSchema", "false")
         .schema(schema_con_corrupto)
         .csv(path)
     )
