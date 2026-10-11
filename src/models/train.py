@@ -397,6 +397,7 @@ def main(args_list: list[str] | None = None) -> int:
         cv=cv_splitter,
         refit=True,
         n_jobs=args.n_jobs,
+        verbose=2,
     )
 
     # 4. Ajuste del modelo sobre Train únicamente
