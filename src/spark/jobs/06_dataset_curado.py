@@ -9,7 +9,7 @@ Implementa:
   - Split determinista y estratificado 80/20 (train/test) con semilla 42.
   - Asignación de 5 folds (0 a 4) estratificados en train, y -1 en test (PredefinedSplit).
   - Preservación de categorías crudas sin agrupar, delegando OHE a scikit-learn.
-  - Salida hacia gold/model_inputs/dataset_version=<v>/ respetando Contrato C1.
+  - Salida hacia <gold-bucket>/model_inputs/dataset_version=<v>/ respetando Contrato C1.
 
 Uso: spark-submit --py-files common.zip 06_dataset_curado.py
 """

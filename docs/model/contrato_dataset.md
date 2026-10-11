@@ -4,7 +4,7 @@
 - **ID del Contrato:** C1 (`model_inputs`)
 - **Productor:** Desarrollador A (`src/spark/jobs/06_dataset_curado.py`)
 - **Consumidores:** Desarrollador A (Entrenamiento SageMaker / scikit-learn en `src/models/train.py`), Desarrollador B (Validación B1 con Athena)
-- **Ubicación en Data Lake:** `s3://<gold-bucket>/gold/model_inputs/dataset_version=<v>/`
+- **Ubicación en Data Lake:** `s3://<gold-bucket>/model_inputs/dataset_version=<v>/`
 - **Formato:** Apache Parquet particionado por `dataset_version` (ej. `dataset_version=v1`)
 - **Grano del dataset:** 1 fila = 1 RUC (exactamente una fila por contribuyente, sin duplicados ni particiones temporales dentro del dataset curado)
 - **Llave primaria:** `ruc` (string de 11 caracteres numéricos, sin nulos ni espacios)

@@ -24,19 +24,19 @@ Para prevenir ejecuciones duplicadas accidentales y asegurar trazabilidad biuní
 
 ### A. Canales de Entrada (Input Channels)
 - **Canal `train`:**
-  - URI S3: `s3://<gold-bucket>/gold/model_inputs/dataset_version=<v>/`
+  - URI S3: `s3://<gold-bucket>/model_inputs/dataset_version=<v>/`
   - Formato: Apache Parquet (Contrato C1).
   - En SageMaker, el servicio monta automáticamente los archivos en la ruta `/opt/ml/input/data/train/`.
 
 ### B. Canales de Salida (Output Paths)
 - **Predicciones Globales (Contrato C2):**
-  - URI S3: `s3://<gold-bucket>/gold/model_outputs/predictions_<run_id>.parquet`
+  - URI S3: `s3://<gold-bucket>/model_outputs/predictions_<run_id>.parquet`
   - Contiene: `ruc`, `score`, `label`, `split`, `rank_global` ordenado por `[score DESC, ruc ASC]`.
 - **Run Record NDJSON (Contrato C3):**
-  - URI S3: `s3://<gold-bucket>/gold/model_outputs/run_record_<run_id>.json`
+  - URI S3: `s3://<gold-bucket>/model_outputs/run_record_<run_id>.json`
   - Contiene: metadatos de la corrida, hiperparámetros y métricas en formato estricto de una sola línea (Single-line NDJSON).
 - **Artefactos del Modelo Entrenado:**
-  - URI S3: `s3://<gold-bucket>/gold/model_artifacts/<run_id>/output/model.tar.gz`
+  - URI S3: `s3://<gold-bucket>/model_artifacts/<run_id>/output/model.tar.gz`
   - Contiene: `model.joblib` con el pipeline completo ajustado (`ColumnTransformer` + Estimador).
 
 ---

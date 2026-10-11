@@ -71,8 +71,8 @@ jobs:
           DATASET_VERSION: ${{ inputs.dataset_version }}
         run: |
           mkdir -p ./data/input
-          echo "Descargando dataset desde s3://${GOLD_BUCKET}/gold/model_inputs/dataset_version=${DATASET_VERSION}/"
-          if aws s3 cp "s3://${GOLD_BUCKET}/gold/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive; then
+          echo "Descargando dataset desde s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
+          if aws s3 cp "s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ --recursive; then
             echo "Dataset descargado exitosamente."
           else
             echo "WARN: No se pudo descargar desde S3. Se activará fallback sintético si no hay datos locales."

@@ -69,7 +69,7 @@ upsert_crawler() {
   local exclusions='["_markers/**","**/_markers/**"]'
   if [[ "$zone" == "gold" ]]; then
     # model_* se catalogan aparte (4 tablas exactas, sin prefijo gold_)
-    exclusions='["_markers/**","**/_markers/**","gold/model_inputs/**","gold/model_outputs/**","gold/model_runs/**","gold/model_metrics/**","model_inputs/**","model_outputs/**","model_runs/**","model_metrics/**"]'
+    exclusions='["_markers/**","**/_markers/**","model_inputs/**","model_outputs/**","model_runs/**","model_metrics/**"]'
   fi
   local config="{\"Version\":1.0,\"Grouping\":{\"TableLevelConfiguration\":${level_cfg}}}"
   local targets="{\"S3Targets\":[{\"Path\":\"${target_path}\",\"Exclusions\":${exclusions}}]}"
@@ -133,10 +133,10 @@ run_crawler() {
 # Formato: nombre:prefijo. Sin TableLevelConfiguration: Glue crea una tabla por
 # carpeta objetivo y trata run_id=/dataset_version= como particiones.
 MODEL_TABLES=(
-  "model-inputs:gold/model_inputs/"
-  "predictions:gold/model_outputs/predictions/"
-  "model-runs:gold/model_runs/"
-  "model-metrics:gold/model_metrics/"
+  "model-inputs:model_inputs/"
+  "predictions:model_outputs/predictions/"
+  "model-runs:model_runs/"
+  "model-metrics:model_metrics/"
 )
 
 upsert_model_crawler() {

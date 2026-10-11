@@ -94,10 +94,10 @@ module "glue_crawler_gold" {
   table_prefix   = "gold_"
   # model_* se catalogan con crawlers dedicados (4 tablas exactas, sin prefijo gold_)
   extra_exclusions = [
-    "gold/model_inputs/**",
-    "gold/model_outputs/**",
-    "gold/model_runs/**",
-    "gold/model_metrics/**",
+    "model_inputs/**",
+    "model_outputs/**",
+    "model_runs/**",
+    "model_metrics/**",
   ]
 }
 
@@ -106,7 +106,7 @@ module "glue_crawler_model_inputs" {
   crawler_name   = "sunat-ssco-model-inputs-crawler"
   database_name  = module.glue_database.database_name
   role_arn       = module.iam_glue_crawler_role.role_arn
-  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_inputs/"
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_inputs/"
   table_prefix   = ""
   table_level    = null
 }
@@ -116,7 +116,7 @@ module "glue_crawler_predictions" {
   crawler_name   = "sunat-ssco-predictions-crawler"
   database_name  = module.glue_database.database_name
   role_arn       = module.iam_glue_crawler_role.role_arn
-  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_outputs/predictions/"
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_outputs/predictions/"
   table_prefix   = ""
   table_level    = null
 }
@@ -126,7 +126,7 @@ module "glue_crawler_model_runs" {
   crawler_name   = "sunat-ssco-model-runs-crawler"
   database_name  = module.glue_database.database_name
   role_arn       = module.iam_glue_crawler_role.role_arn
-  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_runs/"
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_runs/"
   table_prefix   = ""
   table_level    = null
 }
@@ -136,7 +136,7 @@ module "glue_crawler_model_metrics" {
   crawler_name   = "sunat-ssco-model-metrics-crawler"
   database_name  = module.glue_database.database_name
   role_arn       = module.iam_glue_crawler_role.role_arn
-  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_metrics/"
+  s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/model_metrics/"
   table_prefix   = ""
   table_level    = null
 }
