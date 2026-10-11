@@ -27,6 +27,11 @@ permissions:
   id-token: write
   contents: read
 
+# Una sola corrida a la vez: dos pipelines escribiendo las mismas rutas se pisarían.
+concurrency:
+  group: run-pipeline
+  cancel-in-progress: false
+
 jobs:
   run-pipeline:
     name: Execute 5-Step Spark Pipeline on EMR Serverless
