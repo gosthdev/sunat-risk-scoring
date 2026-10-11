@@ -10,6 +10,8 @@ Métricas calculadas:
 - Desglose por segmento geográfico (Lima vs. Resto y departamentos principales).
 """
 
+import json
+import os
 from typing import Any
 
 import numpy as np
@@ -322,3 +324,124 @@ def compute_metrics(
         "por_segmento": por_segmento,
         "metodo_pr_auc": "average_precision_sklearn",
     }
+
+
+def flatten_metrics(
+    nested: dict[str, Any],
+    sagemaker_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Convierte el dict anidado de compute_metrics() al esquema plano del Contrato C4.
+
+    El resultado es serializable en Single-line NDJSON y consultable directamente
+    en Amazon Athena sin necesidad de deserializar sub-objetos.
+
+    Parámetros:
+    -----------
+    nested: dict
+        Salida directa de compute_metrics().
+    sagemaker_metadata: dict | None
+        Metadatos opcionales del Training Job de SageMaker. Si se omite, los
+        campos de infraestructura quedan como None (correcto para baselines).
+        Claves esperadas: 'sagemaker_job_name', 'instancia',
+                          'segundos_facturables', 'costo_estimado_usd'.
+    """
+    cm1 = nested.get("matriz_confusion", {}).get("top_1pct", {})
+    cm5 = nested.get("matriz_confusion", {}).get("top_5pct", {})
+    por_seg = nested.get("por_segmento", {}) or {}
+    pr_auc_block = nested.get("pr_auc", {})
+
+    recall_k = nested.get("recall_at_k", {})
+    precision_k = nested.get("precision_at_k", {})
+    lift_k = nested.get("lift_at_k", {})
+
+    lima = por_seg.get("LIMA") or {}
+    resto = por_seg.get("RESTO") or {}
+
+    sm = sagemaker_metadata or {}
+
+    return {
+        "run_id": nested.get("run_id"),
+        "split": nested.get("split", "test"),
+        "n": nested.get("n"),
+        "n_positivos": nested.get("n_positivos"),
+        "prevalencia": nested.get("prevalencia"),
+        "pr_auc": pr_auc_block.get("valor") if isinstance(pr_auc_block, dict) else pr_auc_block,
+        "pr_auc_ic_bajo": pr_auc_block.get("ic_bajo") if isinstance(pr_auc_block, dict) else None,
+        "pr_auc_ic_alto": pr_auc_block.get("ic_alto") if isinstance(pr_auc_block, dict) else None,
+        "roc_auc": nested.get("roc_auc"),
+        "brier": nested.get("brier"),
+        "recall_at_100": recall_k.get("100"),
+        "recall_at_500": recall_k.get("500"),
+        "recall_at_1pct": recall_k.get("1pct"),
+        "recall_at_5pct": recall_k.get("5pct"),
+        "precision_at_100": precision_k.get("100"),
+        "precision_at_500": precision_k.get("500"),
+        "precision_at_1pct": precision_k.get("1pct"),
+        "precision_at_5pct": precision_k.get("5pct"),
+        "lift_at_100": lift_k.get("100"),
+        "lift_at_500": lift_k.get("500"),
+        "lift_at_1pct": lift_k.get("1pct"),
+        "lift_at_5pct": lift_k.get("5pct"),
+        "tp_1pct": cm1.get("TP"),
+        "fp_1pct": cm1.get("FP"),
+        "fn_1pct": cm1.get("FN"),
+        "tn_1pct": cm1.get("TN"),
+        "tp_5pct": cm5.get("TP"),
+        "fp_5pct": cm5.get("FP"),
+        "fn_5pct": cm5.get("FN"),
+        "tn_5pct": cm5.get("TN"),
+        "recall_lima": lima.get("recall_at_5pct"),
+        "recall_resto": resto.get("recall_at_5pct"),
+        "sagemaker_job_name": sm.get("sagemaker_job_name"),
+        "instancia": sm.get("instancia"),
+        "segundos_facturables": sm.get("segundos_facturables"),
+        "costo_estimado_usd": sm.get("costo_estimado_usd"),
+    }
+
+
+def export_metrics_flat(
+    df: pd.DataFrame,
+    output_path: str,
+    sagemaker_metadata: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """
+    Calcula métricas, aplana al esquema C4 y serializa en Single-line NDJSON.
+
+    El archivo resultante tiene exactamente una línea de texto (requisito de
+    AWS Glue SerDe y Amazon Athena para NDJSON).
+
+    Parámetros:
+    -----------
+    df: pd.DataFrame
+        DataFrame de predicciones (mismo contrato que compute_metrics()).
+    output_path: str
+        Ruta de destino. Soporta rutas locales y s3://bucket/key.
+    sagemaker_metadata: dict | None
+        Metadatos opcionales del Training Job (ver flatten_metrics).
+    **kwargs:
+        Argumentos adicionales pasados directamente a compute_metrics()
+        (p. ej. ks, n_bootstrap, seed, modo_diagnostico).
+    """
+    nested = compute_metrics(df, **kwargs)
+    flat = flatten_metrics(nested, sagemaker_metadata=sagemaker_metadata)
+    line = json.dumps(flat, ensure_ascii=False) + "\n"
+
+    if output_path.startswith("s3://"):
+        import boto3
+
+        parts = output_path[5:].split("/", 1)
+        bucket, key = parts[0], parts[1] if len(parts) > 1 else ""
+        boto3.client("s3").put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=line.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+    else:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True) if os.path.dirname(output_path) else None
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(line)
+
+    return flat
