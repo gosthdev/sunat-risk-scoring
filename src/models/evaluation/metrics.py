@@ -174,12 +174,14 @@ def compute_metrics(
                 f"El valor de K={k} excede el tamaño del conjunto de datos (N={n_total})."
             )
 
+    k_percent_01 = max(1, int(np.ceil(0.001 * n_total)))
     k_percent_1 = max(1, int(np.ceil(0.01 * n_total)))
     k_percent_5 = max(1, int(np.ceil(0.05 * n_total)))
 
     cutoffs: dict[str, int] = {}
     for k in ks:
         cutoffs[str(k)] = k
+    cutoffs["0_1pct"] = k_percent_01
     cutoffs["1pct"] = k_percent_1
     cutoffs["5pct"] = k_percent_5
 
@@ -200,7 +202,11 @@ def compute_metrics(
         recall_at_k[label_k] = rec
         lift_at_k[label_k] = lift
 
-    # Matrices de confusión en cortes 1% y 5%
+    # Matrices de confusión en cortes 0,1%, 1% y 5% (umbral por capacidad, no 0,5)
+    mask_01pct = np.zeros(n_total, dtype=int)
+    mask_01pct[:k_percent_01] = 1
+    cm_01pct = _calculate_confusion_matrix(y_true, mask_01pct)
+
     mask_1pct = np.zeros(n_total, dtype=int)
     mask_1pct[:k_percent_1] = 1
     cm_1pct = _calculate_confusion_matrix(y_true, mask_1pct)
@@ -321,7 +327,9 @@ def compute_metrics(
         "precision_at_k": precision_at_k,
         "lift_at_k": lift_at_k,
         "brier": brier_val,
+        "pr_auc_baseline": prevalence,
         "matriz_confusion": {
+            "top_0_1pct": cm_01pct,
             "top_1pct": cm_1pct,
             "top_5pct": cm_5pct,
         },
@@ -350,6 +358,7 @@ def flatten_metrics(
         Claves esperadas: 'sagemaker_job_name', 'instancia',
                           'segundos_facturables', 'costo_estimado_usd'.
     """
+    cm01 = nested.get("matriz_confusion", {}).get("top_0_1pct", {})
     cm1 = nested.get("matriz_confusion", {}).get("top_1pct", {})
     cm5 = nested.get("matriz_confusion", {}).get("top_5pct", {})
     por_seg = nested.get("por_segmento", {}) or {}
@@ -379,20 +388,28 @@ def flatten_metrics(
         "pr_auc_ic_alto": pr_auc_block.get("ic_alto")
         if isinstance(pr_auc_block, dict)
         else None,
+        "pr_auc_baseline": nested.get("pr_auc_baseline"),
         "roc_auc": nested.get("roc_auc"),
         "brier": nested.get("brier"),
         "recall_at_100": recall_k.get("100"),
         "recall_at_500": recall_k.get("500"),
+        "recall_at_0_1pct": recall_k.get("0_1pct"),
         "recall_at_1pct": recall_k.get("1pct"),
         "recall_at_5pct": recall_k.get("5pct"),
         "precision_at_100": precision_k.get("100"),
         "precision_at_500": precision_k.get("500"),
+        "precision_at_0_1pct": precision_k.get("0_1pct"),
         "precision_at_1pct": precision_k.get("1pct"),
         "precision_at_5pct": precision_k.get("5pct"),
         "lift_at_100": lift_k.get("100"),
         "lift_at_500": lift_k.get("500"),
+        "lift_at_0_1pct": lift_k.get("0_1pct"),
         "lift_at_1pct": lift_k.get("1pct"),
         "lift_at_5pct": lift_k.get("5pct"),
+        "tp_0_1pct": cm01.get("TP"),
+        "fp_0_1pct": cm01.get("FP"),
+        "fn_0_1pct": cm01.get("FN"),
+        "tn_0_1pct": cm01.get("TN"),
         "tp_1pct": cm1.get("TP"),
         "fp_1pct": cm1.get("FP"),
         "fn_1pct": cm1.get("FN"),
