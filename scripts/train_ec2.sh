@@ -2,6 +2,10 @@
 # Lanza UNA instancia EC2 efímera con mucha RAM que entrena toda la matriz de experimentos
 # en paralelo, publica resultados y gráficos en S3 y se termina sola al acabar.
 #
+# Este script NO gestiona permisos: el rol y el perfil de instancia (sunat-ssco-train-ec2-role)
+# y los permisos del rol de GitHub se definen en Terraform (infra/services) y se aplican con
+# `terraform apply`. Aquí solo se aprovisionan los recursos de EC2 que falten (security group).
+#
 # Uso:
 #   AWS_PROFILE=bigdata bash scripts/train_ec2.sh --tag ec2run1
 #   bash scripts/train_ec2.sh --tag ec2run1 --experiments E1,E2 --instance-type r6i.4xlarge
@@ -20,9 +24,8 @@ DATASET_VERSION="v1"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
-ROLE_NAME="sunat-ssco-train-ec2-role"
-SKIP_IAM_SETUP="no"
-SETUP_IAM_ONLY="no"
+INSTANCE_PROFILE="sunat-ssco-train-ec2-role"   # creado por Terraform
+SG_NAME="sunat-ssco-train-ec2-sg"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,49 +36,16 @@ while [ $# -gt 0 ]; do
     --n-jobs) N_JOBS="$2"; shift 2 ;;
     --max-hours) MAX_HOURS="$2"; shift 2 ;;
     --dataset-version) DATASET_VERSION="$2"; shift 2 ;;
-    --skip-iam-setup) SKIP_IAM_SETUP="yes"; shift ;;   # CI: el rol ya existe y el rol de GitHub no administra IAM
-    --setup-iam-only) SETUP_IAM_ONLY="yes"; shift ;;   # crea el rol/perfil de la instancia y termina
     *) echo "Argumento desconocido: $1" >&2; exit 2 ;;
   esac
 done
-[ "${SETUP_IAM_ONLY}" = "yes" ] || [ -n "${TAG}" ] || { echo "Falta --tag <nombre-de-la-corrida>" >&2; exit 2; }
+[ -n "${TAG}" ] || { echo "Falta --tag <nombre-de-la-corrida>" >&2; exit 2; }
 export AWS_DEFAULT_REGION="${REGION}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
 echo "[INFO] Cuenta: $(aws sts get-caller-identity --query Arn --output text)"
-
-# Rol de instancia (se crea una sola vez): S3 + SSM, nada más.
-setup_iam() {
-  if ! aws iam get-role --role-name "${ROLE_NAME}" >/dev/null 2>&1; then
-    echo "[INFO] Creando rol ${ROLE_NAME}"
-    aws iam create-role --role-name "${ROLE_NAME}" --assume-role-policy-document '{
-      "Version":"2012-10-17",
-      "Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
-    aws iam attach-role-policy --role-name "${ROLE_NAME}" \
-      --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-    aws iam put-role-policy --role-name "${ROLE_NAME}" --policy-name s3-gold-and-artifacts --policy-document "{
-      \"Version\":\"2012-10-17\",
-      \"Statement\":[
-        {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:ListBucket\"],
-         \"Resource\":[\"arn:aws:s3:::${GOLD_BUCKET}\",\"arn:aws:s3:::${GOLD_BUCKET}/*\"]},
-        {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],
-         \"Resource\":[\"arn:aws:s3:::${ARTIFACTS_BUCKET}/train_ec2/*\"]}]}"
-  fi
-  if ! aws iam get-instance-profile --instance-profile-name "${ROLE_NAME}" >/dev/null 2>&1; then
-    aws iam create-instance-profile --instance-profile-name "${ROLE_NAME}" >/dev/null
-    aws iam add-role-to-instance-profile --instance-profile-name "${ROLE_NAME}" --role-name "${ROLE_NAME}"
-    echo "[INFO] Esperando a que IAM propague el perfil de instancia..."
-    sleep 15
-  fi
-}
-
-if [ "${SETUP_IAM_ONLY}" = "yes" ]; then
-  setup_iam
-  echo "[OK] Rol y perfil de instancia listos: ${ROLE_NAME}"
-  exit 0
-fi
 
 # 1. Código: se entrena exactamente lo commiteado en HEAD.
 if [ -n "$(git status --porcelain src config)" ]; then
@@ -86,10 +56,25 @@ CODE_KEY="train_ec2/${TAG}/code.tgz"
 git archive --format=tar.gz HEAD src config | aws s3 cp - "s3://${ARTIFACTS_BUCKET}/${CODE_KEY}" --only-show-errors
 echo "[INFO] Código subido: s3://${ARTIFACTS_BUCKET}/${CODE_KEY} ($(git rev-parse --short HEAD))"
 
-# 2. Rol de instancia
-if [ "${SKIP_IAM_SETUP}" != "yes" ]; then
-  setup_iam
-fi
+# 2. Security group: sin puertos de entrada, salida libre (la instancia solo habla con S3 y pip).
+#    Es el único recurso de EC2 que se aprovisiona aquí si falta.
+ensure_security_group() {
+  local vpc sg
+  vpc="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)"
+  [ "${vpc}" != "None" ] || { echo "[ERROR] No hay VPC por defecto en ${REGION}." >&2; exit 1; }
+  sg="$(aws ec2 describe-security-groups \
+    --filters "Name=group-name,Values=${SG_NAME}" "Name=vpc-id,Values=${vpc}" \
+    --query 'SecurityGroups[0].GroupId' --output text)"
+  if [ "${sg}" = "None" ]; then
+    echo "[INFO] Creando security group ${SG_NAME} en ${vpc}" >&2
+    sg="$(aws ec2 create-security-group --group-name "${SG_NAME}" --vpc-id "${vpc}" \
+      --description "Entrenamiento SSCO: sin entrada, salida libre" \
+      --tag-specifications "ResourceType=security-group,Tags=[{Key=Name,Value=${SG_NAME}}]" \
+      --query GroupId --output text)"
+  fi
+  echo "${sg}"
+}
+SG_ID="$(ensure_security_group)"
 
 # 3. User data: instala, descarga el dataset (misma región: sin costo de salida),
 #    entrena en paralelo, consolida y se apaga.
@@ -153,15 +138,25 @@ EOF
 AMI="$(aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
   --query Parameter.Value --output text)"
 
-IID="$(aws ec2 run-instances \
+ERR_FILE="$(mktemp)"
+if ! IID="$(aws ec2 run-instances \
   --image-id "${AMI}" --instance-type "${INSTANCE_TYPE}" \
-  --iam-instance-profile "Name=${ROLE_NAME}" \
+  --iam-instance-profile "Name=${INSTANCE_PROFILE}" \
+  --security-group-ids "${SG_ID}" \
   --instance-initiated-shutdown-behavior terminate \
   --block-device-mappings 'DeviceName=/dev/xvda,Ebs={VolumeSize=100,VolumeType=gp3,DeleteOnTermination=true}' \
   --metadata-options 'HttpTokens=required' \
   --user-data "file://${USER_DATA}" \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=ssco-train-${TAG}}]" \
-  --query 'Instances[0].InstanceId' --output text)"
+  --query 'Instances[0].InstanceId' --output text 2>"${ERR_FILE}")"; then
+  cat "${ERR_FILE}" >&2
+  if grep -qi "instance profile" "${ERR_FILE}"; then
+    echo "[ERROR] Falta el perfil de instancia ${INSTANCE_PROFILE}: aplica Terraform en infra/services (módulo iam_train_ec2_role)." >&2
+  fi
+  rm -f "${ERR_FILE}" "${USER_DATA}"
+  exit 1
+fi
+rm -f "${ERR_FILE}"
 rm -f "${USER_DATA}"
 
 echo "[OK] Instancia ${IID} (${INSTANCE_TYPE}) lanzada. Termina sola al acabar."
