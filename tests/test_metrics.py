@@ -268,6 +268,10 @@ C4_SCALAR_FIELDS = [
     "tn_5pct",
     "recall_lima",
     "recall_resto",
+    "n_contratistas",
+    "n_positivos_contratistas",
+    "pr_auc_contratistas",
+    "recall_1pct_contratistas",
     "sagemaker_job_name",
     "instancia",
     "segundos_facturables",
@@ -421,3 +425,27 @@ def test_evaluate_and_export_baseline_sagemaker_fields_null():
         assert parsed["instancia"] is None
         assert parsed["segundos_facturables"] is None
         assert parsed["costo_estimado_usd"] is None
+
+
+def test_cortes_por_contratacion_estatal():
+    n = 1000
+    df = pd.DataFrame(
+        {
+            "ruc": [f"20{i:09d}" for i in range(n)],
+            "score": np.linspace(1, 0, n),
+            "label": [1] * 10 + [0] * (n - 10),
+            "split": "test",
+            "contrata_con_estado": [1 if i % 10 == 0 else 0 for i in range(n)],
+        }
+    )
+    m = compute_metrics(df, n_bootstrap=0)
+    contr = m["por_segmento"]["CONTRATISTAS"]
+    assert contr["n"] == 100
+    assert contr["n_positivos"] == 1
+    assert contr["advertencia_pocos_positivos"] is True
+    assert m["por_segmento"]["NO_CONTRATISTAS"]["n_positivos"] == 9
+
+
+def test_sin_columna_contratacion_no_hay_corte():
+    df = _make_df_for_flatten()
+    assert "CONTRATISTAS" not in compute_metrics(df, n_bootstrap=0)["por_segmento"]
