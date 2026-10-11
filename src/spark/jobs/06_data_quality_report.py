@@ -11,6 +11,10 @@ from s3_paths import (
     SILVER_ORDENES_COMPRA,
     SILVER_PADRON_RUC,
 )
+from schema_definitions import (
+    ORDENES_COMPRA_CAMPOS_CRITICOS,
+    PADRON_RUC_CAMPOS_CRITICOS,
+)
 
 
 def count_s3_parquet(path):
@@ -68,14 +72,9 @@ def analyze_padron():
     print(f"Total registros válidos en Silver: {silver_count}\n")
 
     print("Porcentaje de Completitud por Campo Crítico en Silver:")
-    campos_criticos = [
-        "RUC",
-        "Estado_Contribuyente",
-        "Condicion_Domicilio",
-        "Departamento",
-        "Ubigeo",
-    ]
-    completeness = calculate_completeness_s3(SILVER_PADRON_RUC, campos_criticos)
+    completeness = calculate_completeness_s3(
+        SILVER_PADRON_RUC, PADRON_RUC_CAMPOS_CRITICOS
+    )
     for c, pct in completeness.items():
         print(f" - {c}: {pct}%")
     print("\n")
@@ -103,14 +102,9 @@ def analyze_ordenes():
     print(f"Total registros válidos en Silver: {silver_count}\n")
 
     print("Porcentaje de Completitud por Campo Crítico en Silver:")
-    campos_criticos = [
-        "orden",
-        "ruc_entidad",
-        "departamento_entidad",
-        "monto_total_orden_original",
-        "fecha_emision",
-    ]
-    completeness = calculate_completeness_s3(SILVER_ORDENES_COMPRA, campos_criticos)
+    completeness = calculate_completeness_s3(
+        SILVER_ORDENES_COMPRA, ORDENES_COMPRA_CAMPOS_CRITICOS
+    )
     for c, pct in completeness.items():
         print(f" - {c}: {pct}%")
     print("\n")
