@@ -22,3 +22,9 @@ variable "table_prefix" {
   description = "Prefijo de las tablas creadas (evita choques entre silver y gold)."
   type        = string
 }
+
+variable "table_level" {
+  description = "TableLevelConfiguration: 1 = una tabla por bucket, 2 = una tabla por subcarpeta (recomendado)."
+  type        = number
+  default     = 2
+}

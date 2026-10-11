@@ -155,3 +155,19 @@ def test_formatear_tabla_markdown(mock_run_record_valido):
     assert "| Run ID | Modelo | Variante |" in tabla_md
     assert "run_E1_LR_V2" in tabla_md
     assert "0.4520" in tabla_md
+
+
+def test_validar_run_record_sin_run_id_falla_claro():
+    """Contrato C3 roto: falta run_id → es_valido=False con mensaje que menciona run_id."""
+    registro_sin_run_id = {
+        "model_name": "LR",
+        "variant": "V2",
+        "dataset_version": "v1",
+        "metricas_cv": {"cv_pr_auc_mean": 0.45},
+    }
+    es_valido, errores = validar_run_record(registro_sin_run_id)
+
+    assert es_valido is False, "Se esperaba es_valido=False cuando falta run_id"
+    assert any("run_id" in e for e in errores), (
+        f"Se esperaba un mensaje de error que mencione 'run_id'. Errores recibidos: {errores}"
+    )

@@ -41,6 +41,15 @@ resource "aws_iam_role_policy" "s3_access" {
           "${var.gold_bucket_arn}/gold/model_runs/*",
           "${var.gold_bucket_arn}/gold/model_metrics/*"
         ]
+      },
+      {
+        Sid    = "ReadCodeArtifacts"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = ["${var.gold_bucket_arn}/code/*"]
       }
     ]
   })
