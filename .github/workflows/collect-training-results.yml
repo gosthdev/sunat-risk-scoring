@@ -1,6 +1,7 @@
 name: Collect Training Results
 
-# Muestra el estado de la instancia EC2, el uso de recursos y el leaderboard de una corrida.
+# Muestra el estado de la corrida (instancia EC2 o Training Job de SageMaker), el uso de
+# recursos y el leaderboard.
 # Se puede ejecutar en cualquier momento, antes o después de que termine el entrenamiento.
 
 on:
@@ -40,7 +41,12 @@ jobs:
             echo "### Instancia \`ssco-train-${TAG}\`"
             aws ec2 describe-instances --filters "Name=tag:Name,Values=ssco-train-${TAG}" \
               --query 'Reservations[].Instances[].{id:InstanceId,tipo:InstanceType,estado:State.Name,lanzada:LaunchTime}' \
-              --output table || echo "No se pudo consultar la instancia."
+              --output table 2>/dev/null || echo "No hay instancia EC2 para este tag."
+            echo ""
+            echo "### Training Job de SageMaker \`ssco-all-${TAG}\`"
+            aws sagemaker describe-training-job --training-job-name "ssco-all-${TAG}" \
+              --query '{estado:TrainingJobStatus,secundario:SecondaryStatus,razon:FailureReason,instancia:ResourceConfig.InstanceType,segundos:TrainingTimeInSeconds}' \
+              --output table 2>/dev/null || echo "No hay Training Job de SageMaker para este tag."
             echo ""
             echo "### Uso de recursos y avance (últimas líneas del log)"
             if aws s3 cp "s3://${GOLD_BUCKET}/model_logs/tag=${TAG}/train.log" out/train.log --only-show-errors; then

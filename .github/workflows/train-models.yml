@@ -1,4 +1,4 @@
-name: Train & Benchmark SSCO Models
+name: Train & Benchmark SSCO Models (EC2)
 
 # GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en una
 # instancia EC2 efímera que entrena toda la matriz en paralelo, publica en S3 y se termina
@@ -144,8 +144,7 @@ jobs:
             --instance-type "${INSTANCE_TYPE}" \
             --parallel "${PARALLEL}" \
             --n-jobs "${N_JOBS}" \
-            --dataset-version "${DATASET_VERSION}" \
-            --skip-iam-setup
+            --dataset-version "${DATASET_VERSION}"
           {
             echo "### Entrenamiento lanzado en EC2"
             echo ""
