@@ -10,6 +10,9 @@
 # termina sola), para no dejar una máquina cara encendida sin hacer nada.
 set -uo pipefail
 
+# cloud-init ejecuta el user-data sin HOME; pip, matplotlib y joblib lo usan para cachés.
+export HOME="${HOME:-/root}"
+
 : "${TAG:?}" "${GOLD_BUCKET:?}" "${ARTIFACTS_BUCKET:?}" "${CODE_KEY:?}"
 REGION="${REGION:-us-east-1}"
 DATASET_VERSION="${DATASET_VERSION:-v1}"
