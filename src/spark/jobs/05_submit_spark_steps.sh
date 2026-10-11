@@ -32,6 +32,8 @@ RAW_BUCKET="${RAW_BUCKET:-sunat-risk-scoring-raw}"
 BRONZE_BUCKET="${BRONZE_BUCKET:-sunat-risk-scoring-bronze}"
 SILVER_BUCKET="${SILVER_BUCKET:-sunat-risk-scoring-silver}"
 GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
+# Permite sobreescribir shuffle.partitions vía env var (útil para perf testing)
+SHUFFLE_PARTITIONS="${SHUFFLE_PARTITIONS:-200}"
 
 # ------------------------------------------------------------------------------
 # 1. Resolución y Validación de variables
@@ -176,6 +178,7 @@ for step in "${STEPS[@]}"; do
 --conf spark.executor.cores=4 \
 --conf spark.executor.memory=14g \
 --conf spark.dynamicAllocation.maxExecutors=3 \
+--conf spark.sql.shuffle.partitions=${SHUFFLE_PARTITIONS} \
 --conf spark.sql.parquet.datetimeRebaseModeInWrite=CORRECTED \
 --conf spark.sql.parquet.datetimeRebaseModeInRead=CORRECTED \
 --conf spark.sql.parquet.enableVectorizedReader=false \
