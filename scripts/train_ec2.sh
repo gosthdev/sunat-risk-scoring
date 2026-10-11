@@ -12,8 +12,8 @@ set -euo pipefail
 
 TAG=""
 EXPERIMENTS="ALL"
-INSTANCE_TYPE="r6i.16xlarge"  # 64 vCPU / 512 GiB
-PARALLEL=10                   # experimentos a la vez (cada uno pica ~22 GiB; medido con muestras)
+INSTANCE_TYPE="r6i.8xlarge"   # 32 vCPU / 256 GiB (la cuota de la cuenta es de 32 vCPU)
+PARALLEL=5                    # experimentos a la vez (cada uno pica ~22 GiB; medido con muestras)
 N_JOBS=3                      # procesos del GridSearchCV por experimento (cada uno copia X_train)
 MAX_HOURS=12                  # tope de seguridad: la instancia se apaga sola
 DATASET_VERSION="v1"
@@ -84,8 +84,11 @@ exec > >(tee /var/log/train.log) 2>&1
 export AWS_DEFAULT_REGION=${REGION} PYTHONUNBUFFERED=1
 TAG=${TAG}; GOLD=${GOLD_BUCKET}; LOGS="s3://\${GOLD}/model_logs/tag=\${TAG}"
 
-# Sube el log cada minuto para poder seguir el avance sin SSH.
-( while true; do aws s3 cp /var/log/train.log "\${LOGS}/train.log" --only-show-errors; sleep 60; done ) &
+# Cada minuto: línea de uso de recursos y subida del log, para seguir el avance sin SSH.
+( while true; do
+    echo "[MON] \$(date +%T) \$(free -g | awk '/^Mem/{printf "mem=%s/%sG", \$3, \$2}') load=\$(cut -d' ' -f1 /proc/loadavg)/\$(nproc)vcpu"
+    aws s3 cp /var/log/train.log "\${LOGS}/train.log" --only-show-errors; sleep 60
+  done ) &
 
 # Tope de seguridad: se apaga (y se termina) aunque algo se cuelgue.
 shutdown -P +$((MAX_HOURS * 60))
