@@ -1,0 +1,50 @@
+name: Collect Training Results
+
+# Lee desde S3 el estado del Training Job y el leaderboard de una corrida.
+# Se puede ejecutar en cualquier momento, antes o después de que termine el entrenamiento.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tag:
+        description: "run_tag de la corrida (ver el resumen del workflow Train & Benchmark SSCO Models)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+  GOLD_BUCKET: ${{ vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Report job status and leaderboard
+        run: |
+          set -uo pipefail
+          TAG="${{ inputs.run_tag }}"
+          JOB="ssco-all-${TAG}"
+          {
+            echo "### Estado del Training Job \`${JOB}\`"
+            aws sagemaker describe-training-job --training-job-name "${JOB}" \
+              --query '{estado:TrainingJobStatus,secundario:SecondaryStatus,razon:FailureReason,instancia:ResourceConfig.InstanceType,segundos:TrainingTimeInSeconds}' \
+              --output table || echo "El job no existe."
+            echo ""
+            echo "### Leaderboard"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if aws s3 cp "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.md" - >> "$GITHUB_STEP_SUMMARY"; then
+            echo "Leaderboard publicado."
+          else
+            echo "Aún no hay leaderboard (ningún experimento ha terminado)." >> "$GITHUB_STEP_SUMMARY"
+          fi
