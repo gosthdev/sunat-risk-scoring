@@ -13,6 +13,9 @@ contenido) y aplica, con las funciones puras de silver_transforms.py:
     en 04_regional_gold.py.
   - Regla de negocio de órdenes: montos negativos se descartan.
 
+Antes de procesar valida el esquema de bronze contra el contrato del dataset
+(schema_contracts.py): un renombre o cambio de tipo falla sin tocar Silver.
+
 Además publica silver/quality_report/ con la tasa de cuarentena por fuente,
 año y mes. Si la tasa por RUC supera MAX_TASA_CUARENTENA_RUC (por defecto
 0.5) el job aborta antes de escribir Silver: indica un cambio de formato en
@@ -40,6 +43,7 @@ from s3_paths import (
     SILVER_PADRON_RUC_QUARANTINE,
     SILVER_QUALITY_REPORT,
 )
+from schema_contracts import validar_esquema
 from silver_transforms import (
     construir_reporte_calidad,
     preparar_ordenes_compra,
@@ -90,6 +94,8 @@ def _procesar(
     silver_quarantine_path,
 ):
     bronze = spark.read.parquet(bronze_path)
+    # Contrato de esquema: un cambio en la fuente falla acá, antes de escribir Silver.
+    validar_esquema(bronze.schema, fuente)
     entrada = preparar(bronze).persist(StorageLevel.MEMORY_AND_DISK)
     try:
         silver, cuarentena = separar(entrada)
