@@ -93,7 +93,7 @@ def test_log1p_transformer():
     assert x_trans[0] == 0.0
     assert np.isclose(x_trans[1], np.log(2.0))
     assert np.isclose(x_trans[2], np.log(10.0))
-    assert x_trans[3] == 0.0  # NaN convertido a 0 -> log1p(0) = 0
+    assert np.isnan(x_trans[3])  # NaN se preserva: la mediana lo imputa después
     assert x_trans[4] == 0.0  # Negativo clampeado a 0 -> log1p(0) = 0
 
 
@@ -128,9 +128,7 @@ def test_regex_metricas_c5():
     """Valida que cada expresión regular del Contrato C5 haga match con los logs esperados."""
     sample_logs = [
         ("[METRIC] cv_pr_auc_mean=0.3452", "cv_pr_auc_mean", 0.3452),
-        ("[METRIC] cv_pr_auc_fold_0=0.3410", "cv_pr_auc_fold_0", 0.3410),
-        ("[METRIC] cv_pr_auc_fold_1=0.3490", "cv_pr_auc_fold_1", 0.3490),
-        ("[METRIC] cv_pr_auc_fold_4=0.3470", "cv_pr_auc_fold_4", 0.3470),
+        ("[METRIC] cv_pr_auc_fold=0.3410", "cv_pr_auc_fold", 0.3410),
         ("[METRIC] train_pr_auc=0.3821", "train_pr_auc", 0.3821),
         ("[METRIC] n_train=118400", "n_train", 118400),
         ("[METRIC] n_pos_train=592", "n_pos_train", 592),
@@ -180,7 +178,7 @@ def test_ranking_invariante_c2(synthetic_dataframe):
         run_id = "test-c2-run"
         output_dir = ""
         model_dir = ""
-        dataset_version = "v01"
+        dataset_version = "v1"
         variant = "V2"
         model_name = "LR"
         usa_pesos = "si"
@@ -218,7 +216,7 @@ def test_ranking_invariante_c2(synthetic_dataframe):
 
         assert record["metricas_cv"]["cv_pr_auc_mean"] == 0.0
         assert "cv_pr_auc_std" in record["metricas_cv"]
-        assert record["metricas_cv"]["cv_pr_auc_fold"][1] == 0.0
+        assert record["metricas_cv"]["cv_pr_auc_folds"][1] == 0.0
         assert os.path.exists(preds_path)
         df_preds = pd.read_parquet(preds_path)
 
@@ -227,8 +225,11 @@ def test_ranking_invariante_c2(synthetic_dataframe):
             "score",
             "label",
             "split",
+            "departamento",
+            "run_id",
             "rank_global",
         ]
+        assert (df_preds["run_id"] == record["run_id"]).all()
         assert df_preds["rank_global"].iloc[0] == 1
         assert df_preds["rank_global"].iloc[-1] == len(df_preds)
         assert df_preds["rank_global"].is_monotonic_increasing
