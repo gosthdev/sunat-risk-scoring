@@ -1,0 +1,96 @@
+{
+  "name": "ordenes_compra",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "entidad",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "ruc_entidad",
+      "type": "bigint",
+      "nullable": true
+    },
+    {
+      "name": "departamento_entidad",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "tipoorden",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "nro_de_orden",
+      "type": "bigint",
+      "nullable": true
+    },
+    {
+      "name": "orden",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "descripcion_orden",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "objetocontractual",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "estadocontratacion",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "tipodecontratacion",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "monto_total_orden_original",
+      "type": "double",
+      "nullable": true
+    },
+    {
+      "name": "moneda",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "ruc_contratista",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "nombre_razon_contratista",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "fecha_registro",
+      "type": "date",
+      "nullable": true
+    },
+    {
+      "name": "fecha_de_emision",
+      "type": "date",
+      "nullable": true
+    },
+    {
+      "name": "fecha_compromiso_presupuestal",
+      "type": "date",
+      "nullable": true
+    },
+    {
+      "name": "fecha_de_notificacion",
+      "type": "date",
+      "nullable": true
+    }
+  ]
+}
