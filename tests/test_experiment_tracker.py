@@ -31,7 +31,7 @@ def mock_run_record_valido():
         "hiperparametros_ganadores": {"C": 1.0, "penalty": "l2"},
         "metricas_cv": {
             "cv_pr_auc_mean": 0.4520,
-            "cv_pr_auc_fold": [0.44, 0.46, 0.45, 0.47, 0.44],
+            "cv_pr_auc_folds": [0.44, 0.46, 0.45, 0.47, 0.44],
             "train_pr_auc": 0.4900,
         },
         "n_train": 100000,
