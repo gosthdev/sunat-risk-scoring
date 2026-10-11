@@ -44,13 +44,13 @@ def test_get_job_cost_info_campos_esperados(mock_boto_client):
 
     result = get_job_cost_info("ssco-run-test", region="us-east-1")
 
-    assert result["run_id"] == "ssco-run-test"
+    assert result["sagemaker_job_name"] == "ssco-run-test"
     assert result["status"] == "Completed"
-    assert result["sagemaker_instance_type"] == "ml.m5.xlarge"
+    assert result["instancia"] == "ml.m5.xlarge"
     assert result["instance_count"] == 1
-    assert result["billable_seconds"] == 3600
+    assert result["segundos_facturables"] == 3600.0
     assert result["training_seconds"] == 3550
-    assert "cost_usd_estimate" in result
+    assert "costo_estimado_usd" in result
     assert "creation_time" in result
     assert "end_time" in result
 
@@ -69,7 +69,7 @@ def test_costo_estimado_correcto(mock_boto_client):
 
     precio = INSTANCE_PRICE_MAP["ml.m5.xlarge"]  # 0.269 USD/hora
     esperado = round(1800 / 3600 * precio, 4)
-    assert result["cost_usd_estimate"] == esperado
+    assert result["costo_estimado_usd"] == esperado
 
 
 @patch("src.models.fetch_sagemaker_metrics.boto3.client")
@@ -84,7 +84,7 @@ def test_instancia_desconocida_costo_cero(mock_boto_client):
 
     result = get_job_cost_info("ssco-run-test")
 
-    assert result["cost_usd_estimate"] == 0.0
+    assert result["costo_estimado_usd"] == 0.0
 
 
 @patch("src.models.fetch_sagemaker_metrics.boto3.client")
@@ -116,4 +116,4 @@ def test_output_json_guarda_archivo(mock_boto_client, tmp_path):
     assert os.path.exists(output_file)
     with open(output_file, encoding="utf-8") as f:
         data = json.load(f)
-    assert data["run_id"] == "ssco-run-test"
+    assert data["sagemaker_job_name"] == "ssco-run-test"
