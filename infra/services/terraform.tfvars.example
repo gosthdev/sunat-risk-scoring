@@ -16,4 +16,8 @@ emr_idle_timeout_minutes = 15
 # 10 GB por consulta
 athena_bytes_scanned_cutoff = 10737418240
 
+# Alerta de costo: presupuesto mensual (USD) y a quién avisar
+monthly_budget_usd  = 50
+budget_alert_emails = ["tu-correo@example.com"]
+
 github_repo = "xxxxxx"
