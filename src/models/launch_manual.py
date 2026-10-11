@@ -8,7 +8,10 @@ Invariantes clave:
 - Métricas capturadas por CloudWatch mediante regexes de C5.
 """
 
+from __future__ import annotations
+
 import argparse
+import json
 import os
 from typing import Any
 
@@ -40,7 +43,10 @@ def lanzar_training_job_manual(
     variant: str = "V2",
     usa_pesos: str = "si",
     dataset_version: str = "v1",
-    instance_type: str = "ml.m5.xlarge",
+    instance_type: str = "ml.m5.4xlarge",
+    param_grid: dict[str, Any] | None = None,
+    max_runtime_seconds: int = 86400,
+    volume_size_gb: int = 50,
     role_arn: str | None = None,
     gold_bucket: str | None = None,
     region: str = "us-east-1",
@@ -122,10 +128,10 @@ def lanzar_training_job_manual(
         ResourceConfig={
             "InstanceType": instance_type,
             "InstanceCount": 1,
-            "VolumeSizeInGB": 10,
+            "VolumeSizeInGB": volume_size_gb,
         },
         StoppingCondition={
-            "MaxRuntimeInSeconds": 3600,
+            "MaxRuntimeInSeconds": max_runtime_seconds,
         },
         HyperParameters={
             "sagemaker_program": sagemaker_program,
@@ -140,6 +146,7 @@ def lanzar_training_job_manual(
             "dataset_version": dataset_version,
             "ruta_salida_predicciones": s3_preds_uri,
             "ruta_salida_run_record": s3_record_uri,
+            **({"param_grid_json": json.dumps(param_grid)} if param_grid else {}),
         },
     )
 
@@ -147,6 +154,85 @@ def lanzar_training_job_manual(
         f"[SUCCESS] SageMaker Training Job {job_name} despachado exitosamente. ARN: {response['TrainingJobArn']}"
     )
     return response
+
+
+def lanzar_orquestador_sagemaker(
+    run_tag: str,
+    experiments: str = "ALL",
+    dataset_version: str = "v1",
+    instance_type: str = "ml.m5.4xlarge",
+    n_jobs: int = 3,
+    max_runtime_seconds: int = 432000,
+    volume_size_gb: int = 100,
+    role_arn: str | None = None,
+    gold_bucket: str | None = None,
+    region: str = "us-east-1",
+) -> dict[str, Any]:
+    """Lanza UN Training Job que ejecuta toda la matriz de experimentos en una instancia.
+
+    El job publica cada resultado en S3 apenas termina, así que no depende de que
+    quien lo lanzó siga vivo. Repetir el mismo run_tag reanuda sin repetir lo hecho.
+    """
+    bucket: str = gold_bucket or os.getenv("GOLD_BUCKET") or "sunat-risk-scoring-gold"
+    if "perf" in bucket.lower():
+        raise ValueError(
+            f"El bucket '{bucket}' pertenece a los experimentos de rendimiento "
+            "y no puede usarse para entrenar modelos."
+        )
+    role_arn = role_arn or os.getenv("SAGEMAKER_ROLE_ARN", "")
+    if not role_arn:
+        role_arn = boto3.client("iam", region_name=region).get_role(
+            RoleName="sunat-ssco-sagemaker-execution-role"
+        )["Role"]["Arn"]
+
+    sm = boto3.client("sagemaker", region_name=region)
+    job_name = f"ssco-all-{run_tag}"[:63]
+    try:
+        return sm.describe_training_job(TrainingJobName=job_name)
+    except sm.exceptions.ClientError:
+        pass  # no existe todavía
+
+    return sm.create_training_job(
+        TrainingJobName=job_name,
+        AlgorithmSpecification={
+            "TrainingImage": DEFAULT_SKLEARN_IMAGE,
+            "TrainingInputMode": "File",
+            "MetricDefinitions": SAGEMAKER_METRIC_DEFINITIONS,
+        },
+        RoleArn=role_arn,
+        InputDataConfig=[
+            {
+                "ChannelName": "train",
+                "DataSource": {
+                    "S3DataSource": {
+                        "S3DataType": "S3Prefix",
+                        "S3Uri": f"s3://{bucket}/model_inputs/dataset_version={dataset_version}/",
+                        "S3DataDistributionType": "FullyReplicated",
+                    }
+                },
+            }
+        ],
+        OutputDataConfig={"S3OutputPath": f"s3://{bucket}/model_artifacts/{job_name}"},
+        ResourceConfig={
+            "InstanceType": instance_type,
+            "InstanceCount": 1,
+            "VolumeSizeInGB": volume_size_gb,
+        },
+        StoppingCondition={"MaxRuntimeInSeconds": max_runtime_seconds},
+        HyperParameters={
+            "sagemaker_program": "orchestrator.py",
+            "sagemaker_submit_directory": f"s3://{bucket}/code/sourcedir.tar.gz",
+            "config": "/opt/ml/code/experiments.yml",
+            "target": "runner",
+            "experiments": experiments,
+            "dataset_version": dataset_version,
+            "run_tag": run_tag,
+            "gold_bucket": bucket,
+            "publicar_s3": "si",
+            "reanudar": "si",
+            "n_jobs": str(n_jobs),
+        },
+    )
 
 
 def parse_args():
@@ -163,7 +249,7 @@ def parse_args():
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
     parser.add_argument("--dataset_version", type=str, default="v1")
-    parser.add_argument("--instance_type", type=str, default="ml.m5.xlarge")
+    parser.add_argument("--instance_type", type=str, default="ml.m5.4xlarge")
     parser.add_argument("--role_arn", type=str, default="")
     parser.add_argument("--gold_bucket", type=str, default="")
     return parser.parse_args()
