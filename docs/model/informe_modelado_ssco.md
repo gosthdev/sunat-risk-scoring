@@ -171,6 +171,15 @@ El área bajo la curva Precision-Recall concentra la penalización en los falsos
 
 ---
 
+### G. Líneas de trabajo futuras: variables más cercanas al concepto de SSCO
+
+Para el ~96 % de RUC sin contratos con el Estado, el modelo depende solo de las variables del Padrón, que discriminan poco. Las variables que más se acercan al concepto de falta de capacidad operativa son las que cruzan lo contratado con la planilla declarada:
+
+- **Monto contratado por trabajador** (`monto_por_trabajador`) junto con la marca de `nro_trabajadores = 0` (`sin_trabajadores`). Ya están en el catálogo; queda revisar cómo se trata el cociente cuando no hay trabajadores.
+- **Número de entidades distintas** (`n_entidades_distintas`) y **concentración en una sola entidad** (`pct_monto_en_entidad_principal`). También ya están en el catálogo.
+
+Estas variables solo aportan información a los contratistas, que son una minoría con muy pocos positivos (ver sección 4.2.1.C). Su evaluación pertenece a la fase de 7 semanas y debe reportarse con el corte "solo contratistas" y sus advertencias de baja cantidad de positivos, sin presentarla como mejora establecida.
+
 ## Referencias Bibliográficas (APA 7.ª edición)
 
 - Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). SMOTE: Synthetic minority over-sampling technique. *Journal of Artificial Intelligence Research*, 16, 321–357. https://doi.org/10.1613/jair.953
