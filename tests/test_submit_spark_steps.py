@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "src" / "spark" / "jobs" / "05_submit_spark_steps.sh"
 STUBS = ROOT / "tests" / "stubs"
@@ -125,3 +127,47 @@ def test_modo_bucket_unico_usa_prefijo_de_capa(tmp_path):
         f"s3://{bucket}/_staging/gold/ruc_features/",
         f"s3://{bucket}/gold/ruc_features/",
     ]
+
+
+def _max_executors(llamadas):
+    lanzamiento = _lanzamientos(llamadas)[0]
+    return int(lanzamiento.split("spark.dynamicAllocation.maxExecutors=")[1].split()[0])
+
+
+@pytest.mark.parametrize(
+    "snapshots, esperado",
+    [(1, 2), (3, 3), (6, 4), (12, 6), (36, 6)],
+)
+def test_executors_crecen_mas_despacio_que_los_snapshots_y_tienen_techo(
+    tmp_path, snapshots, esperado
+):
+    res, llamadas = _ejecutar(
+        tmp_path, ["SUCCESS"], extra_env={"PADRON_SNAPSHOTS": str(snapshots)}
+    )
+    assert res.returncode == 0, res.stderr
+    assert _max_executors(llamadas) == esperado
+
+
+def test_cuenta_los_snapshots_del_padron_en_raw(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path, ["SUCCESS"], extra_env={"AWS_PADRON_SNAPSHOTS": "6"}
+    )
+    assert res.returncode == 0, res.stderr
+    assert "Snapshots del Padrón: 6 -> maxExecutors=4" in res.stdout
+    assert _max_executors(llamadas) == 4
+
+
+def test_sin_poder_contar_asume_el_peor_caso_pero_dentro_del_techo(tmp_path):
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"])
+    assert res.returncode == 0, res.stderr
+    assert _max_executors(llamadas) == 6
+
+
+def test_el_techo_es_configurable(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        extra_env={"PADRON_SNAPSHOTS": "12", "MAX_EXECUTORS_CAP": "3"},
+    )
+    assert res.returncode == 0, res.stderr
+    assert _max_executors(llamadas) == 3

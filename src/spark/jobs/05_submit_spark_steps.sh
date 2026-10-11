@@ -21,6 +21,12 @@
 #   - POLL_INTERVAL_SECONDS  : Intervalo de sondeo en segundos (por defecto: 15)
 #   - STEP_MAX_ATTEMPTS      : Intentos por step antes de abortar (por defecto: 2)
 #   - RETRY_BACKOFF_SECONDS  : Espera entre intentos (por defecto: 30)
+#   - PADRON_SNAPSHOTS       : Nº de fotos del Padrón a procesar; si no se da, se
+#                              cuentan en raw/padron_ruc (por defecto si falla: 12)
+#   - MIN_EXECUTORS          : Piso de executors (por defecto: 2)
+#   - MAX_EXECUTORS_CAP      : Techo duro de executors (por defecto: 6). Con 4 vCPU
+#                              por executor y 4 del driver son 28 vCPU, bajo el tope de
+#                              32 vCPU de la aplicación EMR (infra/services emr_max_cpu).
 # ==============================================================================
 
 set -euo pipefail
@@ -29,6 +35,8 @@ AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-15}"
 STEP_MAX_ATTEMPTS="${STEP_MAX_ATTEMPTS:-2}"
 RETRY_BACKOFF_SECONDS="${RETRY_BACKOFF_SECONDS:-30}"
+MIN_EXECUTORS="${MIN_EXECUTORS:-2}"
+MAX_EXECUTORS_CAP="${MAX_EXECUTORS_CAP:-6}"
 EMR_APPLICATION_NAME="${EMR_APPLICATION_NAME:-sunat-ssco-spark}"
 DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring-raw}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
@@ -249,6 +257,37 @@ publish_step() {
 }
 
 # ------------------------------------------------------------------------------
+# Dimensionamiento: los executors crecen más despacio que los datos y nunca
+# pasan del techo, así más snapshots del Padrón no disparan el cómputo.
+#   executors = ceil(snapshots / 2) + 1, acotado a [MIN_EXECUTORS, MAX_EXECUTORS_CAP]
+#   1 -> 2, 3 -> 3, 6 -> 4, 12 -> 6 (techo)
+# ------------------------------------------------------------------------------
+compute_max_executors() {
+  local snapshots="$1" n
+  n=$(( (snapshots + 1) / 2 + 1 ))
+  (( n < MIN_EXECUTORS )) && n="$MIN_EXECUTORS"
+  (( n > MAX_EXECUTORS_CAP )) && n="$MAX_EXECUTORS_CAP"
+  echo "$n"
+}
+
+count_padron_snapshots() {
+  local raw_uri
+  raw_uri="$(live_uri "$RAW_BUCKET" raw padron_ruc)"
+  aws s3 ls "${raw_uri}/" --recursive 2>/dev/null \
+    | grep -o 'anio=[0-9]*/mes=[0-9]*' | sort -u | wc -l | tr -d ' ' || true
+}
+
+if [[ -z "${PADRON_SNAPSHOTS:-}" ]]; then
+  PADRON_SNAPSHOTS="$(count_padron_snapshots)"
+  if [[ -z "$PADRON_SNAPSHOTS" || "$PADRON_SNAPSHOTS" -lt 1 ]]; then
+    echo "WARN: no se pudieron contar los snapshots del Padrón; se asumen 12."
+    PADRON_SNAPSHOTS=12
+  fi
+fi
+MAX_EXECUTORS="$(compute_max_executors "$PADRON_SNAPSHOTS")"
+echo "Snapshots del Padrón: ${PADRON_SNAPSHOTS} -> maxExecutors=${MAX_EXECUTORS} (techo ${MAX_EXECUTORS_CAP})"
+
+# ------------------------------------------------------------------------------
 # 4. Ejecución de un step (un intento) y monitoreo
 # ------------------------------------------------------------------------------
 # run_step_once <step>: devuelve 0 si el Job Run termina en SUCCESS, 1 en otro caso.
@@ -265,7 +304,9 @@ run_step_once() {
 --conf spark.driver.memory=14g \
 --conf spark.executor.cores=4 \
 --conf spark.executor.memory=14g \
---conf spark.dynamicAllocation.maxExecutors=3 \
+--conf spark.dynamicAllocation.enabled=true \
+--conf spark.dynamicAllocation.initialExecutors=${MIN_EXECUTORS} \
+--conf spark.dynamicAllocation.maxExecutors=${MAX_EXECUTORS} \
 --conf spark.sql.shuffle.partitions=${SHUFFLE_PARTITIONS} \
 --conf spark.sql.parquet.datetimeRebaseModeInWrite=CORRECTED \
 --conf spark.sql.parquet.datetimeRebaseModeInRead=CORRECTED \

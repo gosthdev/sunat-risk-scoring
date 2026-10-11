@@ -3,9 +3,11 @@
 # Registra cada llamada en $AWS_LOG. Variables de control:
 #   AWS_STATES_FILE : un estado de Job Run por línea; se consume uno por consulta
 #                     (el último se repite).
+#   AWS_PADRON_SNAPSHOTS=n : `s3 ls --recursive` de padron_ruc lista n snapshots.
 #   AWS_EMPTY_STAGING=1 : `s3 ls` sobre _staging no devuelve objetos.
 #   AWS_EMPTY_MATCH=txt : `s3 ls` sobre _staging cuya ruta contiene txt no devuelve objetos.
-echo "$*" >> "$AWS_LOG"
+all="$*"
+echo "${all//$'\n'/ }" >> "$AWS_LOG"
 
 case "$1 $2" in
   "emr-serverless start-job-run")
@@ -23,6 +25,12 @@ case "$1 $2" in
     fi
     ;;
   "s3 ls")
+    if [[ "$*" == *--recursive* && "$*" == *padron_ruc* ]]; then
+      for ((i = 1; i <= ${AWS_PADRON_SNAPSHOTS:-0}; i++)); do
+        printf '2026-01-01 00:00:00 1 padron_ruc/anio=2025/mes=%02d/padron.csv\n' "$i"
+      done
+      exit 0
+    fi
     if [[ "$3" == *_staging* && "${AWS_EMPTY_STAGING:-0}" == "1" ]]; then
       exit 0
     fi
