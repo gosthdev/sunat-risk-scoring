@@ -27,9 +27,6 @@ on:
         required: false
         type: string
         default: ""
-  push:
-    branches:
-      - feat/experiment3.6
 
 permissions:
   id-token: write
@@ -38,6 +35,7 @@ permissions:
 jobs:
   run-perf-benchmark:
     name: Run Optimization 3.6 Performance Benchmarks
+    timeout-minutes: 360
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -58,6 +56,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-duration-seconds: 21600
           aws-region: ${{ inputs.aws_region != '' && inputs.aws_region || vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Install Python dependencies
@@ -81,7 +80,7 @@ jobs:
           fi
 
           EXTRA_FLAGS=""
-          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.skip_infra }}" = "true" ]; then
+          if [ "${{ inputs.skip_infra }}" = "true" ]; then
             EXTRA_FLAGS="--skip-infra"
           fi
 
