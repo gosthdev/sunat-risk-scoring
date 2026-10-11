@@ -79,13 +79,14 @@ def cargar_run_records(
     for archivo in archivos:
         try:
             with open(archivo, "r", encoding="utf-8") as f:
-                line = f.readline().strip()
-                if not line:
+                content = f.read().strip()
+                if not content:
                     registros_error.append(
                         {"archivo": archivo, "error": "Archivo vacío"}
                     )
                     continue
-                data = json.loads(line)
+                # Soporta tanto JSON de una sola línea (NDJSON) como multilínea / pretty-printed
+                data = json.loads(content)
         except Exception as e:  # noqa: BLE001
             registros_error.append(
                 {"archivo": archivo, "error": f"Error al leer JSON: {e!s}"}
