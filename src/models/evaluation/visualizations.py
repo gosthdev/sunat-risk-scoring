@@ -16,6 +16,8 @@ Funciones disponibles:
 - plot_calibration_curve   Fracción de positivos vs score medio por bin (Brier)
 - plot_score_distribution  Histograma de scores superpuesto por clase
 
+plot_leaderboard          Barras horizontales de PR-AUC (CV) por experimento, con el campeón resaltado
+
 save_all() genera y exporta los 7 gráficos a un directorio dado.
 """
 
@@ -401,6 +403,138 @@ def plot_score_distribution(
     ax.legend(fontsize=9)
     fig.tight_layout()
     _add_footer(fig, run_id)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 8. Leaderboard de experimentos
+# ---------------------------------------------------------------------------
+
+_INK = "#0b0b0b"
+_INK_SECONDARY = "#52514e"
+_SURFACE = "#fcfcfb"
+_AZUL = "#2a78d6"  # candidatos
+_NARANJA = "#eb6834"  # campeón
+
+
+def plot_leaderboard(
+    resultados: list[dict[str, Any]],
+    campeon_id: str | None = None,
+    run_label: str = "",
+) -> plt.Figure:
+    """Barras horizontales de PR-AUC (media de CV ± desviación) por experimento.
+
+    El campeón va en naranja y el resto en azul. Los benchmark V1 (con fuga) llevan
+    sombreado para no depender solo del color. El rombo es el PR-AUC sobre train:
+    cuanto más lejos de la barra, más sobreajuste.
+    """
+    exitosos = sorted(
+        (r for r in resultados if r.get("status") == "SUCCESS"),
+        key=lambda r: r.get("cv_pr_auc_mean", 0.0),
+    )
+    fallidos = [r["id"] for r in resultados if r.get("status") != "SUCCESS"]
+
+    fig, ax = plt.subplots(figsize=(9, 1.2 + 0.5 * max(len(exitosos), 1)))
+    fig.patch.set_facecolor(_SURFACE)
+    ax.set_facecolor(_SURFACE)
+
+    ys = np.arange(len(exitosos))
+    for y, r in zip(ys, exitosos, strict=True):
+        color = _NARANJA if r["id"] == campeon_id else _AZUL
+        es_v1 = r.get("variant") == "V1"
+        ax.barh(
+            y,
+            r["cv_pr_auc_mean"],
+            height=0.6,
+            color=color,
+            edgecolor=_SURFACE,
+            hatch="////" if es_v1 else None,
+            xerr=r.get("cv_pr_auc_std", 0.0),
+            error_kw={"ecolor": _INK_SECONDARY, "elinewidth": 1.2, "capsize": 3},
+            zorder=3,
+        )
+        ax.scatter(
+            r.get("train_pr_auc", np.nan),
+            y,
+            marker="D",
+            s=28,
+            facecolor=_SURFACE,
+            edgecolor=_INK,
+            linewidth=1.2,
+            zorder=4,
+        )
+        ax.text(
+            max(
+                r["cv_pr_auc_mean"] + r.get("cv_pr_auc_std", 0.0),
+                r.get("train_pr_auc", 0.0),
+            )
+            + 0.012,
+            y,
+            f"{r['cv_pr_auc_mean']:.4f}",
+            va="center",
+            fontsize=9,
+            color=_INK,
+        )
+
+    ax.set_yticks(ys)
+    ax.set_yticklabels(
+        [
+            f"{r['id']}  {r['model_name']} {r.get('variant', '')}"
+            f"{'' if r.get('usa_pesos', 'si') == 'si' else ' sin pesos'}"
+            for r in exitosos
+        ],
+        fontsize=9,
+        color=_INK,
+    )
+    ax.set_xlabel(
+        "PR-AUC (media de 5 folds, barra de error = desviación)", color=_INK_SECONDARY
+    )
+    ax.xaxis.grid(True, color="#e4e3df", linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+    for lado in ("top", "right", "left"):
+        ax.spines[lado].set_visible(False)
+    ax.spines["bottom"].set_color("#c9c8c2")
+    ax.tick_params(colors=_INK_SECONDARY, length=0)
+    ax.set_xlim(left=0)
+
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    handles = [
+        Patch(facecolor=_NARANJA, label="Campeón"),
+        Patch(facecolor=_AZUL, label="Candidato / ablación"),
+        Patch(
+            facecolor=_AZUL,
+            hatch="////",
+            edgecolor=_SURFACE,
+            label="Benchmark V1 (con fuga)",
+        ),
+        Line2D(
+            [],
+            [],
+            marker="D",
+            linestyle="",
+            markerfacecolor=_SURFACE,
+            markeredgecolor=_INK,
+            label="PR-AUC en train",
+        ),
+    ]
+    ax.legend(
+        handles=handles, loc="lower right", fontsize=8, frameon=False, labelcolor=_INK
+    )
+
+    titulo = "Leaderboard de experimentos SSCO"
+    ax.set_title(titulo, loc="left", fontsize=12, color=_INK, fontweight="bold")
+    if fallidos:
+        fig.text(
+            0.01,
+            0.01,
+            f"Sin resultado: {', '.join(fallidos)}",
+            fontsize=8,
+            color=_INK_SECONDARY,
+        )
+    _add_footer(fig, run_label)
+    fig.tight_layout()
     return fig
 
 

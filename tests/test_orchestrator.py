@@ -443,3 +443,123 @@ def test_reanudar_omite_experimentos_ya_publicados(monkeypatch):
             ]
         )
     assert code == 0
+
+
+def test_publicar_leaderboard_no_evita_pisar_el_leaderboard_compartido(monkeypatch):
+    import src.models.orchestrator as orq
+
+    monkeypatch.setattr(orq, "buscar_resultado_s3", lambda *a, **k: None)
+    monkeypatch.setattr(orq, "publicar_resultado_s3", lambda *a, **k: None)
+
+    def no_debe_publicar(*args, **kwargs):
+        raise AssertionError("un job de la matriz no debe publicar el leaderboard")
+
+    monkeypatch.setattr(orq, "publicar_leaderboard_s3", no_debe_publicar)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=200)
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1",
+                "--train_dir",
+                data_dir,
+                "--output_dir",
+                tmp_dir,
+                "--publicar_s3",
+                "si",
+                "--publicar_leaderboard",
+                "no",
+                "--run_tag",
+                "t3",
+            ]
+        )
+    assert code == 0
+
+
+def test_consolidar_arma_leaderboard_y_grafico_desde_s3(monkeypatch):
+    import src.models.orchestrator as orq
+
+    record = {
+        "metricas_cv": {"cv_pr_auc_mean": 0.4, "cv_pr_auc_folds": [0.4] * 5},
+        "hiperparametros_ganadores": {},
+    }
+    publicados = []
+    subidos = []
+
+    def falso_buscar(bucket, exp, run_id, output_dir):
+        assert run_id.endswith("-t4")
+        if exp["id"] == "E2":
+            return None
+        return orq.resultado_desde_record(exp, run_id, record, 0.0, "r", "p")
+
+    monkeypatch.setattr(orq, "buscar_resultado_s3", falso_buscar)
+    monkeypatch.setattr(
+        orq, "publicar_leaderboard_s3", lambda b, tag, res, ver: publicados.append(res)
+    )
+    monkeypatch.setattr(
+        orq, "publicar_archivos_s3", lambda b, pref, archivos: subidos.append(pref)
+    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1,E2",
+                "--target",
+                "consolidar",
+                "--output_dir",
+                tmp_dir,
+                "--run_tag",
+                "t4",
+            ]
+        )
+        assert os.path.isfile(os.path.join(tmp_dir, "leaderboard.md"))
+        assert os.path.getsize(os.path.join(tmp_dir, "leaderboard.png")) > 0
+    estados = {r["id"]: r["status"] for r in publicados[0]}
+    assert estados == {"E1": "SUCCESS", "E2": "FAILED"}
+    assert subidos == ["model_leaderboards/tag=t4"]
+    assert code == 1
+
+
+def test_graficos_genera_y_publica_los_png_de_cada_experimento(monkeypatch):
+    import src.models.orchestrator as orq
+
+    subidos = []
+    monkeypatch.setattr(orq, "buscar_resultado_s3", lambda *a, **k: None)
+    monkeypatch.setattr(orq, "publicar_resultado_s3", lambda *a, **k: None)
+    monkeypatch.setattr(orq, "publicar_leaderboard_s3", lambda *a, **k: None)
+    monkeypatch.setattr(
+        orq,
+        "publicar_archivos_s3",
+        lambda b, pref, archivos: subidos.append((pref, archivos)),
+    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=300)
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1",
+                "--train_dir",
+                data_dir,
+                "--output_dir",
+                tmp_dir,
+                "--publicar_s3",
+                "si",
+                "--graficos",
+                "si",
+                "--run_tag",
+                "t5",
+            ]
+        )
+    assert code == 0
+    prefijo, archivos = subidos[0]
+    assert prefijo == "model_reports/run_id=ssco-run-E1-lr-v2-w1-t5"
+    nombres = {os.path.basename(a) for a in archivos}
+    assert {"pr_curve.png", "gain_curve.png", "score_distribution.png"} <= nombres

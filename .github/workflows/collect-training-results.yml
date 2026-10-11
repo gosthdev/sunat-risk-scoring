@@ -1,6 +1,6 @@
 name: Collect Training Results
 
-# Lee desde S3 el estado del Training Job y el leaderboard de una corrida.
+# Lee desde S3 el leaderboard de una corrida (también el de una corrida de SageMaker).
 # Se puede ejecutar en cualquier momento, antes o después de que termine el entrenamiento.
 
 on:
@@ -30,19 +30,11 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Report job status and leaderboard
+      - name: Show leaderboard
         run: |
           set -uo pipefail
           TAG="${{ inputs.run_tag }}"
-          JOB="ssco-all-${TAG}"
-          {
-            echo "### Estado del Training Job \`${JOB}\`"
-            aws sagemaker describe-training-job --training-job-name "${JOB}" \
-              --query '{estado:TrainingJobStatus,secundario:SecondaryStatus,razon:FailureReason,instancia:ResourceConfig.InstanceType,segundos:TrainingTimeInSeconds}' \
-              --output table || echo "El job no existe."
-            echo ""
-            echo "### Leaderboard"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "### Leaderboard" >> "$GITHUB_STEP_SUMMARY"
           if aws s3 cp "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.md" - >> "$GITHUB_STEP_SUMMARY"; then
             echo "Leaderboard publicado."
           else

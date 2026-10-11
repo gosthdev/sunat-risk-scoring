@@ -1,7 +1,9 @@
 name: Train & Benchmark SSCO Models
 
-# GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en un
-# SageMaker Training Job que no depende de este workflow. Ningún dato se procesa en el runner.
+# El curado corre en EMR Serverless. El entrenamiento corre en runners de GitHub: un job
+# por experimento (cada uno con su propia memoria) que publica su resultado en S3. El dataset
+# se baja de S3 una sola vez y se comparte por la caché de GitHub. Un job final reúne los
+# resultados publicados, arma el leaderboard con su gráfico y los guarda en S3.
 
 on:
   workflow_dispatch:
@@ -21,11 +23,16 @@ on:
         required: false
         type: boolean
         default: false
-      instance_type:
-        description: "Instancia de SageMaker para cada Training Job"
+      n_jobs:
+        description: "Procesos paralelos del GridSearchCV en cada job (cada uno copia X_train: bajar si falta RAM)"
         required: false
-        type: string
-        default: "ml.m5.4xlarge"
+        type: number
+        default: 2
+      max_parallel:
+        description: "Experimentos que corren a la vez"
+        required: false
+        type: number
+        default: 4
       run_tag:
         description: "Sufijo de la corrida (vacío = id de esta ejecución). Repetir el mismo tag reanuda sin repetir experimentos terminados."
         required: false
@@ -101,11 +108,170 @@ jobs:
           fi
           aws s3 ls "${PREFIX}" --recursive --human-readable --summarize | tail -2
 
-  train:
-    name: Launch training (SageMaker)
+  fetch-dataset:
+    name: Fetch dataset (single S3 download)
     needs: [prepare-dataset]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    outputs:
+      cache_key: ${{ steps.key.outputs.cache_key }}
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Los runners de GitHub están fuera de AWS: cada byte que sale de S3 se cobra como
+      # transferencia a internet. Se descarga una sola vez y los jobs de entrenamiento
+      # lo restauran desde la caché de GitHub. La clave depende del listado de S3
+      # (nombres, tamaños y fechas), así que un dataset regenerado invalida la caché.
+      - name: Compute cache key
+        id: key
+        run: |
+          set -euo pipefail
+          PREFIX="s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
+          HASH="$(aws s3 ls "${PREFIX}" --recursive | sha256sum | cut -c1-16)"
+          echo "cache_key=dataset-${DATASET_VERSION}-${HASH}" >> "$GITHUB_OUTPUT"
+
+      - name: Check dataset cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ./data/input
+          key: ${{ steps.key.outputs.cache_key }}
+          lookup-only: true
+
+      - name: Download dataset (cache miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ./data/input
+          aws s3 cp "s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/" ./data/input/ \
+            --recursive --exclude "*" --include "*.parquet"
+          du -sh ./data/input
+
+      - name: Save dataset cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ./data/input
+          key: ${{ steps.key.outputs.cache_key }}
+
+  plan:
+    name: Plan experiments
+    needs: [prepare-dataset]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      experiments: ${{ steps.plan.outputs.experiments }}
+      run_tag: ${{ steps.plan.outputs.run_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select experiments
+        id: plan
+        env:
+          EXPERIMENTS: ${{ inputs.experiments }}
+          INPUT_TAG: ${{ inputs.run_tag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          import yaml
+
+          with open("config/experiments.yml", encoding="utf-8") as f:
+              todos = [str(e["id"]) for e in yaml.safe_load(f)["experiments"]]
+          pedido = os.environ["EXPERIMENTS"].strip()
+          if pedido.upper() in ("", "ALL"):
+              elegidos = todos
+          else:
+              ids = [x.strip().upper() for x in pedido.split(",") if x.strip()]
+              desconocidos = [i for i in ids if i not in todos]
+              if desconocidos:
+                  raise SystemExit(f"Experimentos desconocidos: {desconocidos}")
+              elegidos = [i for i in todos if i.upper() in ids]
+          print(f"experiments={json.dumps(elegidos)}")
+          print(f"run_tag={os.environ['INPUT_TAG'] or os.environ['GITHUB_RUN_ID']}")
+          PY
+
+  train:
+    name: Train ${{ matrix.experiment }}
+    needs: [plan, fetch-dataset]
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max_parallel }}
+      matrix:
+        experiment: ${{ fromJSON(needs.plan.outputs.experiments) }}
+    env:
+      RUN_TAG: ${{ needs.plan.outputs.run_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/models/requirements.txt
+
+      - name: Restore dataset from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ./data/input
+          key: ${{ needs.fetch-dataset.outputs.cache_key }}
+          fail-on-cache-miss: true
+
+      # Solo se necesita para publicar resultados: subir a S3 desde fuera de AWS no se cobra.
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Train ${{ matrix.experiment }}
+        run: |
+          set -euo pipefail
+          # El resultado y los gráficos se publican en S3 apenas termina el experimento;
+          # el leaderboard lo arma el job final.
+          python -m src.models.orchestrator \
+            --config config/experiments.yml \
+            --experiments "${{ matrix.experiment }}" \
+            --target runner \
+            --train_dir ./data/input \
+            --output_dir ./data/output/orchestrator \
+            --dataset_version "${DATASET_VERSION}" \
+            --n_jobs "${{ inputs.n_jobs }}" \
+            --run_tag "${RUN_TAG}" \
+            --gold_bucket "${GOLD_BUCKET}" \
+            --publicar_s3 si \
+            --publicar_leaderboard no \
+            --graficos si \
+            --reanudar si
+
+      - name: Upload experiment plots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plots-${{ matrix.experiment }}-${{ needs.plan.outputs.run_tag }}
+          path: ./data/output/orchestrator/plots/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  leaderboard:
+    name: Build leaderboard
+    needs: [plan, train]
+    if: ${{ always() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -127,34 +293,35 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Package training code
-        run: |
-          bash scripts/package_training_code.sh "${GOLD_BUCKET}"
-
-      - name: Launch the SageMaker Training Job
+      - name: Consolidate results from S3
         env:
-          RUN_TAG: ${{ inputs.run_tag != '' && inputs.run_tag || github.run_id }}
+          RUN_TAG: ${{ needs.plan.outputs.run_tag }}
+          EXPERIMENTS: ${{ join(fromJSON(needs.plan.outputs.experiments), ',') }}
         run: |
           set -euo pipefail
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          export SAGEMAKER_ROLE_ARN="${{ vars.SAGEMAKER_ROLE_ARN || secrets.SAGEMAKER_ROLE_ARN || '' }}"
-          if [ -z "${SAGEMAKER_ROLE_ARN}" ]; then
-            SAGEMAKER_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/sunat-ssco-sagemaker-execution-role"
-          fi
-          # Un solo job en AWS ejecuta toda la matriz y publica cada resultado en S3.
-          # Este workflow termina aquí: no hace falta que siga vivo para que el entrenamiento acabe.
           python -m src.models.orchestrator \
             --config config/experiments.yml \
-            --experiments "${{ inputs.experiments }}" \
-            --target sagemaker \
+            --experiments "${EXPERIMENTS}" \
+            --target consolidar \
             --dataset_version "${DATASET_VERSION}" \
-            --sagemaker_instance_type "${{ inputs.instance_type }}" \
             --run_tag "${RUN_TAG}" \
-            --gold_bucket "${GOLD_BUCKET}"
+            --gold_bucket "${GOLD_BUCKET}" \
+            --output_dir ./data/output/orchestrator
           {
-            echo "### Training Job lanzado"
             echo ""
-            echo "- Job: \`ssco-all-${RUN_TAG}\`"
-            echo "- Resultados: \`s3://${GOLD_BUCKET}/model_leaderboards/tag=${RUN_TAG}/\`"
-            echo "- Para ver el avance: ejecuta el workflow *Collect Training Results* con \`run_tag=${RUN_TAG}\`."
+            echo "Resultados en S3: \`s3://${GOLD_BUCKET}/model_leaderboards/tag=${RUN_TAG}/\`"
+            echo "Gráficos por experimento: \`s3://${GOLD_BUCKET}/model_reports/\`"
+            echo "El gráfico del leaderboard y los de cada experimento están en los *Artifacts* de esta ejecución."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload leaderboard chart
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leaderboard-${{ needs.plan.outputs.run_tag }}
+          path: |
+            ./data/output/orchestrator/leaderboard.png
+            ./data/output/orchestrator/leaderboard.md
+            ./data/output/orchestrator/leaderboard.json
+          if-no-files-found: ignore
+          retention-days: 30
