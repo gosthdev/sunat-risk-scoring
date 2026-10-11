@@ -1,6 +1,10 @@
 name: Run EMR Spark Pipeline
 
 on:
+  # Corrida mensual: el día 1 a las 08:00 UTC (03:00 Lima). Los workflows con
+  # schedule solo corren desde la rama por defecto.
+  schedule:
+    - cron: "0 8 1 * *"
   workflow_dispatch:
     inputs:
       emr_application_id:
