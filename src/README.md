@@ -97,6 +97,14 @@ Los workflows ejecutan las tareas en runners seguros asumiendo el rol IAM vía O
 
 ## Decisiones y limitaciones conocidas
 
+- **Executors acotados (`05_submit_spark_steps.sh`).** El script cuenta los
+  snapshots del Padrón en `raw/padron_ruc` y fija `maxExecutors =
+  ceil(snapshots/2) + 1`, entre `MIN_EXECUTORS` (2) y `MAX_EXECUTORS_CAP` (6):
+  1 → 2, 3 → 3, 6 → 4, 12 → 6. El cómputo crece más despacio que los datos y
+  tiene techo; el límite duro sigue siendo `emr_max_cpu` de la aplicación EMR
+  (32 vCPU; 6 executors de 4 vCPU + driver de 4 = 28). Que el tiempo del job
+  crezca menos que linealmente hay que medirlo corriendo 1, 3, 6 y 12 snapshots.
+
 - **Publicación en dos pasos.** Los steps 02–05 escriben en `<bucket>/_staging/`
   y el orquestador publica a la ruta viva (`aws s3 sync --delete`) solo si el
   step termina en `SUCCESS`. Un step fallido se reintenta (`STEP_MAX_ATTEMPTS`,
