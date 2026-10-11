@@ -20,7 +20,7 @@ on:
         description: "Versión del dataset en S3 o local"
         required: false
         type: string
-        default: "v01"
+        default: "v1"
       use_synthetic:
         description: "Generar y usar dataset sintético (para pruebas de CI sin descargar de S3)"
         required: false
