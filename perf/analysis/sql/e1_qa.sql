@@ -4,6 +4,6 @@ SELECT
     Estado,
     count(*) AS total_contribuyentes
 FROM ${TABLE}
-WHERE cast(anio as integer) = 2024 AND cast(mes as integer) = 12
+WHERE cast(anio as integer) = 2025 AND cast(mes as integer) = 12
 GROUP BY Estado
 ORDER BY total_contribuyentes DESC;

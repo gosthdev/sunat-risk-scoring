@@ -6,6 +6,6 @@ SELECT
     count(*) AS total_registros,
     count(DISTINCT RUC) AS total_rucs_unicos
 FROM ${TABLE}
-WHERE cast(anio as integer) = 2024
+WHERE cast(anio as integer) = 2025
 GROUP BY Estado
 ORDER BY total_registros DESC;

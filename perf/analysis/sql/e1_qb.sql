@@ -4,6 +4,6 @@ SELECT
     Departamento,
     count(*) AS total_activos
 FROM ${TABLE}
-WHERE cast(anio as integer) = 2024 AND cast(mes as integer) = 12 AND Estado = 'ACTIVO'
+WHERE cast(anio as integer) = 2025 AND cast(mes as integer) = 12 AND Estado = 'ACTIVO'
 GROUP BY Departamento
 ORDER BY total_activos DESC;
