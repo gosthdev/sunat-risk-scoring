@@ -108,7 +108,7 @@ module "glue_crawler_model_inputs" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_inputs/"
   table_prefix   = ""
-  table_level    = 2
+  table_level    = null
 }
 
 module "glue_crawler_predictions" {
@@ -118,7 +118,7 @@ module "glue_crawler_predictions" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_outputs/predictions/"
   table_prefix   = ""
-  table_level    = 3
+  table_level    = null
 }
 
 module "glue_crawler_model_runs" {
@@ -128,7 +128,7 @@ module "glue_crawler_model_runs" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_runs/"
   table_prefix   = ""
-  table_level    = 2
+  table_level    = null
 }
 
 module "glue_crawler_model_metrics" {
@@ -138,7 +138,7 @@ module "glue_crawler_model_metrics" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.gold.bucket}/gold/model_metrics/"
   table_prefix   = ""
-  table_level    = 2
+  table_level    = null
 }
 
 ############ Athena ############

@@ -30,7 +30,8 @@ variable "extra_exclusions" {
 }
 
 variable "table_level" {
-  description = "TableLevelConfiguration: nivel ABSOLUTO desde la raíz del bucket donde se crea la tabla (carpeta de primer nivel = 1)."
+  description = "TableLevelConfiguration: nivel absoluto desde la raíz del bucket donde se crea la tabla (carpeta de primer nivel = 1). null = comportamiento por defecto de Glue (una tabla por carpeta objetivo)."
   type        = number
   default     = 2
+  nullable    = true
 }

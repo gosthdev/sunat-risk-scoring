@@ -130,25 +130,24 @@ run_crawler() {
 
 # Tablas del modelo (D14): model_inputs, predictions, model_runs, model_metrics.
 # Un crawler por carpeta, sin prefijo, para no crear tablas sueltas por run_id.
-# Formato: nombre:prefijo:nivel. El nivel es ABSOLUTO desde la raíz del bucket
-# (carpeta de primer nivel = 1), por eso gold/<tabla>/ es 2 y gold/model_outputs/predictions/ es 3.
+# Formato: nombre:prefijo. Sin TableLevelConfiguration: Glue crea una tabla por
+# carpeta objetivo y trata run_id=/dataset_version= como particiones.
 MODEL_TABLES=(
-  "model-inputs:gold/model_inputs/:2"
-  "predictions:gold/model_outputs/predictions/:3"
-  "model-runs:gold/model_runs/:2"
-  "model-metrics:gold/model_metrics/:2"
+  "model-inputs:gold/model_inputs/"
+  "predictions:gold/model_outputs/predictions/"
+  "model-runs:gold/model_runs/"
+  "model-metrics:gold/model_metrics/"
 )
 
 upsert_model_crawler() {
-  local name="sunat-ssco-$1-crawler" prefix="$2" level="$3"
+  local name="sunat-ssco-$1-crawler" prefix="$2"
   local gold_bucket="${GOLD_BUCKET:-${BUCKET:-}}"
   : "${gold_bucket:?Define GOLD_BUCKET (o BUCKET) para catalogar las tablas del modelo}"
   local path="s3://${gold_bucket}/${prefix}"
   local targets="{\"S3Targets\":[{\"Path\":\"${path}\"}]}"
   local common=(--name "$name" --database-name "$GLUE_DATABASE" --targets "$targets"
     --schema-change-policy "UpdateBehavior=UPDATE_IN_DATABASE,DeleteBehavior=LOG"
-    --recrawl-policy "{\"RecrawlBehavior\":\"CRAWL_EVERYTHING\"}"
-    --configuration "{\"Version\":1.0,\"Grouping\":{\"TableLevelConfiguration\":${level}}}")
+    --recrawl-policy "{\"RecrawlBehavior\":\"CRAWL_EVERYTHING\"}")
   if aws glue get-crawler --name "$name" >/dev/null 2>&1; then
     echo "Actualizando crawler: $name ($path)"
     aws glue update-crawler "${common[@]}"
@@ -166,8 +165,8 @@ for zone in "${ZONES[@]}"; do
 done
 
 for entry in "${MODEL_TABLES[@]}"; do
-  IFS=':' read -r tname tprefix tlevel <<<"$entry"
-  upsert_model_crawler "$tname" "$tprefix" "$tlevel"
+  tname="${entry%%:*}"
+  upsert_model_crawler "$tname" "${entry#*:}"
   run_crawler "sunat-ssco-${tname}-crawler"
 done
 
