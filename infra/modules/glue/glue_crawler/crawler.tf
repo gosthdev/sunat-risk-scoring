@@ -4,6 +4,17 @@ resource "aws_glue_crawler" "this" {
   role          = var.role_arn
   table_prefix  = var.table_prefix
 
+  configuration = jsonencode({
+    Version = 1.0
+    CrawlerOutput = {
+      Tables = { AddOrUpdateBehavior = "MergeNewColumns" }
+    }
+    Grouping = {
+      TableGroupingPolicy     = "CombineCompatibleSchemas"
+      TableLevelConfiguration = var.table_level
+    }
+  })
+
   s3_target {
     path       = var.s3_target_path
     exclusions = ["_markers/**", "**/_markers/**"]
