@@ -119,6 +119,23 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         }
       },
       {
+        Sid      = "PassTrainingRoleToEC2"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = [var.train_ec2_role_arn != "" ? var.train_ec2_role_arn : "arn:aws:iam::*:role/sunat-ssco-train-ec2-role"]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ec2.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid      = "ReadPublicAmiParameters"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = ["arn:aws:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"]
+      },
+      {
         Sid    = "EMRServerlessListApplications"
         Effect = "Allow"
         Action = [
