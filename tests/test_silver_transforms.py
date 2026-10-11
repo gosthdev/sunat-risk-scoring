@@ -5,6 +5,7 @@ import unittest
 
 from silver_transforms import (
     MOTIVO_COL,
+    construir_reporte_calidad,
     preparar_ordenes_compra,
     preparar_padron_ruc,
     ruc_valido,
@@ -120,6 +121,45 @@ class TestSilverTransforms(unittest.TestCase):
         silver, _ = separar_padron_ruc(preparar_padron_ruc(bronze))
         self.assertEqual(silver.count(), 5)
         self.assertTrue(all(len(str(r["RUC"])) == 11 for r in silver.collect()))
+
+    def _padron_con_dos_meses(self):
+        filas = (
+            [(20100000001 + i, "lima", 202501, 2025, 1) for i in range(8)]
+            + [(5, "lima", 202501, 2025, 1), (6, "lima", 202501, 2025, 1)]
+            + [(20100000001 + i, "lima", 202502, 2025, 2) for i in range(4)]
+        )
+        return self.spark.createDataFrame(
+            filas,
+            "RUC long, Departamento string, PERIODO_PUBLICACION int, anio int, mes int",
+        )
+
+    def _reporte(self):
+        bronze = self._padron_con_dos_meses()
+        entrada = preparar_padron_ruc(bronze)
+        silver, cuarentena = separar_padron_ruc(entrada)
+        cuarentena_bronze = self.spark.createDataFrame(
+            [(2025, 1), (2025, 1)], "anio int, mes int"
+        )
+        return construir_reporte_calidad(
+            "padron_ruc", bronze, entrada, silver, cuarentena, cuarentena_bronze
+        )
+
+    def test_reporte_de_calidad_por_fuente_y_mes(self):
+        filas = {(r["anio"], r["mes"]): r for r in self._reporte().collect()}
+
+        enero = filas[(2025, 1)]
+        self.assertEqual(enero["fuente"], "padron_ruc")
+        self.assertEqual(enero["filas_entrada"], 10)
+        self.assertEqual(enero["filas_cuarentena_ruc"], 2)
+        self.assertEqual(enero["filas_silver"], 8)
+        self.assertAlmostEqual(enero["tasa_cuarentena_ruc"], 0.2)
+        # 2 rechazadas en bronze frente a 10 limpias -> 2 / 12
+        self.assertAlmostEqual(enero["tasa_cuarentena_bronze"], 2 / 12)
+
+        febrero = filas[(2025, 2)]
+        self.assertEqual(febrero["filas_cuarentena_ruc"], 0)
+        self.assertEqual(febrero["tasa_cuarentena_ruc"], 0.0)
+        self.assertEqual(febrero["filas_cuarentena_bronze"], 0)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,16 @@ cuarentena con el motivo, para poder auditarlas y reportar su tasa.
 """
 
 from pyspark.sql import Column, DataFrame
-from pyspark.sql.functions import coalesce, col, concat_ws, lit, trim, udf, when
+from pyspark.sql.functions import (
+    coalesce,
+    col,
+    concat_ws,
+    count,
+    lit,
+    trim,
+    udf,
+    when,
+)
 from pyspark.sql.types import StringType
 from region_normalizer import normalize_department
 
@@ -84,3 +93,72 @@ def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
     )
     cuarentena = entrada.filter(~valido).withColumn(MOTIVO_COL, motivo)
     return silver, cuarentena
+
+
+def _conteo_por_mes(df: DataFrame, nombre: str) -> DataFrame:
+    return df.groupBy("anio", "mes").agg(count(lit(1)).alias(nombre))
+
+
+def construir_reporte_calidad(
+    fuente: str,
+    bronze: DataFrame,
+    entrada: DataFrame,
+    silver: DataFrame,
+    cuarentena_ruc: DataFrame,
+    cuarentena_bronze: DataFrame | None = None,
+) -> DataFrame:
+    """Una fila por (fuente, anio, mes) con conteos y tasas de cuarentena.
+
+    - filas_bronze: filas limpias leídas de bronze (antes de deduplicar).
+    - filas_cuarentena_bronze: rechazadas en bronze por esquema o fecha.
+    - filas_entrada: filas tras deduplicar, las que evalúa la validación de RUC.
+    - filas_cuarentena_ruc: rechazadas en Silver por RUC inválido.
+    - filas_silver: filas que quedan en Silver.
+    - tasa_cuarentena_bronze = rechazadas / (limpias + rechazadas) en bronze.
+    - tasa_cuarentena_ruc = filas_cuarentena_ruc / filas_entrada.
+    """
+    conteos = [
+        (bronze, "filas_bronze"),
+        (entrada, "filas_entrada"),
+        (silver, "filas_silver"),
+        (cuarentena_ruc, "filas_cuarentena_ruc"),
+    ]
+    if cuarentena_bronze is not None:
+        conteos.append((cuarentena_bronze, "filas_cuarentena_bronze"))
+
+    reporte = None
+    for df, nombre in conteos:
+        parcial = _conteo_por_mes(df, nombre)
+        reporte = (
+            parcial
+            if reporte is None
+            else reporte.join(parcial, ["anio", "mes"], "full_outer")
+        )
+    assert reporte is not None
+    if cuarentena_bronze is None:
+        reporte = reporte.withColumn("filas_cuarentena_bronze", lit(0).cast("long"))
+
+    columnas = [
+        "filas_bronze",
+        "filas_cuarentena_bronze",
+        "filas_entrada",
+        "filas_cuarentena_ruc",
+        "filas_silver",
+    ]
+    reporte = reporte.fillna(0, subset=columnas)
+
+    total_bronze = col("filas_bronze") + col("filas_cuarentena_bronze")
+    return reporte.select(
+        lit(fuente).alias("fuente"),
+        col("anio"),
+        col("mes"),
+        *columnas,
+        when(total_bronze > 0, col("filas_cuarentena_bronze") / total_bronze)
+        .otherwise(lit(0.0))
+        .alias("tasa_cuarentena_bronze"),
+        when(
+            col("filas_entrada") > 0, col("filas_cuarentena_ruc") / col("filas_entrada")
+        )
+        .otherwise(lit(0.0))
+        .alias("tasa_cuarentena_ruc"),
+    )
