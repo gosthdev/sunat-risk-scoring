@@ -7,6 +7,8 @@ Compatible con:
 - Exportación de predicciones (Contrato C2) y run_record NDJSON (Contrato C3).
 """
 
+from __future__ import annotations
+
 import argparse
 import glob
 import json
@@ -71,7 +73,7 @@ MAX_CATEGORIAS_DEFAULT = 30
 class Log1pTransformer(BaseEstimator, TransformerMixin):
     """Transformador para compresión de sesgo en variables monetarias y conteos (np.log1p)."""
 
-    def fit(self, X: Any, y: Any = None) -> "Log1pTransformer":
+    def fit(self, X: Any, y: Any = None) -> Log1pTransformer:
         return self
 
     def transform(self, X: Any) -> np.ndarray:
@@ -94,7 +96,7 @@ class WinsorizerSuperior(BaseEstimator, TransformerMixin):
     def __init__(self, cuantil: float = 0.995) -> None:
         self.cuantil = cuantil
 
-    def fit(self, X: Any, y: Any = None) -> "WinsorizerSuperior":
+    def fit(self, X: Any, y: Any = None) -> WinsorizerSuperior:
         arr = np.asarray(X, dtype=np.float64)
         with np.errstate(all="ignore"):
             topes = np.nanquantile(arr, self.cuantil, axis=0)
@@ -136,6 +138,12 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
     parser.add_argument("--dataset_version", type=str, default="v1")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--n_jobs",
+        type=int,
+        default=3,
+        help="Procesos paralelos de GridSearchCV (cada uno copia X_train: cuidar la RAM)",
+    )
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
     parser.add_argument(
@@ -239,7 +247,8 @@ def construir_pipeline_preprocesamiento(
                     OneHotEncoder(
                         handle_unknown="infrequent_if_exist",
                         max_categories=max_categories,
-                        sparse_output=False,
+                        sparse_output=True,
+                        dtype=np.float32,
                     ),
                 ),
             ]
@@ -318,6 +327,8 @@ def main(args_list: list[str] | None = None) -> int:
     if args.param_grid_json:
         try:
             custom_grid = json.loads(args.param_grid_json)
+            if isinstance(custom_grid, str):  # SageMaker puede codificar dos veces
+                custom_grid = json.loads(custom_grid)
             if isinstance(custom_grid, dict) and custom_grid:
                 param_grid = custom_grid
                 print(
@@ -353,7 +364,7 @@ def main(args_list: list[str] | None = None) -> int:
         scoring="average_precision",
         cv=cv_splitter,
         refit=True,
-        n_jobs=-1,
+        n_jobs=args.n_jobs,
     )
 
     # 4. Ajuste del modelo sobre Train únicamente
