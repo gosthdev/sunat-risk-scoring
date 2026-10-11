@@ -83,6 +83,8 @@ module "glue_crawler_silver" {
   role_arn       = module.iam_glue_crawler_role.role_arn
   s3_target_path = "s3://${data.aws_s3_bucket.silver.bucket}/"
   table_prefix   = "silver_"
+  # _staging/ es la ruta de paso de los jobs: solo se cataloga lo ya publicado.
+  extra_exclusions = ["_staging/**"]
 }
 
 module "glue_crawler_gold" {
@@ -94,6 +96,7 @@ module "glue_crawler_gold" {
   table_prefix   = "gold_"
   # model_* se catalogan con crawlers dedicados (4 tablas exactas, sin prefijo gold_)
   extra_exclusions = [
+    "_staging/**",
     "model_inputs/**",
     "model_outputs/**",
     "model_runs/**",
