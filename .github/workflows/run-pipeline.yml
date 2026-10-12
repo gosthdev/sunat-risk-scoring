@@ -1,6 +1,10 @@
 name: Run EMR Spark Pipeline
 
 on:
+  # Corrida mensual: el día 1 a las 08:00 UTC (03:00 Lima). Los workflows con
+  # schedule solo corren desde la rama por defecto.
+  schedule:
+    - cron: "0 8 1 * *"
   workflow_dispatch:
     inputs:
       emr_application_id:
@@ -23,10 +27,17 @@ permissions:
   id-token: write
   contents: read
 
+# Una sola corrida a la vez: dos pipelines escribiendo las mismas rutas se pisarían.
+concurrency:
+  group: run-pipeline
+  cancel-in-progress: false
+
 jobs:
   run-pipeline:
     name: Execute 5-Step Spark Pipeline on EMR Serverless
     runs-on: ubuntu-latest
+    # Tope de tiempo (y de costo) por corrida.
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

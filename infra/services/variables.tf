@@ -72,3 +72,13 @@ variable "github_repo" {
     error_message = "github_repo debe tener formato owner[@id]/repositorio[@id]."
   }
 }
+
+variable "monthly_budget_usd" {
+  description = "Presupuesto mensual de la cuenta en USD; al superar 50/80/100 % del gasto real se envía una alerta."
+  type        = number
+}
+
+variable "budget_alert_emails" {
+  description = "Correos que reciben las alertas del presupuesto de costo."
+  type        = list(string)
+}
