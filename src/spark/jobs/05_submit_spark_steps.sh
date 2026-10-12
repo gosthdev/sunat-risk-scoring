@@ -19,12 +19,24 @@
 # Variables opcionales:
 #   - AWS_REGION             : Región AWS (por defecto: us-east-1)
 #   - POLL_INTERVAL_SECONDS  : Intervalo de sondeo en segundos (por defecto: 15)
+#   - STEP_MAX_ATTEMPTS      : Intentos por step antes de abortar (por defecto: 2)
+#   - RETRY_BACKOFF_SECONDS  : Espera entre intentos (por defecto: 30)
+#   - PADRON_SNAPSHOTS       : Nº de fotos del Padrón a procesar; si no se da, se
+#                              cuentan en raw/padron_ruc (por defecto si falla: 12)
+#   - MIN_EXECUTORS          : Piso de executors (por defecto: 2)
+#   - MAX_EXECUTORS_CAP      : Techo duro de executors (por defecto: 6). Con 4 vCPU
+#                              por executor y 4 del driver son 28 vCPU, bajo el tope de
+#                              32 vCPU de la aplicación EMR (infra/services emr_max_cpu).
 # ==============================================================================
 
 set -euo pipefail
 
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-15}"
+STEP_MAX_ATTEMPTS="${STEP_MAX_ATTEMPTS:-2}"
+RETRY_BACKOFF_SECONDS="${RETRY_BACKOFF_SECONDS:-30}"
+MIN_EXECUTORS="${MIN_EXECUTORS:-2}"
+MAX_EXECUTORS_CAP="${MAX_EXECUTORS_CAP:-6}"
 EMR_APPLICATION_NAME="${EMR_APPLICATION_NAME:-sunat-ssco-spark}"
 DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring-raw}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
@@ -156,20 +168,135 @@ echo "Total de Steps    : ${TOTAL_STEPS}"
 echo "========================================================================"
 
 # ------------------------------------------------------------------------------
-# 3. Ejecución secuencial y monitoreo
+# 3. Rutas de salida y publicación
+#
+# Los steps de Silver y Gold escriben en <bucket>/_staging/... y solo cuando el
+# job termina bien se publican a la ruta viva con `aws s3 sync --delete`. Si un
+# job falla a medias, la ruta viva (la que lee Athena) conserva la última
+# versión válida.
 # ------------------------------------------------------------------------------
-CURRENT_STEP=0
+IS_SINGLE_BUCKET=0
+if [[ "$RAW_BUCKET" == "$BRONZE_BUCKET" && "$BRONZE_BUCKET" == "$SILVER_BUCKET" && "$SILVER_BUCKET" == "$GOLD_BUCKET" ]]; then
+  IS_SINGLE_BUCKET=1
+fi
 
-for step in "${STEPS[@]}"; do
-  CURRENT_STEP=$((CURRENT_STEP + 1))
-  SCRIPT_NAME="${step}.py"
-  ENTRY_POINT="s3://${ARTIFACTS_BUCKET}/jobs/${SCRIPT_NAME}"
-  JOB_NAME="sunat-ssco-${step}"
+# live_uri <bucket> <capa> <subruta>
+live_uri() {
+  if [[ "$IS_SINGLE_BUCKET" -eq 1 ]]; then
+    echo "s3://$1/$2/$3"
+  else
+    echo "s3://$1/$3"
+  fi
+}
 
-  echo ""
-  echo "------------------------------------------------------------------------"
-  echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step} (${SCRIPT_NAME})"
-  echo "------------------------------------------------------------------------"
+# staging_uri <bucket> <capa> <subruta>  (espejo de staging_de en s3_paths.py)
+staging_uri() {
+  if [[ "$IS_SINGLE_BUCKET" -eq 1 ]]; then
+    echo "s3://$1/_staging/$2/$3"
+  else
+    echo "s3://$1/_staging/$3"
+  fi
+}
+
+# Salidas que cada step deja en staging: "<bucket> <capa> <subruta> <opcional 0|1>".
+# Las opcionales (cuarentena) pueden no existir si no hubo filas rechazadas.
+step_outputs() {
+  case "$1" in
+    02_clean_silver)
+      echo "$SILVER_BUCKET silver padron_ruc 0"
+      echo "$SILVER_BUCKET silver ordenes_compra 0"
+      echo "$SILVER_BUCKET silver quarantine_padron_ruc 1"
+      echo "$SILVER_BUCKET silver quarantine_ordenes_compra 1"
+      echo "$SILVER_BUCKET silver quality_report 0"
+      ;;
+    03_feature_gold) echo "$GOLD_BUCKET gold ruc_features 0" ;;
+    04_regional_gold) echo "$GOLD_BUCKET gold regional_summary 0" ;;
+    05_scoring_dataset_gold) echo "$GOLD_BUCKET gold scoring_dataset 0" ;;
+  esac
+}
+
+s3_prefix_has_objects() {
+  [[ -n "$(aws s3 ls "$1/" 2>/dev/null | head -n 1)" ]]
+}
+
+clear_staging() {
+  local bucket layer sub optional
+  while read -r bucket layer sub optional; do
+    [[ -z "$bucket" ]] && continue
+    aws s3 rm "$(staging_uri "$bucket" "$layer" "$sub")/" --recursive --only-show-errors >/dev/null 2>&1 || true
+  done < <(step_outputs "$1")
+}
+
+# Publica staging -> ruta viva. Primero verifica que toda salida obligatoria exista:
+# si falta alguna no se toca nada de lo publicado.
+publish_step() {
+  local step="$1" bucket layer sub optional staging live
+  while read -r bucket layer sub optional; do
+    [[ -z "$bucket" ]] && continue
+    staging="$(staging_uri "$bucket" "$layer" "$sub")"
+    if [[ "$optional" -eq 0 ]] && ! s3_prefix_has_objects "$staging"; then
+      echo "✗ ERROR: '${step}' terminó sin dejar ${staging}; no se publica nada." >&2
+      return 1
+    fi
+  done < <(step_outputs "$step")
+
+  while read -r bucket layer sub optional; do
+    [[ -z "$bucket" ]] && continue
+    staging="$(staging_uri "$bucket" "$layer" "$sub")"
+    live="$(live_uri "$bucket" "$layer" "$sub")"
+    if s3_prefix_has_objects "$staging"; then
+      echo "Publicando ${staging} -> ${live}"
+      aws s3 sync "${staging}/" "${live}/" --delete --only-show-errors
+    else
+      echo "Sin ${staging} (salida opcional): se limpia ${live}"
+      aws s3 rm "${live}/" --recursive --only-show-errors >/dev/null 2>&1 || true
+    fi
+  done < <(step_outputs "$step")
+
+  clear_staging "$step"
+}
+
+# ------------------------------------------------------------------------------
+# Dimensionamiento: los executors crecen más despacio que los datos y nunca
+# pasan del techo, así más snapshots del Padrón no disparan el cómputo.
+#   executors = ceil(snapshots / 2) + 1, acotado a [MIN_EXECUTORS, MAX_EXECUTORS_CAP]
+#   1 -> 2, 3 -> 3, 6 -> 4, 12 -> 6 (techo)
+# ------------------------------------------------------------------------------
+compute_max_executors() {
+  local snapshots="$1" n
+  n=$(( (snapshots + 1) / 2 + 1 ))
+  (( n < MIN_EXECUTORS )) && n="$MIN_EXECUTORS"
+  (( n > MAX_EXECUTORS_CAP )) && n="$MAX_EXECUTORS_CAP"
+  echo "$n"
+}
+
+count_padron_snapshots() {
+  local raw_uri
+  raw_uri="$(live_uri "$RAW_BUCKET" raw padron_ruc)"
+  aws s3 ls "${raw_uri}/" --recursive 2>/dev/null \
+    | grep -o 'anio=[0-9]*/mes=[0-9]*' | sort -u | wc -l | tr -d ' ' || true
+}
+
+if [[ -z "${PADRON_SNAPSHOTS:-}" ]]; then
+  PADRON_SNAPSHOTS="$(count_padron_snapshots)"
+  if [[ -z "$PADRON_SNAPSHOTS" || "$PADRON_SNAPSHOTS" -lt 1 ]]; then
+    echo "WARN: no se pudieron contar los snapshots del Padrón; se asumen 12."
+    PADRON_SNAPSHOTS=12
+  fi
+fi
+MAX_EXECUTORS="$(compute_max_executors "$PADRON_SNAPSHOTS")"
+echo "Snapshots del Padrón: ${PADRON_SNAPSHOTS} -> maxExecutors=${MAX_EXECUTORS} (techo ${MAX_EXECUTORS_CAP})"
+
+# ------------------------------------------------------------------------------
+# 4. Ejecución de un step (un intento) y monitoreo
+# ------------------------------------------------------------------------------
+# run_step_once <step>: devuelve 0 si el Job Run termina en SUCCESS, 1 en otro caso.
+run_step_once() {
+  local step="$1"
+  local SCRIPT_NAME="${step}.py"
+  local ENTRY_POINT="s3://${ARTIFACTS_BUCKET}/jobs/${SCRIPT_NAME}"
+  local JOB_NAME="sunat-ssco-${step}"
+  local JOB_RUN_ID STATE TIMESTAMP SPARK_PARAMS
 
   # Parámetros spark-submit: empaquetado común, variables de buckets y dimensionamiento controlado
   SPARK_PARAMS="--py-files ${PY_FILES_URI} \
@@ -177,7 +304,9 @@ for step in "${STEPS[@]}"; do
 --conf spark.driver.memory=14g \
 --conf spark.executor.cores=4 \
 --conf spark.executor.memory=14g \
---conf spark.dynamicAllocation.maxExecutors=3 \
+--conf spark.dynamicAllocation.enabled=true \
+--conf spark.dynamicAllocation.initialExecutors=${MIN_EXECUTORS} \
+--conf spark.dynamicAllocation.maxExecutors=${MAX_EXECUTORS} \
 --conf spark.sql.shuffle.partitions=${SHUFFLE_PARTITIONS} \
 --conf spark.sql.parquet.datetimeRebaseModeInWrite=CORRECTED \
 --conf spark.sql.parquet.datetimeRebaseModeInRead=CORRECTED \
@@ -215,7 +344,7 @@ for step in "${STEPS[@]}"; do
       }
     }" \
     --query 'jobRunId' \
-    --output text)
+    --output text) || { echo "✗ No se pudo lanzar el Job Run de '${step}'." >&2; return 1; }
 
   echo "Job Run ID asignado: ${JOB_RUN_ID}"
   echo "Esperando finalización (sondeo cada ${POLL_INTERVAL_SECONDS}s)..."
@@ -227,7 +356,7 @@ for step in "${STEPS[@]}"; do
       --application-id "${EMR_APPLICATION_ID}" \
       --job-run-id "${JOB_RUN_ID}" \
       --query 'jobRun.state' \
-      --output text)
+      --output text) || { echo "✗ No se pudo consultar el estado del Job Run ${JOB_RUN_ID}." >&2; return 1; }
 
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[${TIMESTAMP}] Step: ${step} | Estado: ${STATE}"
@@ -235,10 +364,10 @@ for step in "${STEPS[@]}"; do
     case "${STATE}" in
       SUCCESS)
         echo "✓ Step '${step}' completado con éxito."
-        break
+        return 0
         ;;
       FAILED|CANCELLED|CANCELLING)
-        echo "✗ ERROR: El step '${step}' terminó con estado '${STATE}'." >&2
+        echo "✗ El step '${step}' terminó con estado '${STATE}'." >&2
         echo "Detalles del error:" >&2
         aws emr-serverless get-job-run \
           --region "${AWS_REGION}" \
@@ -247,7 +376,7 @@ for step in "${STEPS[@]}"; do
           --query 'jobRun.stateDetails' \
           --output text 2>/dev/null || true
         echo "Revisar logs en: ${LOG_URI}applications/${EMR_APPLICATION_ID}/jobs/${JOB_RUN_ID}/" >&2
-        exit 1
+        return 1
         ;;
       SUBMITTED|PENDING|SCHEDULED|RUNNING)
         sleep "${POLL_INTERVAL_SECONDS}"
@@ -258,6 +387,44 @@ for step in "${STEPS[@]}"; do
         ;;
     esac
   done
+}
+
+# ------------------------------------------------------------------------------
+# 5. Ejecución secuencial con reintentos
+# ------------------------------------------------------------------------------
+CURRENT_STEP=0
+
+for step in "${STEPS[@]}"; do
+  CURRENT_STEP=$((CURRENT_STEP + 1))
+
+  echo ""
+  echo "------------------------------------------------------------------------"
+  echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step}"
+  echo "------------------------------------------------------------------------"
+
+  ok=0
+  for attempt in $(seq 1 "${STEP_MAX_ATTEMPTS}"); do
+    echo "Intento ${attempt}/${STEP_MAX_ATTEMPTS} de '${step}'"
+    # Un intento fallido pudo dejar archivos a medias en staging.
+    clear_staging "$step"
+    if run_step_once "$step"; then
+      ok=1
+      break
+    fi
+    if [[ "$attempt" -lt "$STEP_MAX_ATTEMPTS" ]]; then
+      echo "Reintentando '${step}' en ${RETRY_BACKOFF_SECONDS}s..."
+      sleep "${RETRY_BACKOFF_SECONDS}"
+    fi
+  done
+
+  if [[ "$ok" -ne 1 ]]; then
+    echo "✗ ERROR: '${step}' falló tras ${STEP_MAX_ATTEMPTS} intento(s)." >&2
+    echo "  La ruta publicada no se modificó: Athena sigue sirviendo la última versión válida." >&2
+    clear_staging "$step"
+    exit 1
+  fi
+
+  publish_step "$step" || exit 1
 done
 
 echo ""

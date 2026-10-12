@@ -49,6 +49,7 @@ from s3_paths import (
     SILVER_ORDENES_COMPRA,
     SILVER_PADRON_RUC,
     SILVER_PRICOS,
+    staging_de,
 )
 from spark_session_factory import create_spark_session
 
@@ -370,7 +371,7 @@ def main():
         (
             features.write.mode("overwrite")
             .partitionBy("mes_referencia")
-            .parquet(GOLD_RUC_FEATURES)
+            .parquet(staging_de(GOLD_RUC_FEATURES))
         )
     finally:
         spark.stop()

@@ -66,7 +66,8 @@ resource "aws_iam_role_policy" "s3_access" {
           "${var.gold_bucket_arn}/ruc_features/*",
           "${var.gold_bucket_arn}/regional_summary/*",
           "${var.gold_bucket_arn}/scoring_dataset/*",
-          "${var.gold_bucket_arn}/model_inputs/*"
+          "${var.gold_bucket_arn}/model_inputs/*",
+          "${var.gold_bucket_arn}/_staging/*"
         ]
       },
       {

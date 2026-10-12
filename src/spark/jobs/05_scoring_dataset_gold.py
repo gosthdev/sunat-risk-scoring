@@ -16,7 +16,12 @@ Uso: spark-submit --py-files common.zip 05_scoring_dataset_gold.py
 import sys
 
 from pyspark.sql.functions import col, when
-from s3_paths import GOLD_RUC_FEATURES, GOLD_SCORING_DATASET, SILVER_SSCO
+from s3_paths import (
+    GOLD_RUC_FEATURES,
+    GOLD_SCORING_DATASET,
+    SILVER_SSCO,
+    staging_de,
+)
 
 # Población objetivo: TODO el Padrón, no solo quienes contratan con el
 # Estado (cruce de cobertura dio 45/766 SSCO con contratos vs 764/766 en
@@ -47,7 +52,7 @@ def main():
         (
             dataset.write.mode("overwrite")
             .partitionBy("mes_referencia")
-            .parquet(GOLD_SCORING_DATASET)
+            .parquet(staging_de(GOLD_SCORING_DATASET))
         )
     finally:
         spark.stop()

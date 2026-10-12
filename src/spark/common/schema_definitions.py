@@ -86,3 +86,16 @@ ORDENES_COMPRA_DATE_COLUMNS = [
     "fecha_compromiso_presupuestal",
     "fecha_de_notificacion",
 ]
+
+# Campos críticos cuya completitud se reporta en Silver (06_data_quality_report.py).
+# Viven junto a los esquemas para que un renombre de columna rompa el test
+# de contrato y no el reporte en silencio.
+PADRON_RUC_CAMPOS_CRITICOS = ["RUC", "Estado", "Condicion", "Departamento", "UBIGEO"]
+
+ORDENES_COMPRA_CAMPOS_CRITICOS = [
+    "orden",
+    "ruc_entidad",
+    "departamento_entidad",
+    "monto_total_orden_original",
+    "fecha_de_emision",
+]

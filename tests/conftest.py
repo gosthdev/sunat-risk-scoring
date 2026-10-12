@@ -33,3 +33,9 @@ if _JOBS_PATH not in sys.path:
     sys.path.insert(0, _JOBS_PATH)
 if _MODELS_PATH not in sys.path:
     sys.path.insert(0, _MODELS_PATH)
+
+# Los workers de PySpark (UDFs) importan los módulos de common/ por nombre:
+# en local se les expone vía PYTHONPATH, como hace --py-files en el clúster.
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    p for p in (_COMMON_PATH, os.environ.get("PYTHONPATH", "")) if p
+)

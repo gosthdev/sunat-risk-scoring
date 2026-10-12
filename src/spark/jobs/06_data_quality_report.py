@@ -10,6 +10,11 @@ from s3_paths import (
     BRONZE_PADRON_RUC_QUARANTINE,
     SILVER_ORDENES_COMPRA,
     SILVER_PADRON_RUC,
+    SILVER_QUALITY_REPORT,
+)
+from schema_definitions import (
+    ORDENES_COMPRA_CAMPOS_CRITICOS,
+    PADRON_RUC_CAMPOS_CRITICOS,
 )
 
 
@@ -68,14 +73,9 @@ def analyze_padron():
     print(f"Total registros válidos en Silver: {silver_count}\n")
 
     print("Porcentaje de Completitud por Campo Crítico en Silver:")
-    campos_criticos = [
-        "RUC",
-        "Estado_Contribuyente",
-        "Condicion_Domicilio",
-        "Departamento",
-        "Ubigeo",
-    ]
-    completeness = calculate_completeness_s3(SILVER_PADRON_RUC, campos_criticos)
+    completeness = calculate_completeness_s3(
+        SILVER_PADRON_RUC, PADRON_RUC_CAMPOS_CRITICOS
+    )
     for c, pct in completeness.items():
         print(f" - {c}: {pct}%")
     print("\n")
@@ -103,16 +103,32 @@ def analyze_ordenes():
     print(f"Total registros válidos en Silver: {silver_count}\n")
 
     print("Porcentaje de Completitud por Campo Crítico en Silver:")
-    campos_criticos = [
-        "orden",
-        "ruc_entidad",
-        "departamento_entidad",
-        "monto_total_orden_original",
-        "fecha_emision",
-    ]
-    completeness = calculate_completeness_s3(SILVER_ORDENES_COMPRA, campos_criticos)
+    completeness = calculate_completeness_s3(
+        SILVER_ORDENES_COMPRA, ORDENES_COMPRA_CAMPOS_CRITICOS
+    )
     for c, pct in completeness.items():
         print(f" - {c}: {pct}%")
+    print("\n")
+
+
+def analyze_cuarentena():
+    """Tasa de cuarentena por fuente, año y mes (la calcula 02_clean_silver.py)."""
+    print("--- 3. TASA DE CUARENTENA POR FUENTE Y MES ---")
+    try:
+        df = wr.s3.read_parquet(SILVER_QUALITY_REPORT, dataset=True)
+    except wr.exceptions.NoFilesFound:
+        print("Sin reporte: ejecutar 02_clean_silver.py primero.\n")
+        return
+
+    df = df.sort_values(["fuente", "anio", "mes"])
+    for fila in df.itertuples(index=False):
+        print(
+            f" - {fila.fuente} {fila.anio}-{int(fila.mes):02d}: "
+            f"RUC inválido {fila.tasa_cuarentena_ruc:.2%} "
+            f"({fila.filas_cuarentena_ruc}/{fila.filas_entrada}), "
+            f"bronze {fila.tasa_cuarentena_bronze:.2%} "
+            f"({fila.filas_cuarentena_bronze} filas)"
+        )
     print("\n")
 
 
@@ -120,6 +136,7 @@ def main():
     print("Generando reporte...\n")
     analyze_padron()
     analyze_ordenes()
+    analyze_cuarentena()
 
 
 if __name__ == "__main__":

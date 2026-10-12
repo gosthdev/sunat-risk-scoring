@@ -1,0 +1,86 @@
+{
+  "name": "padron_ruc",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "RUC",
+      "type": "bigint",
+      "nullable": false
+    },
+    {
+      "name": "Estado",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Condicion",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Tipo",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Actividad_Economica_CIIU_revision3_Principal",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Actividad_Economica_CIIU_revision3_Secundaria",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Actividad_Economica_CIIU_revision4_Principal",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "NroTrab",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "TipoFacturacion",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "TipoContabilidad",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "ComercioExterior",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "UBIGEO",
+      "type": "int",
+      "nullable": true
+    },
+    {
+      "name": "Departamento",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Provincia",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "Distrito",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "PERIODO_PUBLICACION",
+      "type": "int",
+      "nullable": true
+    }
+  ]
+}
