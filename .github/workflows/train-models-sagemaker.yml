@@ -1,0 +1,162 @@
+name: Train & Benchmark SSCO Models (SageMaker)
+
+# Variante SageMaker (reservada para cuando el rol tenga permisos de SageMaker; la variante
+# vigente es train-models.yml, que entrena en EC2).
+# GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en un
+# SageMaker Training Job que no depende de este workflow. Ningún dato se procesa en el runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiments:
+        description: "Experimentos a ejecutar (ALL, o separados por comas: E1,E2,E5,E6)"
+        required: false
+        type: string
+        default: "ALL"
+      dataset_version:
+        description: "Versión del dataset (model_inputs/dataset_version=<v>)"
+        required: false
+        type: string
+        default: "v1"
+      rebuild_dataset:
+        description: "Regenerar model_inputs con el Job 06 aunque ya exista"
+        required: false
+        type: boolean
+        default: false
+      instance_type:
+        description: "Instancia de SageMaker para cada Training Job"
+        required: false
+        type: string
+        default: "ml.m5.4xlarge"
+      run_tag:
+        description: "Sufijo de la corrida (vacío = id de esta ejecución). Repetir el mismo tag reanuda sin repetir experimentos terminados."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+  DATALAKE_BUCKET: ${{ vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring' }}
+  ARTIFACTS_BUCKET: ${{ vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+  RAW_BUCKET: ${{ vars.RAW_BUCKET || secrets.RAW_BUCKET || 'sunat-risk-scoring-raw' }}
+  BRONZE_BUCKET: ${{ vars.BRONZE_BUCKET || secrets.BRONZE_BUCKET || 'sunat-risk-scoring-bronze' }}
+  SILVER_BUCKET: ${{ vars.SILVER_BUCKET || secrets.SILVER_BUCKET || 'sunat-risk-scoring-silver' }}
+  GOLD_BUCKET: ${{ vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
+  EMR_APPLICATION_ID: ${{ vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
+  EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
+  DATASET_VERSION: ${{ inputs.dataset_version }}
+
+jobs:
+  prepare-dataset:
+    name: Prepare model_inputs (EMR Job 06)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check existing dataset
+        id: check
+        run: |
+          set -euo pipefail
+          PREFIX="s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
+          if [ "${{ inputs.rebuild_dataset }}" = "true" ]; then
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$(aws s3 ls "${PREFIX}" --recursive | grep '\.parquet' | head -1)" ]; then
+            echo "Dataset ya existe en ${PREFIX}; se omite el Job 06."
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and upload Spark jobs
+        if: steps.check.outputs.needs_build == 'true'
+        run: |
+          set -euo pipefail
+          bash src/spark/jobs/package_jobs.sh
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/jobs/" --exclude "*" --include "0*.py"
+
+      - name: Submit Job 06 to EMR Serverless
+        if: steps.check.outputs.needs_build == 'true'
+        run: |
+          set -euo pipefail
+          bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 06_dataset_curado
+
+      - name: Verify dataset was written
+        run: |
+          set -euo pipefail
+          PREFIX="s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
+          if [ -z "$(aws s3 ls "${PREFIX}" --recursive | grep '\.parquet' | head -1)" ]; then
+            echo "ERROR: no hay archivos .parquet en ${PREFIX}" >&2
+            exit 1
+          fi
+          aws s3 ls "${PREFIX}" --recursive --human-readable --summarize | tail -2
+
+  train:
+    name: Launch training (SageMaker)
+    needs: [prepare-dataset]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/models/requirements.txt
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package training code
+        run: |
+          bash scripts/package_training_code.sh "${GOLD_BUCKET}"
+
+      - name: Launch the SageMaker Training Job
+        env:
+          RUN_TAG: ${{ inputs.run_tag != '' && inputs.run_tag || github.run_id }}
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          export SAGEMAKER_ROLE_ARN="${{ vars.SAGEMAKER_ROLE_ARN || secrets.SAGEMAKER_ROLE_ARN || '' }}"
+          if [ -z "${SAGEMAKER_ROLE_ARN}" ]; then
+            SAGEMAKER_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/sunat-ssco-sagemaker-execution-role"
+          fi
+          # Un solo job en AWS ejecuta toda la matriz y publica cada resultado en S3.
+          # Este workflow termina aquí: no hace falta que siga vivo para que el entrenamiento acabe.
+          python -m src.models.orchestrator \
+            --config config/experiments.yml \
+            --experiments "${{ inputs.experiments }}" \
+            --target sagemaker \
+            --dataset_version "${DATASET_VERSION}" \
+            --sagemaker_instance_type "${{ inputs.instance_type }}" \
+            --run_tag "${RUN_TAG}" \
+            --gold_bucket "${GOLD_BUCKET}"
+          {
+            echo "### Training Job lanzado"
+            echo ""
+            echo "- Job: \`ssco-all-${RUN_TAG}\`"
+            echo "- Resultados: \`s3://${GOLD_BUCKET}/model_leaderboards/tag=${RUN_TAG}/\`"
+            echo "- Para ver el avance: ejecuta el workflow *Collect Training Results* con \`run_tag=${RUN_TAG}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -36,6 +36,13 @@ module "iam_sagemaker_execution_role" {
   gold_bucket_arn = data.aws_s3_bucket.gold.arn
 }
 
+module "iam_train_ec2_role" {
+  source               = "../modules/security/iam_train_ec2_role"
+  role_name            = "sunat-ssco-train-ec2-role"
+  gold_bucket_arn      = data.aws_s3_bucket.gold.arn
+  artifacts_bucket_arn = data.aws_s3_bucket.artifacts.arn
+}
+
 module "iam_glue_crawler_role" {
   source            = "../modules/security/iam_glue_crawler_role"
   role_name         = "sunat-ssco-glue-crawler-role"
@@ -56,6 +63,7 @@ module "iam_github_actions_role" {
   emr_execution_role_arn       = module.iam_emr_execution_role.role_arn
   glue_crawler_role_arn        = module.iam_glue_crawler_role.role_arn
   sagemaker_execution_role_arn = module.iam_sagemaker_execution_role.role_arn
+  train_ec2_role_arn           = module.iam_train_ec2_role.role_arn
 }
 
 ############ EMR Serverless ############
@@ -98,6 +106,8 @@ module "glue_crawler_gold" {
     "model_outputs/**",
     "model_runs/**",
     "model_metrics/**",
+    "model_reports/**",
+    "model_logs/**",
   ]
 }
 

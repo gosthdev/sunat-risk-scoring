@@ -1,6 +1,7 @@
 name: Collect Training Results
 
-# Lee desde S3 el estado del Training Job y el leaderboard de una corrida.
+# Muestra el estado de la corrida (instancia EC2 o Training Job de SageMaker), el uso de
+# recursos y el leaderboard.
 # Se puede ejecutar en cualquier momento, antes o después de que termine el entrenamiento.
 
 on:
@@ -30,21 +31,45 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Report job status and leaderboard
+      - name: Report instance status, resource usage and leaderboard
+        env:
+          TAG: ${{ inputs.run_tag }}
         run: |
           set -uo pipefail
-          TAG="${{ inputs.run_tag }}"
-          JOB="ssco-all-${TAG}"
+          mkdir -p out
           {
-            echo "### Estado del Training Job \`${JOB}\`"
-            aws sagemaker describe-training-job --training-job-name "${JOB}" \
+            echo "### Instancia \`ssco-train-${TAG}\`"
+            aws ec2 describe-instances --filters "Name=tag:Name,Values=ssco-train-${TAG}" \
+              --query 'Reservations[].Instances[].{id:InstanceId,tipo:InstanceType,estado:State.Name,lanzada:LaunchTime}' \
+              --output table 2>/dev/null || echo "No hay instancia EC2 para este tag."
+            echo ""
+            echo "### Training Job de SageMaker \`ssco-all-${TAG}\`"
+            aws sagemaker describe-training-job --training-job-name "ssco-all-${TAG}" \
               --query '{estado:TrainingJobStatus,secundario:SecondaryStatus,razon:FailureReason,instancia:ResourceConfig.InstanceType,segundos:TrainingTimeInSeconds}' \
-              --output table || echo "El job no existe."
+              --output table 2>/dev/null || echo "No hay Training Job de SageMaker para este tag."
+            echo ""
+            echo "### Uso de recursos y avance (últimas líneas del log)"
+            if aws s3 cp "s3://${GOLD_BUCKET}/model_logs/tag=${TAG}/train.log" out/train.log --only-show-errors; then
+              echo '```'
+              grep -E "\[MON\]|\[DONE\]" out/train.log | tail -12
+              echo '```'
+            else
+              echo "Aún no hay log."
+            fi
             echo ""
             echo "### Leaderboard"
           } >> "$GITHUB_STEP_SUMMARY"
           if aws s3 cp "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.md" - >> "$GITHUB_STEP_SUMMARY"; then
             echo "Leaderboard publicado."
           else
-            echo "Aún no hay leaderboard (ningún experimento ha terminado)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Aún no hay leaderboard (la instancia no ha terminado)." >> "$GITHUB_STEP_SUMMARY"
           fi
+          aws s3 cp "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.png" out/leaderboard.png --only-show-errors || true
+
+      - name: Upload leaderboard chart
+        uses: actions/upload-artifact@v4
+        with:
+          name: leaderboard-${{ inputs.run_tag }}
+          path: out/leaderboard.png
+          if-no-files-found: ignore
+          retention-days: 30

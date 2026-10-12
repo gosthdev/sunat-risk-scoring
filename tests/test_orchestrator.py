@@ -443,3 +443,174 @@ def test_reanudar_omite_experimentos_ya_publicados(monkeypatch):
             ]
         )
     assert code == 0
+
+
+def test_publicar_leaderboard_no_evita_pisar_el_leaderboard_compartido(monkeypatch):
+    import src.models.orchestrator as orq
+
+    monkeypatch.setattr(orq, "buscar_resultado_s3", lambda *a, **k: None)
+    monkeypatch.setattr(orq, "publicar_resultado_s3", lambda *a, **k: None)
+
+    def no_debe_publicar(*args, **kwargs):
+        raise AssertionError("un job de la matriz no debe publicar el leaderboard")
+
+    monkeypatch.setattr(orq, "publicar_leaderboard_s3", no_debe_publicar)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=200)
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1",
+                "--train_dir",
+                data_dir,
+                "--output_dir",
+                tmp_dir,
+                "--publicar_s3",
+                "si",
+                "--publicar_leaderboard",
+                "no",
+                "--run_tag",
+                "t3",
+            ]
+        )
+    assert code == 0
+
+
+def test_consolidar_arma_leaderboard_y_grafico_desde_s3(monkeypatch):
+    import src.models.orchestrator as orq
+
+    record = {
+        "metricas_cv": {"cv_pr_auc_mean": 0.4, "cv_pr_auc_folds": [0.4] * 5},
+        "hiperparametros_ganadores": {},
+    }
+    publicados = []
+    subidos = []
+
+    def falso_buscar(bucket, exp, run_id, output_dir):
+        assert run_id.endswith("-t4")
+        if exp["id"] == "E2":
+            return None
+        return orq.resultado_desde_record(exp, run_id, record, 0.0, "r", "p")
+
+    monkeypatch.setattr(orq, "buscar_resultado_s3", falso_buscar)
+    monkeypatch.setattr(
+        orq, "publicar_leaderboard_s3", lambda b, tag, res, ver: publicados.append(res)
+    )
+    monkeypatch.setattr(
+        orq, "publicar_archivos_s3", lambda b, pref, archivos: subidos.append(pref)
+    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1,E2",
+                "--target",
+                "consolidar",
+                "--output_dir",
+                tmp_dir,
+                "--run_tag",
+                "t4",
+            ]
+        )
+        assert os.path.isfile(os.path.join(tmp_dir, "leaderboard.md"))
+        assert os.path.getsize(os.path.join(tmp_dir, "leaderboard.png")) > 0
+    estados = {r["id"]: r["status"] for r in publicados[0]}
+    assert estados == {"E1": "SUCCESS", "E2": "FAILED"}
+    assert subidos == ["model_leaderboards/tag=t4"]
+    assert code == 1
+
+
+def test_graficos_genera_y_publica_los_png_de_cada_experimento(monkeypatch):
+    import src.models.orchestrator as orq
+
+    subidos = []
+    monkeypatch.setattr(orq, "buscar_resultado_s3", lambda *a, **k: None)
+    monkeypatch.setattr(orq, "publicar_resultado_s3", lambda *a, **k: None)
+    monkeypatch.setattr(orq, "publicar_leaderboard_s3", lambda *a, **k: None)
+    monkeypatch.setattr(
+        orq,
+        "publicar_archivos_s3",
+        lambda b, pref, archivos: subidos.append((pref, archivos)),
+    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        data_dir = os.path.join(tmp_dir, "data")
+        escribir_parquet_minimo(data_dir, n_rows=300)
+        code = orchestrator_main(
+            [
+                "--config",
+                "config/experiments.yml",
+                "--experiments",
+                "E1",
+                "--train_dir",
+                data_dir,
+                "--output_dir",
+                tmp_dir,
+                "--publicar_s3",
+                "si",
+                "--graficos",
+                "si",
+                "--run_tag",
+                "t5",
+            ]
+        )
+    assert code == 0
+    prefijo, archivos = subidos[0]
+    assert prefijo == "model_reports/run_id=ssco-run-E1-lr-v2-w1-t5"
+    nombres = {os.path.basename(a) for a in archivos}
+    assert {"pr_curve.png", "gain_curve.png", "score_distribution.png"} <= nombres
+
+
+def test_resultado_desde_record_usa_el_tiempo_del_run_record_al_consolidar():
+    from src.models.orchestrator import resultado_desde_record
+
+    record = {
+        "metricas_cv": {"cv_pr_auc_mean": 0.3, "cv_pr_auc_folds": [0.3] * 5},
+        "segundos_entrenamiento": 123.4,
+    }
+    exp = {"id": "E1", "model_name": "LR"}
+    desde_s3 = resultado_desde_record(exp, "run", record, 0.0, "r", "p")
+    medido = resultado_desde_record(exp, "run", record, 9.0, "r", "p")
+    assert desde_s3["train_seconds"] == 123.4
+    assert medido["train_seconds"] == 9.0
+
+
+def _resultado(id_, modelo, variante, pesos, auc, status="SUCCESS"):
+    return {
+        "id": id_,
+        "model_name": modelo,
+        "variant": variante,
+        "usa_pesos": pesos,
+        "status": status,
+        "cv_pr_auc_mean": auc,
+    }
+
+
+def test_campeon_nunca_es_un_benchmark_con_fuga_ni_una_ablacion():
+    # Las regresiones logísticas oficiales fallaron: el V1 y el V2 sin pesos puntúan más alto,
+    # pero no pueden ser campeones. Gana el árbol oficial.
+    resultados = [
+        _resultado("E1", "LR", "V2", "si", 0.0, status="FAILED"),
+        _resultado("E9", "LR", "V2", "si", 0.0, status="FAILED"),
+        _resultado("E3", "LR", "V1", "si", 0.9),
+        _resultado("E5", "LR", "V2", "no", 0.8),
+        _resultado("E2", "DT", "V2", "si", 0.4),
+        _resultado("E10", "DT", "V2", "si", 0.45),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "E10"
+    assert "no hubo comparación" in campeon["justificacion"].lower()
+
+
+def test_sin_candidatos_oficiales_no_hay_campeon():
+    resultados = [
+        _resultado("E3", "LR", "V1", "si", 0.9),
+        _resultado("E5", "LR", "V2", "no", 0.8),
+        _resultado("E1", "LR", "V2", "si", 0.0, status="FAILED"),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "N/A"

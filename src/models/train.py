@@ -158,17 +158,49 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args()
 
 
+# Columnas de texto con pocos valores distintos: se cargan como categóricas (códigos
+# enteros) porque un str de Python por celda ocupa varios GB con ~12 millones de filas.
+COLS_TEXTO_CATEGORICAS = [
+    "actividad_economica_principal",
+    "Estado",
+    "Condicion",
+    "departamento",
+    "ciiu_principal",
+    "tipo_contribuyente",
+    "split",
+]
+
+
+def _leer_parquet_compacto(rutas: list[str]) -> pd.DataFrame:
+    """Lee los parquet con las columnas de texto repetitivo como categóricas."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    tablas = []
+    for ruta in rutas:
+        columnas = set(pq.read_schema(ruta).names)
+        categoricas = [c for c in COLS_TEXTO_CATEGORICAS if c in columnas]
+        tablas.append(pq.read_table(ruta, read_dictionary=categoricas))
+    tabla = pa.concat_tables(tablas).unify_dictionaries()
+    return tabla.to_pandas(split_blocks=True, self_destruct=True)
+
+
 def cargar_datos(train_dir: str) -> pd.DataFrame:
     """Carga el dataset de entrada en formato Parquet desde un archivo o directorio."""
     if os.path.isfile(train_dir):
-        return pd.read_parquet(train_dir)
+        rutas = [train_dir]
+    else:
+        rutas = sorted(
+            glob.glob(os.path.join(train_dir, "**/*.parquet"), recursive=True)
+        )
 
-    parquet_files = sorted(
-        glob.glob(os.path.join(train_dir, "**/*.parquet"), recursive=True)
-    )
-    if parquet_files:
-        dfs = [pd.read_parquet(f) for f in parquet_files]
-        return pd.concat(dfs, ignore_index=True)
+    if rutas:
+        try:
+            return _leer_parquet_compacto(rutas)
+        except Exception as err:  # noqa: BLE001
+            print(f"[WARN] Lectura compacta fallida ({err}); se usa pandas.")
+            dfs = [pd.read_parquet(f) for f in rutas]
+            return pd.concat(dfs, ignore_index=True)
 
     if os.path.exists(train_dir):
         # Intentar leer directamente con pandas / pyarrow si es directorio parquet
@@ -293,13 +325,13 @@ def main(args_list: list[str] | None = None) -> int:
     num_cols, cat_cols = seleccionar_columnas(df, args.variant)
     features = num_cols + cat_cols
 
-    df_train = df[df["split"] == "train"].copy()
+    # Sin copias intermedias del DataFrame: con ~10 millones de filas cada una pesa GB.
+    es_train = (df["split"] == "train").to_numpy()
+    X_train = df.loc[es_train, features]
+    y_train: np.ndarray = np.asarray(df["label"].to_numpy()[es_train], dtype=int)
+    folds_train: np.ndarray = np.asarray(df["fold"].to_numpy()[es_train])
 
-    X_train = df_train[features]
-    y_train: np.ndarray = np.asarray(df_train["label"].values, dtype=int)
-    folds_train: np.ndarray = np.asarray(df_train["fold"].values)
-
-    n_train = len(df_train)
+    n_train = int(es_train.sum())
     n_pos_train = int(y_train.sum())
 
     print(f"[METRIC] n_train={n_train}")
@@ -321,7 +353,7 @@ def main(args_list: list[str] | None = None) -> int:
         )
         param_grid = {
             "model__max_depth": [3, 5, 6],
-            "model__min_samples_leaf": [50, 200] if len(df_train) > 1000 else [2, 5],
+            "model__min_samples_leaf": [50, 200] if n_train > 1000 else [2, 5],
         }
 
     if args.param_grid_json:
@@ -365,6 +397,7 @@ def main(args_list: list[str] | None = None) -> int:
         cv=cv_splitter,
         refit=True,
         n_jobs=args.n_jobs,
+        verbose=2,
     )
 
     # 4. Ajuste del modelo sobre Train únicamente

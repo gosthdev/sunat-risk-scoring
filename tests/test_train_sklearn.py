@@ -391,3 +391,18 @@ def test_winsorizer_recorta_cola_y_no_aplasta_columnas_en_cero():
     assert out[:, 0].max() < 1e3
     assert np.array_equal(out[:, 1], ceros)
     assert np.isnan(w.transform(np.array([[np.nan, 0.0]]))[0, 0])
+
+
+def test_cargar_datos_deja_el_texto_repetitivo_como_categorico():
+    import tempfile
+
+    from src.models.train import cargar_datos
+    from tests._dataset_minimo import escribir_parquet_minimo
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        escribir_parquet_minimo(tmp_dir, n_rows=200)
+        df = cargar_datos(tmp_dir)
+    assert len(df) == 200
+    assert str(df["departamento"].dtype) == "category"
+    assert str(df["split"].dtype) == "category"
+    assert set(df["split"].astype(str)) == {"train", "test"}

@@ -95,7 +95,8 @@ def resultado_desde_record(
     model_name = exp["model_name"]
     variant = exp.get("variant", "V2")
     usa_pesos = exp.get("usa_pesos", "si")
-    elapsed = train_seconds
+    # Al consolidar desde S3 no hay cronómetro propio: se usa el tiempo del run_record.
+    elapsed = train_seconds or float(record_data.get("segundos_entrenamiento") or 0.0)
 
     metricas_cv = record_data.get("metricas_cv", {})
     cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
@@ -140,6 +141,16 @@ def resultado_desde_record(
     }
 
 
+def construir_run_id(exp: dict[str, Any], run_tag: str = "") -> str:
+    """run_id determinista de un experimento en modo runner (clave de la reanudación)."""
+    pesos = "w1" if exp.get("usa_pesos", "si") == "si" else "w0"
+    run_id = (
+        f"ssco-run-{exp['id']}-{exp['model_name'].lower()}"
+        f"-{exp.get('variant', 'V2').lower()}-{pesos}"
+    )
+    return f"{run_id}-{run_tag}" if run_tag else run_id
+
+
 def ejecutar_experimento_runner(
     exp: dict[str, Any],
     dataset_path: str,
@@ -155,10 +166,7 @@ def ejecutar_experimento_runner(
     variant = exp.get("variant", "V2")
     usa_pesos = exp.get("usa_pesos", "si")
 
-    pesos_suffix = "w1" if usa_pesos == "si" else "w0"
-    run_id = f"ssco-run-{exp_id}-{model_name.lower()}-{variant.lower()}-{pesos_suffix}"
-    if run_tag:
-        run_id = f"{run_id}-{run_tag}"
+    run_id = construir_run_id(exp, run_tag)
 
     model_dir = os.path.join(output_base_dir, "models", run_id)
     preds_dir = os.path.join(output_base_dir, "predictions")
@@ -289,6 +297,83 @@ def buscar_resultado_s3(
     )
 
 
+def recolectar_resultados_s3(
+    bucket: str, experimentos: list[dict[str, Any]], run_tag: str, output_dir: str
+) -> list[dict[str, Any]]:
+    """Reúne el resultado publicado de cada experimento; los ausentes cuentan como FALLÓ."""
+    resultados = []
+    for exp in experimentos:
+        run_id = construir_run_id(exp, run_tag)
+        res = buscar_resultado_s3(bucket, exp, run_id, output_dir)
+        if res is None:
+            res = {
+                "id": exp["id"],
+                "run_id": run_id,
+                "model_name": exp["model_name"],
+                "variant": exp.get("variant", "V2"),
+                "usa_pesos": exp.get("usa_pesos", "si"),
+                "status": "FAILED",
+                "error": "sin resultado publicado en S3",
+            }
+        resultados.append(res)
+    return resultados
+
+
+def generar_graficos_experimento(res: dict[str, Any], output_dir: str) -> str | None:
+    """Genera los gráficos de un experimento desde sus predicciones; None si no se pudo."""
+    try:
+        import pandas as pd
+
+        try:
+            from src.models.evaluation.visualizations import save_all
+        except ImportError:
+            from evaluation.visualizations import save_all  # type: ignore[no-redef]
+
+        destino = os.path.join(output_dir, "plots", res["run_id"])
+        df = pd.read_parquet(res["preds_file"])
+        etiqueta = f"{res['id']} {res['model_name']} {res.get('variant', '')}"
+        save_all(
+            [{"label": etiqueta, "df": df}],
+            destino,
+            run_id=res["run_id"],
+            champion_label=etiqueta,
+        )
+        return destino
+    except Exception as err:  # noqa: BLE001
+        print(f"[WARN] No se pudieron generar los gráficos de {res.get('id')}: {err}")
+        return None
+
+
+def generar_grafico_leaderboard(
+    resultados: list[dict[str, Any]], campeon_info: dict[str, Any], output_dir: str
+) -> str | None:
+    """Dibuja el leaderboard como PNG en output_dir; None si no se pudo."""
+    try:
+        import matplotlib.pyplot as plt
+
+        try:
+            from src.models.evaluation.visualizations import plot_leaderboard
+        except ImportError:
+            from evaluation.visualizations import plot_leaderboard  # type: ignore[no-redef]
+
+        fig = plot_leaderboard(resultados, campeon_info.get("campeon_id"))
+        ruta = os.path.join(output_dir, "leaderboard.png")
+        os.makedirs(output_dir, exist_ok=True)
+        fig.savefig(ruta, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return ruta
+    except Exception as err:  # noqa: BLE001
+        print(f"[WARN] No se pudo generar el gráfico del leaderboard: {err}")
+        return None
+
+
+def publicar_archivos_s3(bucket: str, prefijo: str, archivos: list[str]) -> None:
+    """Sube archivos sueltos (gráficos) bajo un prefijo de S3."""
+    s3 = _s3_client()
+    for ruta in archivos:
+        s3.upload_file(ruta, bucket, f"{prefijo}/{os.path.basename(ruta)}")
+
+
 def publicar_leaderboard_s3(
     bucket: str, run_tag: str, resultados: list[dict[str, Any]], dataset_version: str
 ) -> None:
@@ -372,17 +457,22 @@ def seleccionar_modelo_campeon(
             "justificacion": motivo,
         }
 
-    exitosos = [r for r in resultados if r.get("status") == "SUCCESS"]
-    if exitosos:
-        mejor = max(exitosos, key=lambda x: x.get("cv_pr_auc_mean", 0.0))
+    # Solo una familia tiene resultado válido: gana por falta de rival, pero siempre entre los
+    # candidatos oficiales. Nunca un V1 (con fuga) ni una ablación sin pesos.
+    unico = r_lr or r_dt
+    if unico:
         return {
-            "campeon_id": mejor.get("id"),
-            "campeon_model": mejor.get("model_name"),
-            "campeon_pr_auc": mejor.get("cv_pr_auc_mean"),
+            "campeon_id": unico.get("id"),
+            "campeon_model": unico.get("model_name"),
+            "campeon_pr_auc": unico.get("cv_pr_auc_mean"),
             "retador_id": "N/A",
             "retador_model": "N/A",
             "retador_pr_auc": 0.0,
-            "justificacion": f"Mejor modelo disponible por PR-AUC ({mejor.get('cv_pr_auc_mean'):.4f}).",
+            "justificacion": (
+                f"Solo {unico.get('model_name')} ({unico.get('id')}) tiene un resultado válido entre "
+                f"los candidatos oficiales (V2 con pesos), con PR-AUC {unico.get('cv_pr_auc_mean', 0.0):.4f}. "
+                "No hubo comparación entre familias: repetir los experimentos que fallaron."
+            ),
         }
 
     return {
@@ -392,7 +482,7 @@ def seleccionar_modelo_campeon(
         "retador_id": "N/A",
         "retador_model": "N/A",
         "retador_pr_auc": 0.0,
-        "justificacion": "No se encontraron ejecuciones exitosas para determinar un campeón.",
+        "justificacion": "Ningún candidato oficial (V2 con pesos) terminó con éxito: no hay campeón.",
     }
 
 
@@ -485,9 +575,12 @@ def main(args_list: list[str] | None = None) -> int:
     parser.add_argument(
         "--target",
         type=str,
-        choices=["runner", "sagemaker"],
+        choices=["runner", "sagemaker", "consolidar"],
         default="runner",
-        help="Entorno de ejecución: runner (local/CI) o sagemaker (AWS)",
+        help=(
+            "Entorno de ejecución: runner (local/CI), sagemaker (AWS) o consolidar "
+            "(arma el leaderboard con los resultados ya publicados en S3)"
+        ),
     )
     parser.add_argument(
         "--experiments",
@@ -519,6 +612,21 @@ def main(args_list: list[str] | None = None) -> int:
         choices=["si", "no"],
         default="no",
         help="Publicar cada resultado en el bucket Gold apenas termine (runner)",
+    )
+    parser.add_argument(
+        "--publicar_leaderboard",
+        type=str,
+        choices=["si", "no"],
+        default="si",
+        help="Publicar el leaderboard parcial tras cada experimento (usar 'no' si "
+        "varios procesos comparten el run_tag y otro job consolida)",
+    )
+    parser.add_argument(
+        "--graficos",
+        type=str,
+        choices=["si", "no"],
+        default="no",
+        help="Generar los gráficos de cada experimento (y publicarlos si --publicar_s3 si)",
     )
     parser.add_argument(
         "--reanudar",
@@ -604,14 +712,27 @@ def main(args_list: list[str] | None = None) -> int:
         )
         return 0
 
-    dataset_path = args.train_dir
-    error_dataset = validar_dataset_entrada(dataset_path)
-    if error_dataset:
-        print(f"[ERROR] {error_dataset}", file=sys.stderr)
-        return 2
-
     publicar = args.publicar_s3 == "si"
     resultados: list[dict[str, Any]] = []
+
+    if args.target == "consolidar":
+        resultados = recolectar_resultados_s3(
+            args.gold_bucket, seleccionados, args.run_tag, args.output_dir
+        )
+        try:
+            publicar_leaderboard_s3(
+                args.gold_bucket, args.run_tag, resultados, dataset_version
+            )
+        except Exception as err:  # noqa: BLE001
+            print(f"[WARN] No se pudo publicar el leaderboard: {err}")
+        seleccionados = []
+
+    dataset_path = args.train_dir
+    if args.target == "runner":
+        error_dataset = validar_dataset_entrada(dataset_path)
+        if error_dataset:
+            print(f"[ERROR] {error_dataset}", file=sys.stderr)
+            return 2
 
     for exp in seleccionados:
         exp_id = exp["id"]
@@ -621,10 +742,7 @@ def main(args_list: list[str] | None = None) -> int:
 
         res = None
         if publicar and args.reanudar == "si":
-            pesos = "w1" if exp.get("usa_pesos", "si") == "si" else "w0"
-            run_id = f"ssco-run-{exp_id}-{exp['model_name'].lower()}-{exp.get('variant', 'V2').lower()}-{pesos}"
-            if args.run_tag:
-                run_id = f"{run_id}-{args.run_tag}"
+            run_id = construir_run_id(exp, args.run_tag)
             res = buscar_resultado_s3(args.gold_bucket, exp, run_id, args.output_dir)
             if res:
                 print(f"[INFO] {exp_id} ya existe en S3; se omite (reanudar).")
@@ -650,10 +768,27 @@ def main(args_list: list[str] | None = None) -> int:
                     )
                 except Exception as err:  # noqa: BLE001
                     print(f"[WARN] No se pudo publicar {exp_id} en S3: {err}")
+        if args.graficos == "si" and res.get("status") == "SUCCESS":
+            carpeta = (
+                generar_graficos_experimento(res, args.output_dir)
+                if os.path.isfile(str(res.get("preds_file", "")))
+                else None
+            )
+            if carpeta and publicar:
+                try:
+                    publicar_archivos_s3(
+                        args.gold_bucket,
+                        f"model_reports/run_id={res['run_id']}",
+                        [os.path.join(carpeta, f) for f in sorted(os.listdir(carpeta))],
+                    )
+                except Exception as err:  # noqa: BLE001
+                    print(
+                        f"[WARN] No se pudieron publicar los gráficos de {exp_id}: {err}"
+                    )
         resultados.append(res)
         print(f"[STATUS] Experimento {exp_id} -> {res.get('status')}")
 
-        if publicar:
+        if publicar and args.publicar_leaderboard == "si":
             try:
                 publicar_leaderboard_s3(
                     args.gold_bucket, args.run_tag, resultados, dataset_version
@@ -688,6 +823,18 @@ def main(args_list: list[str] | None = None) -> int:
     leaderboard_md_path = os.path.join(args.output_dir, "leaderboard.md")
     with open(leaderboard_md_path, "w", encoding="utf-8") as f:
         f.write(md_summary)
+
+    if args.target == "consolidar":
+        png = generar_grafico_leaderboard(resultados, campeon_info, args.output_dir)
+        if png:
+            try:
+                publicar_archivos_s3(
+                    args.gold_bucket,
+                    f"model_leaderboards/tag={args.run_tag or 'sin-tag'}",
+                    [png],
+                )
+            except Exception as err:  # noqa: BLE001
+                print(f"[WARN] No se pudo publicar el gráfico del leaderboard: {err}")
 
     summary_file = args.output_summary_file or os.getenv("GITHUB_STEP_SUMMARY", "")
     if summary_file and os.path.abspath(summary_file) != os.path.abspath(
