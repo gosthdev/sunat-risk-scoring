@@ -439,7 +439,7 @@ def plot_leaderboard(
     ax.set_facecolor(_SURFACE)
 
     ys = np.arange(len(exitosos))
-    for y, r in zip(ys, exitosos, strict=True):
+    for y, r in enumerate(exitosos):
         color = _NARANJA if r["id"] == campeon_id else _AZUL
         es_v1 = r.get("variant") == "V1"
         ax.barh(
