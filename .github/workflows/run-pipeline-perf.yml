@@ -27,6 +27,7 @@ jobs:
   run-pipeline-perf:
     name: Execute Spark Pipeline on Perf (${{ inputs.scale_factor }})
     runs-on: ubuntu-latest
+    timeout-minutes: 360
 
     env:
       SCALE_FACTOR: ${{ inputs.scale_factor }}
@@ -45,6 +46,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          # x10/x100 superan 1 h; el rol IAM debe tener MaxSessionDuration >= 21600
+          role-duration-seconds: 21600
 
       - name: Resolve perf bucket name
         id: buckets
