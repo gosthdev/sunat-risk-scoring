@@ -373,6 +373,9 @@ def main():
             .partitionBy("mes_referencia")
             .parquet(staging_de(GOLD_RUC_FEATURES))
         )
+        print(
+            f"[03_feature_gold] SALIDA gold_ruc_features: filas={spark.read.parquet(staging_de(GOLD_RUC_FEATURES)).count()}"
+        )
     finally:
         spark.stop()
 

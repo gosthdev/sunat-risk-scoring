@@ -26,6 +26,7 @@ def _ejecutar(tmp_path, estados, step="03_feature_gold", extra_env=None):
         "POLL_INTERVAL_SECONDS": "0",
         "RETRY_BACKOFF_SECONDS": "0",
         "STEP_MAX_ATTEMPTS": "2",
+        "LOG_FETCH_WAIT_SECONDS": "0",
         **(extra_env or {}),
     }
     res = subprocess.run(
@@ -171,3 +172,19 @@ def test_el_techo_es_configurable(tmp_path):
     )
     assert res.returncode == 0, res.stderr
     assert _max_executors(llamadas) == 3
+
+
+def test_muestra_los_logs_del_driver_al_terminar_el_step(tmp_path):
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"])
+    assert res.returncode == 0, res.stderr
+    descargas = [c for c in llamadas if c.startswith("s3 cp") and "SPARK_DRIVER" in c]
+    assert any("/SPARK_DRIVER/stdout.gz" in c for c in descargas)
+    assert any("/SPARK_DRIVER/stderr.gz" in c for c in descargas)
+
+
+def test_un_step_fallido_tambien_muestra_los_logs_del_driver(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path, ["FAILED"], extra_env={"STEP_MAX_ATTEMPTS": "1"}
+    )
+    assert res.returncode != 0
+    assert any("SPARK_DRIVER/stdout.gz" in c for c in llamadas)

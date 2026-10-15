@@ -290,6 +290,57 @@ echo "Snapshots del Padrón: ${PADRON_SNAPSHOTS} -> maxExecutors=${MAX_EXECUTORS
 # ------------------------------------------------------------------------------
 # 4. Ejecución de un step (un intento) y monitoreo
 # ------------------------------------------------------------------------------
+# show_step_logs <step> <job_run_id> <state>: muestra en el log del CD el stdout/stderr
+# del driver (EMR los vuelca a S3 unos segundos después de terminar el job) y agrega
+# un resumen al Job Summary de GitHub Actions. Nunca hace fallar el step.
+show_step_logs() {
+  local step="$1" run_id="$2" state="$3"
+  local base="${LOG_URI}applications/${EMR_APPLICATION_ID}/jobs/${run_id}/SPARK_DRIVER"
+  local stream tmp i
+  local lines_file
+  lines_file="$(mktemp)"
+  for stream in stdout stderr; do
+    tmp="$(mktemp)"
+    for i in 1 2 3 4 5 6; do
+      if aws s3 cp "${base}/${stream}.gz" - --only-show-errors 2>/dev/null | gunzip -c >"$tmp" 2>/dev/null \
+        && [[ -s "$tmp" ]]; then
+        break
+      fi
+      : >"$tmp"
+      sleep "${LOG_FETCH_WAIT_SECONDS:-5}"
+    done
+    if [[ -s "$tmp" ]]; then
+      if [[ "$state" == "SUCCESS" ]]; then
+        echo "::group::Driver ${stream} (${step}, ${run_id})"
+      else
+        echo "Driver ${stream} (${step}, ${run_id}):"
+      fi
+      cat "$tmp"
+      [[ "$state" == "SUCCESS" ]] && echo "::endgroup::"
+      [[ "$stream" == "stdout" ]] && cp "$tmp" "$lines_file"
+    else
+      echo "INFO: sin ${stream} del driver en ${base}/ (aún no disponible)."
+    fi
+    rm -f "$tmp"
+  done
+
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      echo "### ${step} — ${state}"
+      echo ""
+      echo "Job Run \`${run_id}\`"
+      echo ""
+      if [[ -s "$lines_file" ]]; then
+        echo '```'
+        grep -E '^(\[|CALIDAD|BENCHMARK_RESULT|SALIDA)' "$lines_file" | tail -n 60 || true
+        echo '```'
+      fi
+      echo ""
+    } >>"$GITHUB_STEP_SUMMARY"
+  fi
+  rm -f "$lines_file"
+}
+
 # run_step_once <step>: devuelve 0 si el Job Run termina en SUCCESS, 1 en otro caso.
 run_step_once() {
   local step="$1"
@@ -364,6 +415,7 @@ run_step_once() {
     case "${STATE}" in
       SUCCESS)
         echo "✓ Step '${step}' completado con éxito."
+        show_step_logs "$step" "$JOB_RUN_ID" "$STATE"
         return 0
         ;;
       FAILED|CANCELLED|CANCELLING)
@@ -376,6 +428,7 @@ run_step_once() {
           --query 'jobRun.stateDetails' \
           --output text 2>/dev/null || true
         echo "Revisar logs en: ${LOG_URI}applications/${EMR_APPLICATION_ID}/jobs/${JOB_RUN_ID}/" >&2
+        show_step_logs "$step" "$JOB_RUN_ID" "$STATE"
         return 1
         ;;
       SUBMITTED|PENDING|SCHEDULED|RUNNING)

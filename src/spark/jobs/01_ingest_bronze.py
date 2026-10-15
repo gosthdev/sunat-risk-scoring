@@ -31,6 +31,7 @@ import argparse
 import sys
 import time
 
+from pyspark.errors import AnalysisException
 from pyspark.sql.functions import col, lit, year
 from pyspark.sql.types import StructType
 from s3_paths import (
@@ -114,6 +115,15 @@ def _write_if_not_empty(df, path):
         df.write.mode("overwrite").parquet(path)
 
 
+def _log_salida(spark, nombre, path):
+    """Imprime filas escritas en `path` (0 si no existe), fácil de grepear en el stdout del driver."""
+    try:
+        filas = spark.read.parquet(path).count()
+    except AnalysisException:
+        filas = 0
+    print(f"[01_ingest_bronze] SALIDA {nombre}: filas={filas} ruta={path}")
+
+
 def _resolve_paths(output_root):
     """Rutas de salida: las de producción, o un árbol aislado si hay --output-root."""
     if output_root is None:
@@ -138,6 +148,8 @@ def ingest_padron_ruc(spark, paths, partitioned=True):
 
     _write_clean(clean_df, paths["padron"], partitioned)
     _write_if_not_empty(quarantined_df, paths["padron_q"])
+    _log_salida(spark, "padron_ruc", paths["padron"])
+    _log_salida(spark, "padron_ruc_cuarentena", paths["padron_q"])
 
 
 def ingest_ordenes_compra(spark, paths, partitioned=True):
@@ -157,6 +169,8 @@ def ingest_ordenes_compra(spark, paths, partitioned=True):
         allowMissingColumns=True,
     )
     _write_if_not_empty(all_quarantined_df, paths["oc_q"])
+    _log_salida(spark, "ordenes_compra", paths["oc"])
+    _log_salida(spark, "ordenes_compra_cuarentena", paths["oc_q"])
 
 
 def _parse_args(argv=None):
