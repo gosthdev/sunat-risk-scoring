@@ -290,9 +290,10 @@ echo "Snapshots del Padrón: ${PADRON_SNAPSHOTS} -> maxExecutors=${MAX_EXECUTORS
 # ------------------------------------------------------------------------------
 # 4. Ejecución de un step (un intento) y monitoreo
 # ------------------------------------------------------------------------------
-# show_step_logs <step> <job_run_id> <state>: muestra en el log del CD el stdout/stderr
-# del driver (EMR los vuelca a S3 unos segundos después de terminar el job) y agrega
-# un resumen al Job Summary de GitHub Actions. Nunca hace fallar el step.
+# show_step_logs <step> <job_run_id> <state>: muestra en el log del CD el stdout del
+# driver y un resumen de su stderr (avisos, errores, fin de stages); el stderr completo
+# queda plegado. EMR vuelca los logs a S3 unos segundos después de terminar el job.
+# Agrega además un resumen al Job Summary de GitHub Actions. Nunca hace fallar el step.
 show_step_logs() {
   local step="$1" run_id="$2" state="$3"
   local base="${LOG_URI}applications/${EMR_APPLICATION_ID}/jobs/${run_id}/SPARK_DRIVER"
@@ -310,14 +311,22 @@ show_step_logs() {
       sleep "${LOG_FETCH_WAIT_SECONDS:-5}"
     done
     if [[ -s "$tmp" ]]; then
-      if [[ "$state" == "SUCCESS" ]]; then
-        echo "::group::Driver ${stream} (${step}, ${run_id})"
+      if [[ "$stream" == "stdout" ]]; then
+        echo "Driver stdout (${step}, ${run_id}):"
+        cat "$tmp"
+        cp "$tmp" "$lines_file"
       else
-        echo "Driver ${stream} (${step}, ${run_id}):"
+        # stderr es casi todo ruido de Spark: arriba solo lo relevante, el resto plegado.
+        echo "Driver stderr, solo avisos, errores y fin de stages (${step}, ${run_id}):"
+        grep -E 'WARN|ERROR|Exception|Traceback|(ResultStage|ShuffleMapStage) [0-9]+ .* finished|Job [0-9]+ finished' "$tmp" | tail -n 80 || true
+        if [[ "$state" != "SUCCESS" ]]; then
+          echo "Últimas 100 líneas del stderr:"
+          tail -n 100 "$tmp"
+        fi
+        echo "::group::Driver stderr completo (${step}, ${run_id})"
+        cat "$tmp"
+        echo "::endgroup::"
       fi
-      cat "$tmp"
-      [[ "$state" == "SUCCESS" ]] && echo "::endgroup::"
-      [[ "$stream" == "stdout" ]] && cp "$tmp" "$lines_file"
     else
       echo "INFO: sin ${stream} del driver en ${base}/ (aún no disponible)."
     fi
