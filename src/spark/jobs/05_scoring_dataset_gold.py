@@ -54,6 +54,9 @@ def main():
             .partitionBy("mes_referencia")
             .parquet(staging_de(GOLD_SCORING_DATASET))
         )
+        print(
+            f"[05_scoring_dataset_gold] SALIDA gold_scoring_dataset: filas={spark.read.parquet(staging_de(GOLD_SCORING_DATASET)).count()}"
+        )
     finally:
         spark.stop()
 

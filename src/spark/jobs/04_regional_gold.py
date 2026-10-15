@@ -179,6 +179,9 @@ def main():
         resumen.coalesce(1).write.mode("overwrite").parquet(
             staging_de(GOLD_REGIONAL_SUMMARY)
         )
+        print(
+            f"[04_regional_gold] SALIDA gold_regional_summary: filas={spark.read.parquet(staging_de(GOLD_REGIONAL_SUMMARY)).count()}"
+        )
     finally:
         spark.stop()
 
