@@ -104,3 +104,9 @@ temp/
 mlruns/
 mlflow.db
 *.db
+
+# ── Graphify ──────────────────────────────────────────────────
+graphify-out/
+
+# ── Cross-review output ───────────────────────────────────────
+review/
