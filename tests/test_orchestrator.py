@@ -614,3 +614,39 @@ def test_sin_candidatos_oficiales_no_hay_campeon():
     ]
     campeon = seleccionar_modelo_campeon(resultados)
     assert campeon["campeon_id"] == "N/A"
+
+
+def test_publicar_resultado_escribe_metricas_de_test_al_final(monkeypatch, tmp_path):
+    import pandas as pd
+
+    import src.models.evaluation.metrics as met
+    import src.models.orchestrator as orq
+
+    eventos = []
+
+    class FalsoS3:
+        def upload_file(self, origen, bucket, clave):
+            eventos.append(clave)
+
+    def falso_export(df, destino, **kwargs):
+        assert set(df["split"]) == {"test"}
+        eventos.append(destino)
+
+    monkeypatch.setattr(orq, "_s3_client", lambda: FalsoS3())
+    monkeypatch.setattr(met, "export_metrics_flat", falso_export)
+
+    record = tmp_path / "record.json"
+    record.write_text("{}")
+    preds = tmp_path / "preds.parquet"
+    pd.DataFrame(
+        {
+            "score": [0.1, 0.9, 0.5],
+            "label": [0, 1, 0],
+            "split": ["train", "test", "test"],
+            "run_id": ["r1"] * 3,
+        }
+    ).to_parquet(preds)
+
+    orq.publicar_resultado_s3("b", "r1", str(record), str(preds), str(tmp_path))
+
+    assert eventos[-1] == "s3://b/model_metrics/run_id=r1/metrics.json"
