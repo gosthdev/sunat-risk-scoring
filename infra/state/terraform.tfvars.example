@@ -1,0 +1,4 @@
+aws_region  = "us-east-1"
+project_tag = "sunat-risk-scoring"
+
+state_bucket_name = "sunat-risk-scoring-tfstate"
