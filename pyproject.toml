@@ -20,6 +20,7 @@ module = [
     "pandas.*",
     "pyarrow",
     "pyarrow.*",
+    "evaluation.metrics",
     "evaluation.visualizations",
     "explainability",
     "export_outputs",

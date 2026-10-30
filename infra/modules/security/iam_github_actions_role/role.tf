@@ -17,11 +17,7 @@ resource "aws_iam_role" "this" {
         StringLike = {
           # Solo jobs que declaran environment (ver workflows); el sub de ramas ya no basta.
           "token.actions.githubusercontent.com:sub" = [
-            "repo:${var.github_repo}:environment:aws",
-            # shortcut: aws-main/aws-develop solo mientras se migra al environment único;
-            # quitar cuando se borren en GitHub.
-            "repo:${var.github_repo}:environment:aws-main",
-            "repo:${var.github_repo}:environment:aws-develop"
+            "repo:${var.github_repo}:environment:aws"
           ]
         }
       }

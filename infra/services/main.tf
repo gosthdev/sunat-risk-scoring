@@ -108,6 +108,9 @@ module "glue_crawler_gold" {
     "model_metrics/**",
     "model_reports/**",
     "model_logs/**",
+    # Leaderboards (.json/.md/.png) y model.tar.gz no son tablas.
+    "model_leaderboards/**",
+    "model_artifacts/**",
   ]
 }
 

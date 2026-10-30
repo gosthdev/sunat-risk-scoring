@@ -257,7 +257,24 @@ def _claves_s3(run_id: str) -> dict[str, str]:
         "record": f"model_runs/run_id={run_id}/run_record.json",
         "preds": f"model_outputs/predictions/predictions_{run_id}.parquet",
         "model": f"model_artifacts/{run_id}/output/model.tar.gz",
+        "metrics": f"model_metrics/run_id={run_id}/metrics.json",
     }
+
+
+def publicar_metricas_s3(bucket: str, preds_file: str, clave: str) -> None:
+    """Escribe las métricas de test (C4) en NDJSON para la tabla model_metrics de Athena."""
+    import pandas as pd
+
+    try:
+        from src.models.evaluation.metrics import export_metrics_flat
+    except ImportError:
+        from evaluation.metrics import export_metrics_flat  # type: ignore[no-redef]
+
+    df = pd.read_parquet(preds_file)
+    # compute_metrics rechaza filas de train: solo se evalúa test.
+    if "split" in df.columns:
+        df = df[df["split"].astype(str).str.lower() == "test"]
+    export_metrics_flat(df, f"s3://{bucket}/{clave}", n_bootstrap=500)
 
 
 def publicar_resultado_s3(
@@ -272,6 +289,9 @@ def publicar_resultado_s3(
     modelo = os.path.join(model_dir, "model.tar.gz")
     if os.path.isfile(modelo):
         s3.upload_file(modelo, bucket, claves["model"])
+    # Al final: si fallan las métricas, record, predicciones y modelo ya están en S3.
+    if os.path.isfile(preds_file):
+        publicar_metricas_s3(bucket, preds_file, claves["metrics"])
 
 
 def buscar_resultado_s3(
