@@ -110,3 +110,9 @@ graphify-out/
 
 # ── Cross-review output ───────────────────────────────────────
 review/
+
+
+# ── Claude ──────────────────────────────────────────────────
+.claude/
+CLAUDE.md
+.graphifyignore
