@@ -113,9 +113,14 @@ tests/               pruebas
 ### 1. Infraestructura (una vez)
 
 ```bash
+cd infra/state    && terraform init && terraform apply   # bucket de estado (estado local, una sola vez)
 cd infra/storage  && terraform init && terraform apply   # buckets S3
 cd infra/services && terraform init && terraform apply   # EMR, Glue, Athena, IAM
 ```
+
+`storage` y `services` guardan su estado en el bucket de `infra/state` (una `key`
+por stack, bloqueo con `use_lockfile`, requiere Terraform >= 1.10). Si ya tenían
+estado local, migrarlo antes de aplicar: `terraform init -migrate-state`.
 
 Los permisos y roles viven en Terraform. Los scripts no tocan IAM.
 
