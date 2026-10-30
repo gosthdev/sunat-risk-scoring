@@ -15,7 +15,11 @@ resource "aws_iam_role" "this" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+          # Solo jobs que declaran environment (ver workflows); el sub de ramas ya no basta.
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_repo}:environment:aws-main",
+            "repo:${var.github_repo}:environment:aws-develop"
+          ]
         }
       }
     }]

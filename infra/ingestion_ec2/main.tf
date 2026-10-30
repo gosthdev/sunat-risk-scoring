@@ -14,6 +14,8 @@ data "aws_s3_bucket" "raw" {
   bucket = var.raw_bucket_name
 }
 
+data "aws_caller_identity" "current" {}
+
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
@@ -32,6 +34,9 @@ data "aws_ami" "ubuntu" {
 ############ IAM Role & Instance Profile ############
 resource "aws_iam_role" "ingestion" {
   name = "sunat-ingestion-ec2-role"
+
+  # Boundary lo aplica infra/services; CI solo puede crear el rol con este tope.
+  permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/sunat-ingestion-ec2-boundary"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

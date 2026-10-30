@@ -27,6 +27,7 @@ jobs:
   run-pipeline-perf:
     name: Execute Spark Pipeline on Perf (${{ inputs.scale_factor }})
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     timeout-minutes: 360
 
     env:

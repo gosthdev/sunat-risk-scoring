@@ -17,6 +17,7 @@ jobs:
   prepare-small-datasets:
     name: Prepare PRICOS, EPEN, Ingresos Tributarios & SSCO
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
