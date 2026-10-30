@@ -80,7 +80,7 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Resource = ["*"]
       },
       {
-        # Solo la EC2 de ingesta: el train la apaga sola (shutdown-behavior terminate).
+        # Solo la EC2 de ingesta.
         Sid      = "TerminateIngestionWorker"
         Effect   = "Allow"
         Action   = ["ec2:TerminateInstances"]
@@ -167,17 +167,6 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
         Resource = ["arn:aws:iam::*:role/sunat-ingestion-ec2-role"]
-        Condition = {
-          StringEquals = {
-            "iam:PassedToService" = "ec2.amazonaws.com"
-          }
-        }
-      },
-      {
-        Sid      = "PassTrainingRoleToEC2"
-        Effect   = "Allow"
-        Action   = ["iam:PassRole"]
-        Resource = [var.train_ec2_role_arn != "" ? var.train_ec2_role_arn : "arn:aws:iam::*:role/sunat-ssco-train-ec2-role"]
         Condition = {
           StringEquals = {
             "iam:PassedToService" = "ec2.amazonaws.com"

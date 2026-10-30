@@ -56,9 +56,3 @@ variable "sagemaker_execution_role_arn" {
   type        = string
   default     = ""
 }
-
-variable "train_ec2_role_arn" {
-  description = "ARN del rol de la EC2 de entrenamiento para pass_role."
-  type        = string
-  default     = ""
-}

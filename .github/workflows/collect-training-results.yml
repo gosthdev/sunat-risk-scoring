@@ -1,7 +1,6 @@
 name: Collect Training Results
 
-# Muestra el estado de la corrida (instancia EC2 o Training Job de SageMaker), el uso de
-# recursos y el leaderboard.
+# Muestra el estado del Training Job de SageMaker, el uso de recursos y el leaderboard.
 # Se puede ejecutar en cualquier momento, antes o después de que termine el entrenamiento.
 
 on:
@@ -39,11 +38,6 @@ jobs:
           set -uo pipefail
           mkdir -p out
           {
-            echo "### Instancia \`ssco-train-${TAG}\`"
-            aws ec2 describe-instances --filters "Name=tag:Name,Values=ssco-train-${TAG}" \
-              --query 'Reservations[].Instances[].{id:InstanceId,tipo:InstanceType,estado:State.Name,lanzada:LaunchTime}' \
-              --output table 2>/dev/null || echo "No hay instancia EC2 para este tag."
-            echo ""
             echo "### Training Job de SageMaker \`ssco-all-${TAG}\`"
             aws sagemaker describe-training-job --training-job-name "ssco-all-${TAG}" \
               --query '{estado:TrainingJobStatus,secundario:SecondaryStatus,razon:FailureReason,instancia:ResourceConfig.InstanceType,segundos:TrainingTimeInSeconds}' \
@@ -63,7 +57,7 @@ jobs:
           if aws s3 cp "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.md" - >> "$GITHUB_STEP_SUMMARY"; then
             echo "Leaderboard publicado."
           else
-            echo "Aún no hay leaderboard (la instancia no ha terminado)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Aún no hay leaderboard (el Training Job no ha terminado)." >> "$GITHUB_STEP_SUMMARY"
           fi
           aws s3 cp "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.png" out/leaderboard.png --only-show-errors || true
 

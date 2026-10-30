@@ -1,7 +1,5 @@
 name: Train & Benchmark SSCO Models (SageMaker)
 
-# Variante SageMaker (reservada para cuando el rol tenga permisos de SageMaker; la variante
-# vigente es train-models.yml, que entrena en EC2).
 # GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en un
 # SageMaker Training Job que no depende de este workflow. Ningún dato se procesa en el runner.
 
