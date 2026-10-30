@@ -26,7 +26,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.10.5"
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
@@ -36,9 +36,12 @@ jobs:
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
-      - name: Terraform Init & Validate (storage & services)
+      - name: Terraform Init & Validate (state, storage & services)
         run: |
-          cd storage
+          cd state
+          terraform init -backend=false
+          terraform validate
+          cd ../storage
           terraform init -backend=false
           terraform validate
           cd ../services
