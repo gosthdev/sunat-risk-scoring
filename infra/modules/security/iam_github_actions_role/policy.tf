@@ -92,13 +92,6 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         }
       },
       {
-        # CI solo lee el rol de Glue (06_create_glue_crawler.sh). Lo gestiona services.
-        Sid      = "ReadGlueCrawlerRole"
-        Effect   = "Allow"
-        Action   = ["iam:GetRole"]
-        Resource = ["arn:aws:iam::*:role/sunat-ssco-glue-crawler-role"]
-      },
-      {
         # Sin Attach/Detach ni Put/DeleteRolePolicy: el rol de ingesta solo usa
         # políticas administradas (ver AttachIngestionManagedPolicies).
         Sid    = "ManageIngestionIAM"
@@ -248,7 +241,6 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         # GetTable y las de particiones las usa Athena al leer el catálogo con este rol.
         Action = [
           "glue:GetDatabase",
-          "glue:CreateDatabase",
           "glue:GetTables",
           "glue:GetTable",
           "glue:GetPartition",
@@ -264,18 +256,15 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         ]
       },
       {
-        # Crawlers sunat-ssco-<zona>-crawler y el nombre legacy ssco-<zona>-crawler (06_create_glue_crawler.sh).
+        # Terraform crea y configura los crawlers; CD solo los consulta y los ejecuta (06_create_glue_crawler.sh).
         Sid    = "GlueCrawlers"
         Effect = "Allow"
         Action = [
           "glue:GetCrawler",
-          "glue:CreateCrawler",
-          "glue:UpdateCrawler",
           "glue:StartCrawler"
         ]
         Resource = [
-          "arn:aws:glue:*:*:crawler/sunat-ssco-*",
-          "arn:aws:glue:*:*:crawler/ssco-*-crawler"
+          "arn:aws:glue:*:*:crawler/sunat-ssco-*"
         ]
       },
       {
