@@ -1,0 +1,22 @@
+name: AWS setup
+description: Python 3.11 y credenciales AWS por OIDC. El checkout va antes, en el job.
+
+inputs:
+  role-to-assume:
+    description: ARN del rol de GitHub Actions.
+    required: true
+  aws-region:
+    description: Región AWS.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
