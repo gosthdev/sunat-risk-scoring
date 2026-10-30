@@ -18,6 +18,10 @@
 #
 # Variables opcionales:
 #   - AWS_REGION             : Región AWS (por defecto: us-east-1)
+#   - STEP_TIMEOUT_MINUTES   : Tope por intento en EMR (executionTimeoutMinutes); sin
+#                              definir usa el de EMR (720). pipeline.yml lo fija en 100.
+#   - JOBS_PREFIX            : Prefijo del código en ARTIFACTS_BUCKET (por defecto: jobs;
+#                              pipeline.yml usa jobs/releases/<sha> para no mezclar versiones)
 #   - POLL_INTERVAL_SECONDS  : Intervalo de sondeo en segundos (por defecto: 15)
 #   - STEP_MAX_ATTEMPTS      : Intentos por step antes de abortar (por defecto: 2)
 #   - RETRY_BACKOFF_SECONDS  : Espera entre intentos (por defecto: 30)
@@ -40,6 +44,7 @@ MAX_EXECUTORS_CAP="${MAX_EXECUTORS_CAP:-6}"
 EMR_APPLICATION_NAME="${EMR_APPLICATION_NAME:-sunat-ssco-spark}"
 DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring-raw}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
+JOBS_PREFIX="${JOBS_PREFIX:-jobs}"
 RAW_BUCKET="${RAW_BUCKET:-sunat-risk-scoring-raw}"
 BRONZE_BUCKET="${BRONZE_BUCKET:-sunat-risk-scoring-bronze}"
 SILVER_BUCKET="${SILVER_BUCKET:-sunat-risk-scoring-silver}"
@@ -154,7 +159,7 @@ else
 fi
 
 TOTAL_STEPS="${#STEPS[@]}"
-PY_FILES_URI="s3://${ARTIFACTS_BUCKET}/jobs/common.zip"
+PY_FILES_URI="s3://${ARTIFACTS_BUCKET}/${JOBS_PREFIX}/common.zip"
 LOG_URI="s3://${ARTIFACTS_BUCKET}/emr-logs/"
 
 echo "========================================================================"
@@ -162,6 +167,7 @@ echo "Iniciando Pipeline EMR Serverless (${TOTAL_STEPS} step(s))"
 echo "Aplicación EMR ID : ${EMR_APPLICATION_ID}"
 echo "Región AWS        : ${AWS_REGION}"
 echo "Bucket Artefactos : ${ARTIFACTS_BUCKET}"
+echo "Código (jobs)     : s3://${ARTIFACTS_BUCKET}/${JOBS_PREFIX}/"
 echo "Bucket DataLake   : ${DATALAKE_BUCKET}"
 echo "Steps a ejecutar  : ${STEPS[*]}"
 echo "Total de Steps    : ${TOTAL_STEPS}"
@@ -354,7 +360,7 @@ show_step_logs() {
 run_step_once() {
   local step="$1"
   local SCRIPT_NAME="${step}.py"
-  local ENTRY_POINT="s3://${ARTIFACTS_BUCKET}/jobs/${SCRIPT_NAME}"
+  local ENTRY_POINT="s3://${ARTIFACTS_BUCKET}/${JOBS_PREFIX}/${SCRIPT_NAME}"
   local JOB_NAME="sunat-ssco-${step}"
   local JOB_RUN_ID STATE TIMESTAMP SPARK_PARAMS
 
@@ -390,6 +396,7 @@ run_step_once() {
     --application-id "${EMR_APPLICATION_ID}" \
     --execution-role-arn "${EMR_EXECUTION_ROLE_ARN}" \
     --name "${JOB_NAME}" \
+    ${STEP_TIMEOUT_MINUTES:+--execution-timeout-minutes "${STEP_TIMEOUT_MINUTES}"} \
     --job-driver "{
       \"sparkSubmit\": {
         \"entryPoint\": \"${ENTRY_POINT}\",
@@ -491,5 +498,5 @@ done
 
 echo ""
 echo "========================================================================"
-echo "✓ Pipeline completado con éxito: Todos los ${TOTAL_STEPS} step(s) finalizaron en SUCCESS."
+echo "Pipeline completado con éxito: Todos los ${TOTAL_STEPS} step(s) finalizaron en SUCCESS."
 echo "========================================================================"
