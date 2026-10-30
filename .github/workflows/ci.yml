@@ -8,9 +8,10 @@ on:
 permissions:
   contents: read
 
+# En push no se cancela: cortar una corrida haría que trigger-pipeline no vea sus cambios.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   terraform:
@@ -54,6 +55,17 @@ jobs:
         run: |
           tflint --init --config "$(pwd)/.tflint.hcl"
           tflint --recursive --config "$(pwd)/.tflint.hcl"
+
+  # Valida sintaxis y expresiones ${{ }} de los workflows. Sin shellcheck: los run:
+  # existentes no se escribieron contra él.
+  actionlint:
+    name: Workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color -shellcheck=
 
   python:
     name: Python (ruff + mypy + pytest)
@@ -107,3 +119,39 @@ jobs:
       - name: Tests
         if: ${{ hashFiles('tests/**/*.py') != '' }}
         run: pytest -q
+
+  # CD: si CI pasó y el push tocó código de datos, lanza pipeline.yml como corrida
+  # aparte (sus marcadores deciden qué etapas se rehacen).
+  trigger-pipeline:
+    name: Trigger Data Pipeline
+    needs: [terraform, actionlint, python]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lanzar pipeline.yml si cambió código de datos
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # shortcut: solo mira este push; si un push anterior falló CI, sus cambios
+          # esperan al siguiente pipeline (los marcadores los detectan igual).
+          # Rama nueva o historia reescrita: no hay base para comparar, se lanza igual.
+          if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            changed="(sin base de comparación)"
+          else
+            changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- \
+              src/spark src/analysis/queries infra/ingestion_ec2 src/requirements.txt)
+          fi
+          if [[ -z "$changed" ]]; then
+            echo "El push no toca código de datos: no se lanza el pipeline."
+            exit 0
+          fi
+          echo "Cambios de datos:"; echo "$changed"
+          gh workflow run pipeline.yml --ref "$GITHUB_REF_NAME"

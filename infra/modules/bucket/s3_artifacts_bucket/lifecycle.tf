@@ -25,6 +25,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
     }
   }
 
+  # pipeline.yml sube el código de cada corrida a jobs/releases/<sha>/.
+  rule {
+    id     = "expire-job-releases"
+    status = "Enabled"
+
+    filter {
+      prefix = "jobs/releases/"
+    }
+
+    expiration {
+      days = var.expiration_days
+    }
+  }
+
   rule {
     id     = "expire-athena-results"
     status = "Enabled"

@@ -14,6 +14,6 @@ variable "force_destroy" {
 }
 
 variable "expiration_days" {
-  description = "Días tras los cuales se borran los logs de EMR y los resultados de Athena."
+  description = "Días tras los cuales se borran los logs de EMR, los resultados de Athena y las versiones de jobs/releases/."
   type        = number
 }

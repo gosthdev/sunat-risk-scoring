@@ -1,7 +1,5 @@
 name: Train & Benchmark SSCO Models (SageMaker)
 
-# Variante SageMaker (reservada para cuando el rol tenga permisos de SageMaker; la variante
-# vigente es train-models.yml, que entrena en EC2).
 # GitHub Actions solo lanza: el curado corre en EMR Serverless y el entrenamiento en un
 # SageMaker Training Job que no depende de este workflow. Ningún dato se procesa en el runner.
 
@@ -54,7 +52,7 @@ jobs:
   prepare-dataset:
     name: Prepare model_inputs (EMR Job 06)
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
+    environment: aws
     timeout-minutes: 240
     steps:
       - name: Checkout repository
@@ -108,7 +106,7 @@ jobs:
     name: Launch training (SageMaker)
     needs: [prepare-dataset]
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
+    environment: aws
     timeout-minutes: 30
     steps:
       - name: Checkout repository

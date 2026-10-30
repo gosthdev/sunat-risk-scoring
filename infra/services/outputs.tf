@@ -42,13 +42,3 @@ output "sagemaker_execution_role_arn" {
   value       = module.iam_sagemaker_execution_role.role_arn
   description = "ARN del rol de ejecución IAM para SageMaker Training Jobs."
 }
-
-output "train_ec2_role_arn" {
-  value       = module.iam_train_ec2_role.role_arn
-  description = "ARN del rol IAM de la EC2 efímera de entrenamiento."
-}
-
-output "train_ec2_instance_profile_name" {
-  value       = module.iam_train_ec2_role.instance_profile_name
-  description = "Perfil de instancia que usa scripts/train_ec2.sh."
-}

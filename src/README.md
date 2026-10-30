@@ -48,10 +48,7 @@ La infraestructura se despliega en dos capas modulares independientes dentro de 
 ### Opción 1: Automatizado vía GitHub Actions (Método Canónico / Producción)
 
 Los workflows ejecutan las tareas en runners seguros asumiendo el rol IAM vía OIDC:
-1. **Ejecutar `.github/workflows/prepare-small-datasets.yml` (workflow_dispatch):**
-   Procesa PRICOS, Ingresos Tributarios, EPEN y SSCO hacia la capa `silver/`. Se corre cuando se actualizan dichas fuentes.
-2. **Ejecutar `.github/workflows/run-pipeline.yml` (workflow_dispatch):**
-   Empaqueta `common.zip`, sincroniza artefactos hacia `s3://${ARTIFACTS_BUCKET}/jobs/` y ejecuta los 5 steps de EMR Serverless secuencialmente mediante `05_submit_spark_steps.sh`.
+**`.github/workflows/pipeline.yml`** corre toda la DAG (ingesta, Job 00 de datasets pequeños, jobs 01–05 en EMR Serverless, crawlers y Athena). Lo lanza `ci.yml` cuando un push toca código de datos, y se puede ejecutar a mano (*Run workflow*, con `force` para rehacer desde una etapa).
 
 ### Opción 2: Manual / Desarrollo Local
 

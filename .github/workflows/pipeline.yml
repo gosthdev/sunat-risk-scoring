@@ -1,0 +1,483 @@
+name: Data Pipeline (Idempotent)
+
+# Lo lanza ci.yml cuando un push a develop/main toca código de datos y CI pasó;
+# también a mano para reprocesos.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rehacer desde esta etapa (las que dependen de ella se rehacen solas; raw = todo, re-descargando)"
+        required: false
+        type: choice
+        default: ninguna
+        options: [ninguna, raw, small, bronze, silver, gold_ruc, gold_regional, scoring, analytics]
+
+permissions:
+  id-token: write
+  contents: read
+
+# Una corrida a la vez: dos pipelines escribiendo _staging/ se pisarían.
+concurrency:
+  group: data-pipeline
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+  DATALAKE_BUCKET: ${{ vars.DATALAKE_BUCKET || secrets.DATALAKE_BUCKET || 'sunat-risk-scoring' }}
+  ARTIFACTS_BUCKET: ${{ vars.ARTIFACTS_BUCKET || secrets.ARTIFACTS_BUCKET || 'sunat-risk-scoring-artifacts' }}
+  RAW_BUCKET: ${{ vars.RAW_BUCKET || secrets.RAW_BUCKET || 'sunat-risk-scoring-raw' }}
+  BRONZE_BUCKET: ${{ vars.BRONZE_BUCKET || secrets.BRONZE_BUCKET || 'sunat-risk-scoring-bronze' }}
+  SILVER_BUCKET: ${{ vars.SILVER_BUCKET || secrets.SILVER_BUCKET || 'sunat-risk-scoring-silver' }}
+  GOLD_BUCKET: ${{ vars.GOLD_BUCKET || secrets.GOLD_BUCKET || 'sunat-risk-scoring-gold' }}
+  EMR_APPLICATION_ID: ${{ vars.EMR_APPLICATION_ID || secrets.EMR_APPLICATION_ID || '' }}
+  EMR_EXECUTION_ROLE_ARN: ${{ vars.EMR_EXECUTION_ROLE_ARN || secrets.EMR_EXECUTION_ROLE_ARN || '' }}
+  GLUE_ROLE_ARN: ${{ vars.GLUE_ROLE_ARN || secrets.GLUE_ROLE_ARN || '' }}
+  GLUE_DATABASE: ${{ vars.GLUE_DATABASE || secrets.GLUE_DATABASE || 'sunat_ssco' }}
+  ATHENA_WORKGROUP: ${{ vars.ATHENA_WORKGROUP || secrets.ATHENA_WORKGROUP || 'sunat-ssco' }}
+  # Código de esta corrida: deploy lo sube una vez y todas las etapas EMR lo usan.
+  JOBS_PREFIX: jobs/releases/${{ github.sha }}
+  # Tope por intento en EMR (2 intentos): vence antes que el timeout-minutes 240 del job,
+  # así EMR cancela y no se publica nada, en vez de cortar el runner a mitad del publish.
+  STEP_TIMEOUT_MINUTES: "100"
+
+# timeout-minutes holgado (la corrida completa real tarda ~1.5 h): cortar a mitad de un
+# publish dejaría la ruta viva a medias, el tope solo evita runners colgados por horas.
+# Cada etapa: check_stage.sh decide (hash de código + marcadores upstream + datos en S3);
+# si corre, escribe su marcador al final y su output "ran" fuerza a las siguientes.
+jobs:
+  # ============================================================================
+  # DEPLOY: empaqueta y sube el código una sola vez por corrida
+  # ============================================================================
+  deploy:
+    name: Deploy Spark Jobs
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package and upload jobs
+        run: |
+          bash src/spark/jobs/package_jobs.sh
+          aws s3 cp src/spark/jobs/common.zip "s3://${ARTIFACTS_BUCKET}/${JOBS_PREFIX}/common.zip"
+          aws s3 sync src/spark/jobs/ "s3://${ARTIFACTS_BUCKET}/${JOBS_PREFIX}/" --exclude "*" --include "0*.py"
+
+  # ============================================================================
+  # ETAPA 0: Ingesta Raw (EC2 efímera con Terraform)
+  # ============================================================================
+  raw:
+    name: Raw Ingestion (EC2)
+    timeout-minutes: 240
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'raw' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage raw \
+            --marker-uri "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --files infra/ingestion_ec2/urls.json infra/ingestion_ec2/scripts/process_and_upload.py \
+            --check-raw-data \
+            --raw-bucket "${RAW_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Setup Terraform
+        if: steps.check.outputs.needs_run == 'true'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+
+      - name: Run EC2 ingestion and destroy
+        if: steps.check.outputs.needs_run == 'true'
+        env:
+          RAW_BUCKET_NAME: ${{ env.RAW_BUCKET }}
+          TF_VAR_aws_profile: ""
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_raw_bucket_name: ${{ env.RAW_BUCKET }}
+        run: bash infra/ingestion_ec2/run_and_destroy.sh
+
+  # ============================================================================
+  # ETAPA 0: Small Datasets (Job 00 -> Silver, en el runner)
+  # ============================================================================
+  small:
+    name: Small Datasets (Job 00)
+    timeout-minutes: 60
+    needs: [raw]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'small' || needs.raw.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage small \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --silver-bucket "${SILVER_BUCKET}" \
+            --raw-bucket "${RAW_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Run prepare small datasets
+        if: steps.check.outputs.needs_run == 'true'
+        env:
+          PYTHONPATH: src/spark/common
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+          python3 src/spark/jobs/00_prepare_small_datasets.py
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage small \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+
+  # ============================================================================
+  # ETAPA 1: Bronze (Job 01)
+  # ============================================================================
+  bronze:
+    name: Bronze (Job 01)
+    timeout-minutes: 240
+    needs: [deploy, raw, small]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'bronze' || needs.raw.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage bronze \
+            --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
+            --bronze-bucket "${BRONZE_BUCKET}" \
+            --raw-bucket "${RAW_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Submit Job 01 to EMR Serverless
+        if: steps.check.outputs.needs_run == 'true'
+        run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 01_ingest_bronze
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage bronze \
+            --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+
+  # ============================================================================
+  # ETAPA 2: Silver (Job 02)
+  # ============================================================================
+  silver:
+    name: Silver (Job 02)
+    timeout-minutes: 240
+    needs: [deploy, bronze]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'silver' || needs.bronze.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage silver \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
+            --silver-bucket "${SILVER_BUCKET}" \
+            --bronze-bucket "${BRONZE_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Submit Job 02 to EMR Serverless
+        if: steps.check.outputs.needs_run == 'true'
+        run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 02_clean_silver
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage silver \
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json"
+
+  # ============================================================================
+  # ETAPA 3: Gold RUC Features (Job 03)
+  # ============================================================================
+  gold-ruc:
+    name: Gold RUC (Job 03)
+    timeout-minutes: 240
+    needs: [deploy, silver]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'gold_ruc' || needs.silver.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage gold_ruc \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --gold-bucket "${GOLD_BUCKET}" \
+            --silver-bucket "${SILVER_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Submit Job 03 to EMR Serverless
+        if: steps.check.outputs.needs_run == 'true'
+        run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 03_feature_gold
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage gold_ruc \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json"
+
+  # ============================================================================
+  # ETAPA 4: Gold Regional Summary (Job 04)
+  # ============================================================================
+  gold-regional:
+    name: Gold Regional (Job 04)
+    timeout-minutes: 240
+    needs: [deploy, silver, small]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'gold_regional' || needs.silver.outputs.ran == 'true' || needs.small.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage gold_regional \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --files src/spark/jobs/04_regional_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
+            --gold-bucket "${GOLD_BUCKET}" \
+            --silver-bucket "${SILVER_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Submit Job 04 to EMR Serverless
+        if: steps.check.outputs.needs_run == 'true'
+        run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 04_regional_gold
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage gold_regional \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --files src/spark/jobs/04_regional_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job00_complete.json"
+
+  # ============================================================================
+  # ETAPA 5: Gold Scoring Dataset (Job 05)
+  # ============================================================================
+  scoring:
+    name: Scoring Dataset (Job 05)
+    timeout-minutes: 240
+    needs: [deploy, gold-ruc, gold-regional]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    outputs:
+      ran: ${{ steps.check.outputs.needs_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'scoring' || needs.gold-ruc.outputs.ran == 'true' || needs.gold-regional.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage scoring \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --files src/spark/jobs/05_scoring_dataset_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
+            --gold-bucket "${GOLD_BUCKET}" \
+            --force "$FORCE_VAL"
+
+      - name: Submit Job 05 to EMR Serverless
+        if: steps.check.outputs.needs_run == 'true'
+        run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 05_scoring_dataset_gold
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage scoring \
+            --marker-uri "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --files src/spark/jobs/05_scoring_dataset_gold.py "src/spark/common/*.py" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json"
+
+  # ============================================================================
+  # ETAPA 6: Analytics (Glue Crawlers + Athena Queries)
+  # ============================================================================
+  analytics:
+    name: Glue Crawlers and Athena
+    timeout-minutes: 60
+    needs: [scoring]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check stage
+        id: check
+        run: |
+          FORCE_VAL="false"
+          if [[ "${{ inputs.force == 'analytics' || needs.scoring.outputs.ran == 'true' }}" == "true" ]]; then
+            FORCE_VAL="true"
+          fi
+          bash scripts/check_stage.sh \
+            --stage analytics \
+            --marker-uri "s3://${ARTIFACTS_BUCKET}/_markers/analytics_complete.json" \
+            --files "src/analysis/queries/*.sql" "src/analysis/queries/*.sh" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job05_complete.json" \
+            --glue-database "${GLUE_DATABASE}" \
+            --force "$FORCE_VAL"
+
+      - name: Run Glue crawlers (Silver & Gold)
+        if: steps.check.outputs.needs_run == 'true'
+        run: bash src/analysis/queries/06_create_glue_crawler.sh
+
+      - name: Run Athena analytical queries
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash src/analysis/queries/08_run_athena_query.sh \
+            src/analysis/queries/concentracion_pricos.sql \
+            src/analysis/queries/informalidad_vs_ruc_activos.sql \
+            src/analysis/queries/ruc_activos_por_departamento.sql
+
+      - name: Write marker
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          bash scripts/write_marker.sh \
+            --stage analytics \
+            --marker-uri "s3://${ARTIFACTS_BUCKET}/_markers/analytics_complete.json" \
+            --files "src/analysis/queries/*.sql" "src/analysis/queries/*.sh" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job05_complete.json"
+
+  # ============================================================================
+  # ETAPA 7: Verificación de salud e integridad del Data Lake (smoke test)
+  # ============================================================================
+  verify:
+    name: Verify Pipeline Health
+    timeout-minutes: 15
+    needs: [analytics]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/aws-setup
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run pipeline health verification
+        run: bash scripts/verify_pipeline_health.sh

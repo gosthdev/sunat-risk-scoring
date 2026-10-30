@@ -61,7 +61,7 @@ Los buckets son `raw`, `bronze`, `silver`, `gold` y `artifacts`.
 ### Decisiones de diseño
 
 - **Idempotencia.** Cada etapa tiene un marcador en S3 y se salta si ni su código
-  ni sus entradas cambiaron. Se puede forzar con `force_all` o por etapa.
+  ni sus entradas cambiaron. Se puede forzar con el input `force` (desde una etapa; `raw` rehace todo).
 - **Publicación en dos pasos.** Los steps 02–05 escriben en `_staging/` y se
   publican a la ruta viva solo si el job termina bien (`sync --delete`). Un job
   fallido se reintenta y, si persiste, no toca lo ya publicado.
@@ -84,9 +84,8 @@ selección `average_precision`):
   sin pesos de clase.
 - **E9–E12:** exploraciones de hiperparámetros sobre LR y DT con V2.
 
-El entrenamiento corre en una EC2 puntual con `scripts/train_ec2.sh`
-(workflow `train-models.yml`; resultados con `collect-training-results.yml`).
-Existe también un flujo alternativo en SageMaker (`train-models-sagemaker.yml`).
+El entrenamiento corre en SageMaker Training Jobs (workflow
+`train-models-sagemaker.yml`; resultados con `collect-training-results.yml`).
 El código está en `src/models/` (entrenamiento, métricas con bootstrap, curvas,
 explicabilidad y consolidación de experimentos).
 
@@ -101,7 +100,7 @@ contracts/           contratos de esquema (Padrón, Órdenes de Compra)
 docs/model/          contratos del dataset, features, auditoría de fuga, informe
 infra/               Terraform: storage, services, ingestion_ec2, módulos
 notebooks/           EDA (calidad, Padrón, target, regional)
-scripts/             orquestación (marcadores, limpieza, entrenamiento EC2)
+scripts/             orquestación (marcadores, limpieza, verificación)
 src/spark/           jobs 00–06 y módulos comunes
 src/models/          entrenamiento, evaluación, explicabilidad
 src/analysis/        queries de Athena y scripts de Glue/Athena
@@ -126,9 +125,19 @@ Los permisos y roles viven en Terraform. Los scripts no tocan IAM.
 
 ### 2. Pipeline de datos
 
-Lo normal es el workflow **Continuous Deployment** (`cd.yml`): corre en cada push
-a `main` o `develop`, o a mano con *Run workflow*. Para rehacer todo, marcar
-`force_all`. Cada paso de Spark muestra en el log el `stdout`/`stderr` del driver
+El workflow **Data Pipeline** (`pipeline.yml`) corre la DAG completa: ingesta,
+jobs 00–05, crawlers, consultas de Athena y verificación. Se dispara solo:
+
+- **CD:** cuando un push a `develop` o `main` toca código de datos
+  (`src/spark/`, `src/analysis/queries/`, `infra/ingestion_ec2/`) y CI pasó,
+  `ci.yml` lo lanza. Los marcadores en S3 hacen que solo se rehagan las etapas
+  cuyo código o datos de entrada cambiaron.
+- **A mano:** *Run workflow*; con `force` se rehace desde una etapa (`raw` = todo, re-descargando).
+
+Cada corrida empieza con el job `deploy`, que sube el código una sola vez a
+`s3://<artifacts>/jobs/releases/<sha>/` (se borra a los 30 días); todas las
+etapas EMR usan esa versión. Hay una sola corrida a la vez (`concurrency`), y
+Spark publica a la ruta viva solo si el job termina bien. Cada paso de Spark muestra en el log el `stdout`/`stderr` del driver
 (plegado si termina bien, abierto si falla) y un resumen en el *Job Summary*.
 
 Ejecución manual, desde la raíz:
@@ -142,10 +151,9 @@ bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 01_ingest_bronze
 
 ### 3. Entrenamiento
 
-Ejecutar el workflow **Train & Benchmark SSCO Models (EC2)** y luego
-**Collect Training Results**. La instancia (`r6i.8xlarge`, 32 vCPU) corre 5
-experimentos en paralelo; el dataset ronda los 12.6 M de filas y cada experimento
-pica cerca de 22 GB de RAM, por eso no entra en un runner de GitHub.
+Ejecutar el workflow **Train & Benchmark SSCO Models (SageMaker)** y luego
+**Collect Training Results**. El dataset ronda los 12.6 M de filas y cada
+experimento pica cerca de 22 GB de RAM, por eso no entra en un runner de GitHub.
 
 ## Desarrollo
 
