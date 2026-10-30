@@ -56,6 +56,17 @@ jobs:
           tflint --init --config "$(pwd)/.tflint.hcl"
           tflint --recursive --config "$(pwd)/.tflint.hcl"
 
+  # Valida sintaxis y expresiones ${{ }} de los workflows. Sin shellcheck: los run:
+  # existentes no se escribieron contra él.
+  actionlint:
+    name: Workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color -shellcheck=
+
   python:
     name: Python (ruff + mypy + pytest)
     runs-on: ubuntu-latest
@@ -113,7 +124,7 @@ jobs:
   # aparte (sus marcadores deciden qué etapas se rehacen).
   trigger-pipeline:
     name: Trigger Data Pipeline
-    needs: [terraform, python]
+    needs: [terraform, actionlint, python]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
