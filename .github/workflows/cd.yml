@@ -91,6 +91,7 @@ jobs:
   check-raw:
     name: Check Ingesta Raw
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_ingestion: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -128,6 +129,7 @@ jobs:
     needs: [check-raw]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-raw.outputs.needs_ingestion == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -161,6 +163,7 @@ jobs:
     needs: [check-raw, ingest-raw]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_small: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -199,6 +202,7 @@ jobs:
     needs: [check-small]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-small.outputs.needs_small == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -241,6 +245,7 @@ jobs:
     needs: [check-raw, ingest-raw, check-small, process-small]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_bronze: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -279,6 +284,7 @@ jobs:
     needs: [check-bronze]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-bronze.outputs.needs_bronze == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -327,6 +333,7 @@ jobs:
     needs: [check-bronze, process-bronze]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_silver: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -365,6 +372,7 @@ jobs:
     needs: [check-silver]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-silver.outputs.needs_silver == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -413,6 +421,7 @@ jobs:
     needs: [check-silver, process-silver]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_gold_ruc: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -451,6 +460,7 @@ jobs:
     needs: [check-gold-ruc]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-gold-ruc.outputs.needs_gold_ruc == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -499,6 +509,7 @@ jobs:
     needs: [check-silver, process-silver, check-small, process-small]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_gold_regional: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -538,6 +549,7 @@ jobs:
     needs: [check-gold-regional]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-gold-regional.outputs.needs_gold_regional == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -587,6 +599,7 @@ jobs:
     needs: [check-gold-ruc, process-gold-ruc, check-gold-regional, process-gold-regional]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_scoring: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -625,6 +638,7 @@ jobs:
     needs: [check-scoring]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-scoring.outputs.needs_scoring == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -674,6 +688,7 @@ jobs:
     needs: [check-scoring, process-scoring]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     outputs:
       needs_analytics: ${{ steps.check.outputs.needs_run }}
     steps:
@@ -711,6 +726,7 @@ jobs:
     needs: [check-analytics]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.check-analytics.outputs.needs_analytics == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -757,6 +773,7 @@ jobs:
     needs: [check-analytics, run-analytics]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

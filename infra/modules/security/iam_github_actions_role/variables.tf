@@ -4,7 +4,7 @@ variable "role_name" {
 }
 
 variable "github_repo" {
-  description = "Repositorio autorizado, formato organización/repositorio."
+  description = "Repositorio autorizado, formato owner[@id]/repositorio[@id] (IDs si el sub es inmutable)."
   type        = string
 }
 

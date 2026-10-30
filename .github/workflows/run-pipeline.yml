@@ -36,6 +36,7 @@ jobs:
   run-pipeline:
     name: Execute 5-Step Spark Pipeline on EMR Serverless
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     # Tope de tiempo (y de costo) por corrida.
     timeout-minutes: 120
     steps:

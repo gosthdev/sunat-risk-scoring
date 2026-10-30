@@ -63,6 +63,7 @@ jobs:
   prepare-dataset:
     name: Prepare model_inputs (EMR Job 06)
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     timeout-minutes: 240
     steps:
       - name: Checkout repository
@@ -116,6 +117,7 @@ jobs:
     name: Launch training (EC2)
     needs: [prepare-dataset]
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
     timeout-minutes: 20
     steps:
       - name: Checkout repository
