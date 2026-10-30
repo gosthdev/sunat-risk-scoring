@@ -22,7 +22,7 @@ env:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'aws-main' || 'aws-develop' }}
+    environment: aws
     timeout-minutes: 15
     steps:
       - name: Configure AWS Credentials (OIDC)
