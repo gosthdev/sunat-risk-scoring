@@ -43,6 +43,11 @@ module "iam_train_ec2_role" {
   artifacts_bucket_arn = data.aws_s3_bucket.artifacts.arn
 }
 
+module "iam_ingestion_boundary" {
+  source         = "../modules/security/iam_ingestion_boundary"
+  raw_bucket_arn = data.aws_s3_bucket.raw.arn
+}
+
 module "iam_glue_crawler_role" {
   source            = "../modules/security/iam_glue_crawler_role"
   role_name         = "sunat-ssco-glue-crawler-role"
