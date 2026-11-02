@@ -347,7 +347,7 @@ show_step_logs() {
       echo ""
       if [[ -s "$lines_file" ]]; then
         echo '```'
-        grep -E '^(\[|CALIDAD|BENCHMARK_RESULT|SALIDA)' "$lines_file" | tail -n 60 || true
+        grep -E '^(\[|CALIDAD|SALIDA)' "$lines_file" | tail -n 60 || true
         echo '```'
       fi
       echo ""
