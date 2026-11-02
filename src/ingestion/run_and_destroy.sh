@@ -2,6 +2,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+TF_DIR="$SCRIPT_DIR/../../infra/ingestion"
 
 if [[ -n "${CI:-}" ]]; then
   AWS_PROFILE="${AWS_PROFILE:-}"
@@ -42,7 +43,7 @@ cleanup() {
     echo "   [4/4] DESTRUCCIÓN TOTAL DE LA EC2 EFÍMERA (CERO RESIDUOS)    "
     echo "================================================================="
     echo "Ejecutando 'terraform destroy -auto-approve'..."
-    terraform destroy -auto-approve || true
+    terraform -chdir="$TF_DIR" destroy -auto-approve || true
     echo -e "\n✓ Verificación: Toda la infraestructura efímera ha sido eliminada."
   fi
 }
@@ -51,15 +52,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo -e "\n[1/4] Inicializando Terraform..."
-terraform init
+terraform -chdir="$TF_DIR" init
 
 echo -e "\n[2/4] Desplegando EC2 efímera..."
-terraform apply -auto-approve
+terraform -chdir="$TF_DIR" apply -auto-approve
 DEPLOYED=1
 
-RAW_BUCKET=$(terraform output -raw raw_bucket_name 2>/dev/null || echo "sunat-risk-scoring-raw")
-INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null || echo "desconocido")
-PUBLIC_IP=$(terraform output -raw instance_public_ip 2>/dev/null || echo "desconocido")
+RAW_BUCKET=$(terraform -chdir="$TF_DIR" output -raw raw_bucket_name 2>/dev/null || echo "sunat-risk-scoring-raw")
+INSTANCE_ID=$(terraform -chdir="$TF_DIR" output -raw instance_id 2>/dev/null || echo "desconocido")
+PUBLIC_IP=$(terraform -chdir="$TF_DIR" output -raw instance_public_ip 2>/dev/null || echo "desconocido")
 
 echo -e "\n✓ EC2 desplegada exitosamente:"
 echo "  - Instancia: $INSTANCE_ID"
@@ -170,7 +171,7 @@ if [ "$SUCCESS" -eq 1 ]; then
     bash "$SCRIPT_DIR/../../scripts/write_marker.sh" \
       --stage raw \
       --marker-uri "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
-      --files "$SCRIPT_DIR/urls.json" "$SCRIPT_DIR/scripts/process_and_upload.py"
+      --files "$SCRIPT_DIR/urls.json" "$SCRIPT_DIR/process_and_upload.py"
   else
     URLS_HASH=$(sha256sum "$SCRIPT_DIR/urls.json" | awk '{print $1}')
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

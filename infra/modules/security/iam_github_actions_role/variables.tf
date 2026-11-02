@@ -56,3 +56,8 @@ variable "sagemaker_execution_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "tfstate_bucket_arn" {
+  description = "ARN del bucket del estado de Terraform; el CI solo toca el prefijo ingestion/."
+  type        = string
+}

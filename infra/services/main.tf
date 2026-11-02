@@ -19,6 +19,10 @@ data "aws_s3_bucket" "artifacts" {
   bucket = var.artifacts_bucket_name
 }
 
+data "aws_s3_bucket" "tfstate" {
+  bucket = var.state_bucket_name
+}
+
 ############ IAM ############
 module "iam_emr_execution_role" {
   source               = "../modules/security/iam_emr_execution_role"
@@ -57,6 +61,7 @@ module "iam_github_actions_role" {
   bronze_bucket_arn            = data.aws_s3_bucket.bronze.arn
   silver_bucket_arn            = data.aws_s3_bucket.silver.arn
   gold_bucket_arn              = data.aws_s3_bucket.gold.arn
+  tfstate_bucket_arn           = data.aws_s3_bucket.tfstate.arn
   emr_application_arn          = module.emr_serverless_app.application_arn
   emr_execution_role_arn       = module.iam_emr_execution_role.role_arn
   glue_crawler_role_arn        = module.iam_glue_crawler_role.role_arn

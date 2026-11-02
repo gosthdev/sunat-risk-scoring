@@ -25,7 +25,7 @@ sale del registro oficial de SSCO; el resto de fuentes aportan las variables.
 | PRICOS | Marca de principales contribuyentes |
 | Ingresos tributarios y EPEN | Contexto regional |
 
-Las URLs de descarga están en `infra/ingestion_ec2/urls.json`.
+Las URLs de descarga están en `src/ingestion/urls.json`.
 
 ## Arquitectura
 
@@ -98,7 +98,7 @@ Modelo base declarado hasta ahora: **E9** (LR V2 con pesos), a mejorar.
 config/              matriz de experimentos
 contracts/           contratos de esquema (Padrón, Órdenes de Compra)
 docs/model/          contratos del dataset, features, auditoría de fuga, informe
-infra/               Terraform: storage, services, ingestion_ec2, módulos
+infra/               Terraform: storage, services, ingestion, módulos
 notebooks/           EDA (calidad, Padrón, target, regional)
 scripts/             orquestación (marcadores, limpieza, verificación)
 src/spark/           jobs 00–06 y módulos comunes
@@ -129,7 +129,7 @@ El workflow **Data Pipeline** (`pipeline.yml`) corre la DAG completa: ingesta,
 jobs 00–05, crawlers, consultas de Athena y verificación. Se dispara solo:
 
 - **CD:** cuando un push a `develop` o `main` toca código de datos
-  (`src/spark/`, `src/analysis/queries/`, `infra/ingestion_ec2/`) y CI pasó,
+  (`src/spark/`, `src/analysis/queries/`, `src/ingestion/`, `infra/ingestion/`) y CI pasó,
   `ci.yml` lo lanza. Los marcadores en S3 hacen que solo se rehagan las etapas
   cuyo código o datos de entrada cambiaron.
 - **A mano:** *Run workflow*; con `force` se rehace desde una etapa (`raw` = todo, re-descargando).
