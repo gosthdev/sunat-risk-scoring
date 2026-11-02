@@ -82,3 +82,9 @@ variable "budget_alert_emails" {
   description = "Correos que reciben las alertas del presupuesto de costo."
   type        = list(string)
 }
+
+variable "state_bucket_name" {
+  description = "Bucket del estado de Terraform (lo crea infra/state)."
+  type        = string
+  default     = "sunat-risk-scoring-tfstate"
+}

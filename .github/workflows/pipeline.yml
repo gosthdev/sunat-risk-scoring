@@ -102,7 +102,7 @@ jobs:
         if: steps.check.outputs.needs_run == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.5.7"
+          terraform_version: "1.10.5"
 
       - name: Run EC2 ingestion and destroy
         if: steps.check.outputs.needs_run == 'true'

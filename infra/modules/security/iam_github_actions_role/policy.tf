@@ -49,6 +49,27 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         ]))
       },
       {
+        Sid      = "TerraformStateIngestionList"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [var.tfstate_bucket_arn]
+        Condition = {
+          StringLike = { "s3:prefix" = ["ingestion/*"] }
+        }
+      },
+      {
+        # Estado y lockfile (use_lockfile) del stack efímero de ingesta: terraform
+        # apply/destroy los escribe y el lock se libera borrándolo.
+        Sid    = "TerraformStateIngestionObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = ["${var.tfstate_bucket_arn}/ingestion/*"]
+      },
+      {
         # Solo los marcadores de ingesta que run_and_destroy.sh borra en la raíz de raw.
         Sid      = "DeleteRawIngestionFlags"
         Effect   = "Allow"
