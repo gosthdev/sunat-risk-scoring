@@ -93,7 +93,7 @@ jobs:
           bash scripts/check_stage.sh \
             --stage raw \
             --marker-uri "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
-            --files infra/ingestion_ec2/urls.json infra/ingestion_ec2/scripts/process_and_upload.py \
+            --files src/ingestion/process_and_upload.py src/ingestion/urls.json \
             --check-raw-data \
             --raw-bucket "${RAW_BUCKET}" \
             --force "$FORCE_VAL"
@@ -111,7 +111,7 @@ jobs:
           TF_VAR_aws_profile: ""
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           TF_VAR_raw_bucket_name: ${{ env.RAW_BUCKET }}
-        run: bash infra/ingestion_ec2/run_and_destroy.sh
+        run: bash src/ingestion/run_and_destroy.sh
 
   # ============================================================================
   # ETAPA 0: Small Datasets (Job 00 -> Silver, en el runner)

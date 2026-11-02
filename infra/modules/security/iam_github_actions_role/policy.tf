@@ -56,7 +56,7 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Resource = ["${var.raw_bucket_arn}/_INGESTION_*"]
       },
       {
-        # El provider de infra/ingestion_ec2 etiqueta estos objetos (default_tags).
+        # El provider de infra/ingestion etiqueta estos objetos (default_tags).
         Sid      = "TagIngestionBootstrap"
         Effect   = "Allow"
         Action   = ["s3:GetObjectTagging", "s3:PutObjectTagging"]

@@ -110,15 +110,15 @@ resource "aws_security_group" "ingestion" {
 resource "aws_s3_object" "bootstrap_urls" {
   bucket = var.raw_bucket_name
   key    = "_bootstrap/urls.json"
-  source = "${path.module}/urls.json"
-  etag   = filemd5("${path.module}/urls.json")
+  source = "${path.module}/../../src/ingestion/urls.json"
+  etag   = filemd5("${path.module}/../../src/ingestion/urls.json")
 }
 
 resource "aws_s3_object" "bootstrap_script" {
   bucket = var.raw_bucket_name
   key    = "_bootstrap/process_and_upload.py"
-  source = "${path.module}/scripts/process_and_upload.py"
-  etag   = filemd5("${path.module}/scripts/process_and_upload.py")
+  source = "${path.module}/../../src/ingestion/process_and_upload.py"
+  etag   = filemd5("${path.module}/../../src/ingestion/process_and_upload.py")
 }
 
 ############ Instancia EC2 Efímera ############

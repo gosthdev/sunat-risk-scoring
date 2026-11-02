@@ -147,7 +147,7 @@ jobs:
             changed="(sin base de comparación)"
           else
             changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- \
-              src/spark src/analysis/queries infra/ingestion_ec2 src/requirements.txt)
+              src/spark src/analysis/queries src/ingestion infra/ingestion src/requirements.txt)
           fi
           if [[ -z "$changed" ]]; then
             echo "El push no toca código de datos: no se lanza el pipeline."
