@@ -87,8 +87,8 @@ Los workflows ejecutan las tareas en runners seguros asumiendo el rol IAM vía O
    ```bash
    spark-submit --py-files common.zip 01_ingest_bronze.py
    spark-submit --py-files common.zip 02_clean_silver.py
-   spark-submit --py-files common.zip 03_feature_gold.py
    spark-submit --py-files common.zip 04_regional_gold.py
+   spark-submit --py-files common.zip 03_feature_gold.py
    spark-submit --py-files common.zip 05_scoring_dataset_gold.py
    ```
 

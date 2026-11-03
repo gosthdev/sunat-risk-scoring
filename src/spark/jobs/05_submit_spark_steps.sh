@@ -6,8 +6,8 @@
 # AWS EMR Serverless:
 #   1. 01_ingest_bronze.py
 #   2. 02_clean_silver.py
-#   3. 03_feature_gold.py
-#   4. 04_regional_gold.py
+#   3. 04_regional_gold.py   (antes que 03: 03 une su regional_summary)
+#   4. 03_feature_gold.py
 #   5. 05_scoring_dataset_gold.py
 #
 # Variables de entorno requeridas:
@@ -126,8 +126,8 @@ done
 ALL_STEPS=(
   "01_ingest_bronze"
   "02_clean_silver"
-  "03_feature_gold"
   "04_regional_gold"
+  "03_feature_gold"
   "05_scoring_dataset_gold"
 )
 

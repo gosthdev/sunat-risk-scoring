@@ -327,51 +327,18 @@ class TestFeaturesA2(unittest.TestCase):
             out_path = f"{tmp_dir}/output_features"
             attached.write.parquet(out_path)
 
-    def test_attach_regional_features_missing_path_fallback(self):
-        """Verifica fallback graceful cuando el path regional no existe."""
-        assert self.spark is not None
-        padron_schema = StructType(
-            [
-                StructField("RUC", LongType(), True),
-                StructField("mes_referencia", StringType(), True),
-                StructField("departamento", StringType(), True),
-                StructField("nro_trabajadores", DoubleType(), True),
-            ]
-        )
-        padron = self.spark.createDataFrame(
-            [(20100000001, "202506", "LIMA", 10.0)], padron_schema
-        )
-        contrat = self.spark.createDataFrame(
-            [],
-            StructType(
-                [
-                    StructField("RUC", LongType(), True),
-                    StructField("monto_total_soles", DoubleType(), True),
-                    StructField("n_ordenes", LongType(), True),
-                    StructField("pct_ordenes_anuladas", DoubleType(), True),
-                    StructField("fecha_primera_orden", StringType(), True),
-                ]
-            ),
-        )
-        pricos = self.spark.createDataFrame(
-            [],
-            StructType(
-                [
-                    StructField("RUC", LongType(), True),
-                    StructField("es_prico", StringType(), True),
-                ]
-            ),
-        )
+    def test_attach_regional_features_sin_regional_falla(self):
+        """Sin gold/regional_summary el job falla; no deja la feature en NULL en silencio."""
+        from pyspark.errors import AnalysisException
 
-        features = job03.compute_all_ruc_features(padron, contrat, pricos)
-        attached = job03.attach_regional_features(
-            self.spark, features, regional_path="/tmp/ruta_inexistente_no_file"
+        assert self.spark is not None
+        features = self.spark.createDataFrame(
+            [(20100000001, "LIMA")], "RUC long, departamento string"
         )
-        cols = [c for c in attached.columns if c == "informalidad_epen_departamento"]
-        self.assertEqual(len(cols), 1)
-        row = attached.first()
-        assert row is not None
-        self.assertIsNone(row["informalidad_epen_departamento"])
+        with self.assertRaises(AnalysisException):
+            job03.attach_regional_features(
+                self.spark, features, regional_path="/tmp/ruta_inexistente_no_file"
+            )
 
     def test_solo_se_suman_montos_en_soles(self):
         assert self.spark is not None

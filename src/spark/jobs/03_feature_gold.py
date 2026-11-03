@@ -264,38 +264,38 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
 
 
 def attach_regional_features(spark, features_df, regional_path=GOLD_REGIONAL_SUMMARY):
-    """Une la tasa de informalidad regional desde gold/regional_summary si existe."""
+    """Une la tasa de informalidad regional desde gold/regional_summary.
+
+    El Job 04 debe haberlo publicado antes (pipeline.yml: gold-ruc depende de
+    gold-regional). Si falta o no se puede leer, el job falla: antes se capturaba
+    cualquier error y la feature salía NULL para todo el Padrón sin avisar.
+    """
     if "informalidad_epen_departamento" in features_df.columns:
         features_df = features_df.drop("informalidad_epen_departamento")
-    try:
-        regional = spark.read.parquet(regional_path)
-        col_dept = (
-            col("Departamento")
-            if "Departamento" in regional.columns
-            else (
-                col("departamento")
-                if "departamento" in regional.columns
-                else lit("DESCONOCIDO")
-            )
+    regional = spark.read.parquet(regional_path)
+    col_dept = (
+        col("Departamento")
+        if "Departamento" in regional.columns
+        else (
+            col("departamento")
+            if "departamento" in regional.columns
+            else lit("DESCONOCIDO")
         )
-        col_inf = (
-            col("pct_informalidad")
-            if "pct_informalidad" in regional.columns
-            else (
-                col("tasa_informalidad_laboral")
-                if "tasa_informalidad_laboral" in regional.columns
-                else lit(None).cast("double")
-            )
+    )
+    col_inf = (
+        col("pct_informalidad")
+        if "pct_informalidad" in regional.columns
+        else (
+            col("tasa_informalidad_laboral")
+            if "tasa_informalidad_laboral" in regional.columns
+            else lit(None).cast("double")
         )
-        reg_clean = regional.select(
-            col_dept.alias("departamento"),
-            col_inf.alias("informalidad_epen_departamento"),
-        ).distinct()
-        return features_df.join(reg_clean, on="departamento", how="left")
-    except Exception:  # noqa: BLE001
-        return features_df.withColumn(
-            "informalidad_epen_departamento", lit(None).cast("double")
-        )
+    )
+    reg_clean = regional.select(
+        col_dept.alias("departamento"),
+        col_inf.alias("informalidad_epen_departamento"),
+    ).distinct()
+    return features_df.join(reg_clean, on="departamento", how="left")
 
 
 def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=None):
