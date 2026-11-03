@@ -6,12 +6,14 @@ import unittest
 from silver_transforms import (
     MOTIVO_COL,
     CuarentenaExcedidaError,
+    SilverIncompletoError,
     construir_reporte_calidad,
     preparar_ordenes_compra,
     preparar_padron_ruc,
     ruc_valido,
     separar_ordenes_compra,
     separar_padron_ruc,
+    verificar_silver_escrito,
     verificar_tasa_cuarentena,
 )
 
@@ -202,6 +204,22 @@ class TestSilverTransforms(unittest.TestCase):
         with self.assertRaises(CuarentenaExcedidaError) as ctx:
             verificar_tasa_cuarentena(reporte, 0.1)
         self.assertIn("padron_ruc 2025-1", str(ctx.exception))
+
+    def test_silver_escrito_debe_coincidir_con_el_reporte(self):
+        reporte = self._reporte()
+        # Mismos conteos por mes que filas_silver: no lanza.
+        esperado = [
+            (r["anio"], r["mes"], r["filas_silver"]) for r in reporte.collect()
+        ]
+        completo = self.spark.createDataFrame(
+            [(a, m) for a, m, n in esperado for _ in range(n)], "anio int, mes int"
+        )
+        verificar_silver_escrito(reporte, completo)
+
+        # Falta un mes entero (el caso real de 5 de 12 meses): lanza.
+        sin_febrero = completo.filter("mes != 2")
+        with self.assertRaises(SilverIncompletoError):
+            verificar_silver_escrito(reporte, sin_febrero)
 
 
 if __name__ == "__main__":

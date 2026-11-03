@@ -183,6 +183,34 @@ def construir_reporte_calidad(
     )
 
 
+class SilverIncompletoError(RuntimeError):
+    """Lo escrito en staging no coincide con lo contado en el reporte: no se publica."""
+
+
+def verificar_silver_escrito(reporte: DataFrame, escrito: DataFrame) -> None:
+    """Falla si las filas por (anio, mes) escritas difieren de `filas_silver` del reporte.
+
+    Detecta meses que faltan o escrituras parciales antes de que el orquestador
+    publique a la ruta viva (un silver con 5 de 12 meses llegó a publicarse).
+    """
+    esperado = {
+        (r["anio"], r["mes"]): r["filas_silver"]
+        for r in reporte.select("anio", "mes", "filas_silver").collect()
+        if r["filas_silver"] > 0
+    }
+    real = {
+        (r["anio"], r["mes"]): r["n"]
+        for r in escrito.groupBy("anio", "mes").agg(count(lit(1)).alias("n")).collect()
+    }
+    if esperado != real:
+        claves = esperado.keys() | real.keys()
+        difieren = sorted(k for k in claves if esperado.get(k) != real.get(k))
+        raise SilverIncompletoError(
+            "Silver escrito no coincide con el reporte en (anio, mes): "
+            f"{difieren}. Se aborta sin publicar."
+        )
+
+
 class CuarentenaExcedidaError(RuntimeError):
     """La tasa de cuarentena supera el máximo tolerado: se aborta antes de escribir Silver."""
 
