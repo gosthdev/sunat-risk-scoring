@@ -23,7 +23,7 @@ Uso: spark-submit --py-files common.zip 01_ingest_bronze.py
 import sys
 
 from pyspark.errors import AnalysisException
-from pyspark.sql.functions import col, lit, year
+from pyspark.sql.functions import coalesce, col, lit, year
 from pyspark.sql.types import StructType
 from s3_paths import (
     BRONZE_ORDENES_COMPRA,
@@ -76,12 +76,17 @@ def _split_schema_quarantine(df):
 
 
 def _split_date_range_quarantine(df, date_columns):
-    """Separa filas con año fuera de VALID_YEAR_RANGE en cualquiera de date_columns."""
+    """Separa filas con año fuera de VALID_YEAR_RANGE en cualquiera de date_columns.
+
+    Una fecha nula no es un año fuera de rango: la fila se queda en clean. Sin el
+    coalesce, `NULL` hacía que ni filter(cond) ni filter(~cond) la conservaran.
+    """
     min_year, max_year = VALID_YEAR_RANGE
     bad_year_condition = lit(False)
     for date_col in date_columns:
-        bad_year_condition = bad_year_condition | (
-            (year(col(date_col)) < min_year) | (year(col(date_col)) > max_year)
+        bad_year_condition = bad_year_condition | coalesce(
+            (year(col(date_col)) < min_year) | (year(col(date_col)) > max_year),
+            lit(False),
         )
     quarantined = df.filter(bad_year_condition)
     clean = df.filter(~bad_year_condition)
