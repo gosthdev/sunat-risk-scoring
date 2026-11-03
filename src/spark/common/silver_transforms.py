@@ -18,11 +18,13 @@ from pyspark.sql.functions import (
     concat_ws,
     count,
     lit,
+    row_number,
     trim,
     udf,
     when,
 )
 from pyspark.sql.types import StringType
+from pyspark.sql.window import Window
 from region_normalizer import normalize_department
 
 RUC_REGEX = r"^[0-9]{11}$"
@@ -58,8 +60,24 @@ def separar_padron_ruc(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
 
 
 def preparar_ordenes_compra(bronze: DataFrame) -> DataFrame:
-    """Deduplica las órdenes por número de orden."""
-    return bronze.dropDuplicates(["orden"])
+    """Deduplica las órdenes por número de orden, quedándose con la última foto.
+
+    La misma orden llega en varias cargas mensuales (≈37% de las filas de bronze).
+    `dropDuplicates` elegía una versión y una partición (anio, mes) distintas en
+    cada evaluación, y colapsaba en una sola todas las órdenes con `orden` nulo.
+    Aquí gana la carga más reciente y las filas sin `orden` pasan sin deduplicar.
+    """
+    orden_de_recencia = [col("anio").desc(), col("mes").desc()]
+    if "fecha_de_emision" in bronze.columns:
+        orden_de_recencia.append(col("fecha_de_emision").desc())
+    ultima = Window.partitionBy("orden").orderBy(*orden_de_recencia)
+    con_orden = (
+        bronze.filter(col("orden").isNotNull())
+        .withColumn("_rn", row_number().over(ultima))
+        .filter(col("_rn") == 1)
+        .drop("_rn")
+    )
+    return con_orden.unionByName(bronze.filter(col("orden").isNull()))
 
 
 def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
@@ -69,7 +87,8 @@ def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
     - ruc_contratista puede venir nulo, pero si viene debe ser un RUC de 11
       dígitos (el crudo mezcla RUC y DNI de 8 dígitos; un DNI no es un RUC).
     - Sobre las filas válidas se mantiene la regla de negocio de monto >= 0
-      (esa sí se descarta, no es un problema de identificador).
+      (esa sí se descarta, no es un problema de identificador). Un monto nulo
+      no es negativo: la fila se conserva y 03 lo trata como 0.
     """
     entidad_ok = ruc_valido(col("ruc_entidad"))
     contratista_ok = col("ruc_contratista").isNull() | ruc_valido(
@@ -85,7 +104,7 @@ def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
 
     silver = (
         entrada.filter(valido)
-        .filter(col("monto_total_orden_original") >= 0)
+        .filter(coalesce(col("monto_total_orden_original") >= 0, lit(True)))
         .withColumn(
             "departamento_entidad",
             _normalize_department_udf(trim(col("departamento_entidad"))),

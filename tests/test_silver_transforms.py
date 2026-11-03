@@ -114,6 +114,39 @@ class TestSilverTransforms(unittest.TestCase):
         # El monto negativo es regla de negocio: se descarta, no va a cuarentena.
         self.assertNotIn("O6", motivos)
 
+    def test_ordenes_repetidas_conservan_la_ultima_carga_y_orden_nulo_no_colapsa(self):
+        bronze = self.spark.createDataFrame(
+            [
+                ("O1", 20100000001, "20200000002", 10.0, "lima", 2025, 1),
+                ("O1", 20100000001, "20200000002", 99.0, "lima", 2025, 3),
+                ("O1", 20100000001, "20200000002", 50.0, "lima", 2025, 2),
+                (None, 20100000001, "20200000002", 1.0, "lima", 2025, 1),
+                (None, 20100000001, "20200000003", 2.0, "lima", 2025, 1),
+            ],
+            "orden string, ruc_entidad long, ruc_contratista string, "
+            "monto_total_orden_original double, departamento_entidad string, anio int, mes int",
+        )
+        filas = preparar_ordenes_compra(bronze).collect()
+
+        o1 = [r for r in filas if r["orden"] == "O1"]
+        self.assertEqual(len(o1), 1)
+        self.assertEqual((o1[0]["mes"], o1[0]["monto_total_orden_original"]), (3, 99.0))
+        self.assertEqual(len([r for r in filas if r["orden"] is None]), 2)
+
+    def test_monto_nulo_se_conserva_y_el_negativo_se_descarta(self):
+        bronze = self.spark.createDataFrame(
+            [
+                ("O1", 20100000001, "20200000002", None, "lima", 2025, 1),
+                ("O2", 20100000001, "20200000002", -5.0, "lima", 2025, 1),
+            ],
+            "orden string, ruc_entidad long, ruc_contratista string, "
+            "monto_total_orden_original double, departamento_entidad string, anio int, mes int",
+        )
+        silver, cuarentena = separar_ordenes_compra(bronze)
+
+        self.assertEqual([r["orden"] for r in silver.collect()], ["O1"])
+        self.assertEqual(cuarentena.count(), 0)
+
     def test_todo_ruc_en_silver_tiene_once_digitos(self):
         bronze = self.spark.createDataFrame(
             [(20100000001 + i, "lima", 202501, 2025, 1) for i in range(5)]
