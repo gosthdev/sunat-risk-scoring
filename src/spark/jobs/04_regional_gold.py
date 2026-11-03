@@ -26,10 +26,10 @@ Uso: spark-submit --py-files common.zip 04_regional_gold.py
 import os
 import sys
 
-from pyspark.sql.functions import col, count, udf, when
+from pyspark.sql.functions import col, count, trim, udf, upper, when
 from pyspark.sql.functions import sum as spark_sum
 from pyspark.sql.types import StringType
-from region_normalizer import department_from_ccdd
+from region_normalizer import department_from_ccdd, normalize_department
 from s3_paths import (
     GOLD_REGIONAL_SUMMARY,
     SILVER_EPEN,
@@ -90,7 +90,7 @@ def ruc_activos_por_departamento(spark, padron_snapshot=None):
     if padron_snapshot is None:
         padron_snapshot, _, _ = obtener_padron_mes_referencia(spark)
     return (
-        padron_snapshot.filter(col("Estado") == "ACTIVO")
+        padron_snapshot.filter(upper(trim(col("Estado"))) == "ACTIVO")
         .groupBy(col("Departamento"))
         .agg(count("*").alias("ruc_activos"))
     )
@@ -117,6 +117,27 @@ def informalidad_por_departamento(spark):
     ).select("Departamento", "pct_informalidad")
 
 
+def agregar_recaudacion(ingresos):
+    """Suma la recaudación por departamento canónico sin contar nada dos veces.
+
+    En la fuente de SUNAT la fila "Lima" ya incluye a Callao (Lima = Lima
+    Metropolitana + Lima Provincias + Callao), y "Total" suma todo. Se descartan
+    "Lima" y "Total" y se suman Lima Metropolitana y Lima Provincias bajo LIMA;
+    así Callao queda solo en su propia fila.
+    """
+    sin_totales = ingresos.filter(
+        ~upper(trim(col("Departamento"))).isin(["TOTAL", "LIMA"])
+    )
+    normalize_dept_udf = udf(normalize_department, StringType())
+    return (
+        sin_totales.withColumn(
+            "Departamento", normalize_dept_udf(col("Departamento"))
+        )
+        .groupBy(col("Departamento"))
+        .agg(spark_sum("Monto_Recaudado").alias("recaudacion_soles"))
+    )
+
+
 def recaudacion_por_departamento(spark, anio_ref=None):
     ingresos = spark.read.parquet(SILVER_INGRESOS_TRIBUTARIOS)
 
@@ -124,21 +145,7 @@ def recaudacion_por_departamento(spark, anio_ref=None):
     if "Anio" in ingresos.columns and anio_ref is not None:
         ingresos = ingresos.filter(col("Anio") == int(anio_ref))
 
-    # Excluir Total y sub-jurisdicciones de Lima para evitar duplicados con la fila Lima
-    excluir = ["TOTAL", "Total", "Lima Metropolitana", "Lima Provincias"]
-    ingresos_filtrados = ingresos.filter(~col("Departamento").isin(excluir))
-
-    # Normalizar Departamento al nombre canónico
-    from region_normalizer import normalize_department
-
-    normalize_dept_udf = udf(normalize_department, StringType())
-    ingresos_normalizados = ingresos_filtrados.withColumn(
-        "Departamento", normalize_dept_udf(col("Departamento"))
-    )
-
-    return ingresos_normalizados.groupBy(col("Departamento")).agg(
-        spark_sum("Monto_Recaudado").alias("recaudacion_soles")
-    )
+    return agregar_recaudacion(ingresos)
 
 
 def concentracion_pricos_por_departamento(spark, padron_snapshot=None):
