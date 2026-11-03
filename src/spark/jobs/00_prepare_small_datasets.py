@@ -24,6 +24,8 @@ import sys
 
 import awswrangler as wr
 import pandas as pd
+from botocore.exceptions import ClientError
+from ruc_pandas import filtrar_ruc_validos
 from s3_paths import (
     RAW_EPEN,
     RAW_INGRESOS_TRIBUTARIOS,
@@ -53,7 +55,7 @@ EPEN_DTYPES = {
 def prepare_pricos():
     df = wr.s3.read_excel(f"{RAW_PRICOS}/principalesContrib-PRICOS.xlsx")
     df = df.rename(columns={"Nombre o Razón Social": "nombre_razon_social"})
-    df["RUC"] = df["RUC"].astype("int64")
+    df = filtrar_ruc_validos(df, "RUC", "prepare_pricos")
     df = df.drop_duplicates(subset=["RUC"])
     wr.s3.to_parquet(df, path=SILVER_PRICOS, dataset=True, mode="overwrite")
 
@@ -70,6 +72,11 @@ SUNAT_CDRO_A13_URL = (
 )
 
 
+def _no_existe(exc: ClientError) -> bool:
+    """True si el error de S3 es "el objeto no existe" (otros, como permisos, se propagan)."""
+    return exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey")
+
+
 def prepare_ingresos_tributarios():
     raw_path = f"{RAW_INGRESOS_TRIBUTARIOS}/{INGRESOS_TRIBUTARIOS_ARCHIVO}"
     df = None
@@ -82,7 +89,8 @@ def prepare_ingresos_tributarios():
                 "[prepare_ingresos_tributarios] CSV en S3 no contiene las columnas requeridas. "
                 "Activando transformador desde el origen..."
             )
-    except Exception as exc:  # noqa: BLE001
+    except wr.exceptions.NoFilesFound as exc:
+        # Solo la ausencia del archivo activa el origen; permisos o red fallan.
         print(
             f"[prepare_ingresos_tributarios] Archivo CSV no disponible en S3 ({exc}). "
             "Activando transformador desde el origen..."
@@ -98,17 +106,24 @@ def prepare_ingresos_tributarios():
         try:
             wr.s3.download(f"{RAW_INGRESOS_TRIBUTARIOS}/cdro_A13.xlsx", tmp_excel)
             downloaded = True
-        except Exception:  # noqa: BLE001, S110
-            pass
+        except ClientError as exc:
+            if not _no_existe(exc):
+                raise
 
         # 2. Si no estaba como .xlsx, intentar si cdrA13_tabular.csv en S3 era en realidad un binario Excel
         if not downloaded:
             try:
                 wr.s3.download(raw_path, tmp_excel)
-                process_both_ingresos(tmp_excel)
-                downloaded = True
-            except Exception:  # noqa: BLE001, S110
-                pass
+            except ClientError as exc:
+                if not _no_existe(exc):
+                    raise
+            else:
+                try:
+                    process_both_ingresos(tmp_excel)
+                    downloaded = True
+                except Exception as exc:  # noqa: BLE001
+                    # El objeto existe pero no es un Excel válido: se baja el oficial.
+                    print(f"[prepare_ingresos_tributarios] {raw_path} no es Excel ({exc}).")
 
         # 3. Si aún no está disponible o el archivo en S3 no es Excel válido,
         # descargar el Excel oficial directamente desde SUNAT
@@ -180,11 +195,11 @@ def prepare_epen():
 def prepare_ssco():
     # Foto única (corte 30-sep-2026), no se vuelve a descargar.
     df = wr.s3.read_excel(f"{RAW_SSCO}/sujesincapacidadOperativa.xlsx")
-    # AJUSTAR el nombre real de la columna de RUC si difiere en el archivo.
-    df = df.rename(columns={df.columns[0]: "RUC"})
-    df["RUC"] = pd.to_numeric(df["RUC"], errors="coerce")
-    df = df.dropna(subset=["RUC"])
-    df["RUC"] = df["RUC"].astype("int64")
+    # Columna "RUC" si existe; si no, la primera. filtrar_ruc_validos falla si la
+    # elegida no parece contener RUC (p. ej. un índice).
+    columna = next((c for c in df.columns if str(c).strip().upper() == "RUC"), df.columns[0])
+    df = df.rename(columns={columna: "RUC"})
+    df = filtrar_ruc_validos(df, "RUC", "prepare_ssco")
     df = df[["RUC"]].drop_duplicates()
     df["es_ssco"] = True
     wr.s3.to_parquet(df, path=SILVER_SSCO, dataset=True, mode="overwrite")
