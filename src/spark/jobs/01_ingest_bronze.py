@@ -98,10 +98,13 @@ def _write_clean(df, path):
     df.write.mode("overwrite").partitionBy("anio", "mes").parquet(path)
 
 
-def _write_if_not_empty(df, path):
-    """Evita escribir un parquet vacío (y el costo de un job de escritura) si no hay filas."""
-    if df.take(1):
-        df.write.mode("overwrite").parquet(path)
+def _write_quarantine(df, path):
+    """Escribe la cuarentena de esta corrida, aunque esté vacía.
+
+    Si no se escribe cuando no hay filas, queda la cuarentena de una corrida anterior
+    y 02 la cuenta como rechazos actuales (tasa_cuarentena_bronze inflada).
+    """
+    df.write.mode("overwrite").parquet(path)
 
 
 def _log_salida(spark, nombre, path):
@@ -118,7 +121,7 @@ def ingest_padron_ruc(spark):
     clean_df, quarantined_df = _split_schema_quarantine(raw_df)
 
     _write_clean(clean_df, BRONZE_PADRON_RUC)
-    _write_if_not_empty(quarantined_df, BRONZE_PADRON_RUC_QUARANTINE)
+    _write_quarantine(quarantined_df, BRONZE_PADRON_RUC_QUARANTINE)
     _log_salida(spark, "padron_ruc", BRONZE_PADRON_RUC)
     _log_salida(spark, "padron_ruc_cuarentena", BRONZE_PADRON_RUC_QUARANTINE)
 
@@ -139,7 +142,7 @@ def ingest_ordenes_compra(spark):
         date_quarantined_df.withColumn(CORRUPT_COLUMN, lit(None).cast("string")),
         allowMissingColumns=True,
     )
-    _write_if_not_empty(all_quarantined_df, BRONZE_ORDENES_COMPRA_QUARANTINE)
+    _write_quarantine(all_quarantined_df, BRONZE_ORDENES_COMPRA_QUARANTINE)
     _log_salida(spark, "ordenes_compra", BRONZE_ORDENES_COMPRA)
     _log_salida(spark, "ordenes_compra_cuarentena", BRONZE_ORDENES_COMPRA_QUARANTINE)
 

@@ -52,6 +52,16 @@ class TestCabeceraCsvDeBronze(unittest.TestCase):
         # _read_raw no debe mutar el esquema que recibe (StructType.add muta).
         self.assertEqual(esquema.fieldNames(), ["RUC", "Estado"])
 
+    def test_cuarentena_vacia_reemplaza_la_de_la_corrida_anterior(self):
+        con_filas = self.spark.createDataFrame([(1, "malo")], "id int, motivo string")
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = str(Path(tmp) / "cuarentena")
+            self.bronze._write_quarantine(con_filas, ruta)
+            self.assertEqual(self.spark.read.parquet(ruta).count(), 1)
+
+            self.bronze._write_quarantine(con_filas.filter("id < 0"), ruta)
+            self.assertEqual(self.spark.read.parquet(ruta).count(), 0)
+
     def test_fecha_nula_no_se_pierde_y_anio_fuera_de_rango_va_a_cuarentena(self):
         df = self.spark.createDataFrame(
             [
