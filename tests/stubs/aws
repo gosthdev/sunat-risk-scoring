@@ -6,6 +6,10 @@
 #   AWS_PADRON_SNAPSHOTS=n : `s3 ls --recursive` de padron_ruc lista n snapshots.
 #   AWS_EMPTY_STAGING=1 : `s3 ls` sobre _staging no devuelve objetos.
 #   AWS_EMPTY_MATCH=txt : `s3 ls` sobre _staging cuya ruta contiene txt no devuelve objetos.
+#   AWS_LS_ERROR=1 : `s3 ls` sobre _staging falla (código 255), como un error de credenciales.
+#   AWS_GET_FAIL=1 : `get-job-run` (estado) falla siempre.
+#   AWS_FAIL_FIRST=n : las primeras n consultas de estado de `get-job-run` fallan.
+#   AWS_SYNC_FAIL=1 : `s3 sync` falla siempre.
 all="$*"
 echo "${all//$'\n'/ }" >> "$AWS_LOG"
 
@@ -17,6 +21,14 @@ case "$1 $2" in
     if [[ "$*" == *stateDetails* ]]; then
       echo "stub: job failed"
     else
+      if [[ "${AWS_GET_FAIL:-0}" == "1" ]]; then exit 255; fi
+      if [[ -n "${AWS_FAIL_FIRST:-}" ]]; then
+        hechos="$(cat "$AWS_LOG.failcount" 2>/dev/null || echo 0)"
+        if (( hechos < AWS_FAIL_FIRST )); then
+          echo $((hechos + 1)) > "$AWS_LOG.failcount"
+          exit 255
+        fi
+      fi
       state="$(head -n 1 "$AWS_STATES_FILE")"
       if [[ "$(wc -l < "$AWS_STATES_FILE")" -gt 1 ]]; then
         tail -n +2 "$AWS_STATES_FILE" > "$AWS_STATES_FILE.tmp" && mv "$AWS_STATES_FILE.tmp" "$AWS_STATES_FILE"
@@ -24,7 +36,13 @@ case "$1 $2" in
       echo "$state"
     fi
     ;;
+  "s3 sync")
+    if [[ "${AWS_SYNC_FAIL:-0}" == "1" ]]; then exit 1; fi
+    ;;
   "s3 ls")
+    if [[ "$3" == *_staging* && "${AWS_LS_ERROR:-0}" == "1" ]]; then
+      exit 255
+    fi
     if [[ "$*" == *--recursive* && "$*" == *padron_ruc* ]]; then
       for ((i = 1; i <= ${AWS_PADRON_SNAPSHOTS:-0}; i++)); do
         printf '2026-01-01 00:00:00 1 padron_ruc/anio=2025/mes=%02d/padron.csv\n' "$i"

@@ -9,6 +9,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="$SCRIPT_DIR/../common"
 
-export PYTHONPATH="$COMMON_DIR:${PYTHONPATH:-}"
+export PYTHONPATH="$COMMON_DIR${PYTHONPATH:+:$PYTHONPATH}"  # sin ":" final si estaba vacío
 
 python3 "$SCRIPT_DIR/00_prepare_small_datasets.py"

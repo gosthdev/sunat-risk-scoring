@@ -188,3 +188,86 @@ def test_un_step_fallido_tambien_muestra_los_logs_del_driver(tmp_path):
     )
     assert res.returncode != 0
     assert any("SPARK_DRIVER/stdout.gz" in c for c in llamadas)
+
+
+def _cancelaciones(llamadas):
+    return [c for c in llamadas if c.startswith("emr-serverless cancel-job-run")]
+
+
+def test_fallo_transitorio_al_consultar_el_estado_no_relanza_el_job(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path, ["SUCCESS"], extra_env={"AWS_FAIL_FIRST": "2"}
+    )
+    assert res.returncode == 0, res.stderr
+    assert len(_lanzamientos(llamadas)) == 1
+    assert _cancelaciones(llamadas) == []
+
+
+def test_si_no_se_puede_consultar_el_estado_se_cancela_antes_de_reintentar(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        extra_env={"AWS_GET_FAIL": "1", "STEP_MAX_ATTEMPTS": "1"},
+    )
+    assert res.returncode == 1
+    assert len(_cancelaciones(llamadas)) == 1
+    assert _syncs(llamadas) == []
+
+
+def test_error_de_aws_al_listar_staging_no_se_confunde_con_vacio(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={"AWS_LS_ERROR": "1"},
+    )
+    assert res.returncode == 1
+    assert "no se pudo listar" in res.stderr
+    assert _syncs(llamadas) == []
+    # Ningún rm sobre la ruta viva (solo se limpia staging).
+    borrados_vivos = [
+        c for c in llamadas if c.startswith("s3 rm") and "/_staging/" not in c
+    ]
+    assert borrados_vivos == []
+
+
+def test_sync_fallido_se_reintenta_y_avisa_que_la_ruta_pudo_quedar_a_medias(tmp_path):
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"], extra_env={"AWS_SYNC_FAIL": "1"})
+    assert res.returncode == 1
+    assert len(_syncs(llamadas)) == 3
+    assert "parcialmente actualizada" in res.stderr
+
+
+def test_piso_de_executors_nunca_supera_el_techo(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        extra_env={
+            "PADRON_SNAPSHOTS": "12",
+            "MIN_EXECUTORS": "8",
+            "MAX_EXECUTORS_CAP": "3",
+        },
+    )
+    assert res.returncode == 0, res.stderr
+    lanzamiento = _lanzamientos(llamadas)[0]
+    assert "spark.dynamicAllocation.initialExecutors=3" in lanzamiento
+    assert "spark.dynamicAllocation.maxExecutors=3" in lanzamiento
+
+
+def test_variables_del_driver_llegan_a_emr(tmp_path):
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"])
+    lanzamiento = _lanzamientos(llamadas)[0]
+    assert "driverEnv.GOLD_CORTES=todas" in lanzamiento
+    assert "driverEnv.MAX_TASA_CUARENTENA_RUC=0.5" in lanzamiento
+    assert "REFERENCIA_REGIONAL" not in lanzamiento
+
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="04_regional_gold",
+        extra_env={"ANIO_REFERENCIA_REGIONAL": "2025", "MES_REFERENCIA_REGIONAL": "6"},
+    )
+    assert res.returncode == 0, res.stderr
+    lanzamiento = _lanzamientos(llamadas)[0]
+    assert "driverEnv.ANIO_REFERENCIA_REGIONAL=2025" in lanzamiento
+    assert "driverEnv.MES_REFERENCIA_REGIONAL=6" in lanzamiento
