@@ -61,9 +61,7 @@ def analyze_padron():
     silver_count = count_s3_parquet(SILVER_PADRON_RUC)
     business_rejects = bronze_clean_count - silver_count
 
-    print(
-        f"Rechazados por RUC inválido (Bronze -> Silver): {business_rejects}"
-    )
+    print(f"Rechazados por RUC inválido (Bronze -> Silver): {business_rejects}")
     print(f"Total registros válidos en Silver: {silver_count}\n")
 
     print("Porcentaje de Completitud por Campo Crítico en Silver:")

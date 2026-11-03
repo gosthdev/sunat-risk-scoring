@@ -119,7 +119,9 @@ def _procesar(
             silver.write.mode("overwrite").partitionBy("anio", "mes").parquet(
                 staging_de(silver_path)
             )
-            verificar_silver_escrito(reporte, spark.read.parquet(staging_de(silver_path)))
+            verificar_silver_escrito(
+                reporte, spark.read.parquet(staging_de(silver_path))
+            )
             _write_if_not_empty(cuarentena, staging_de(silver_quarantine_path))
             reporte.write.mode("overwrite").partitionBy("fuente").parquet(
                 staging_de(SILVER_QUALITY_REPORT)

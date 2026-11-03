@@ -211,9 +211,7 @@ class TestSilverTransforms(unittest.TestCase):
     def test_silver_escrito_debe_coincidir_con_el_reporte(self):
         reporte = self._reporte()
         # Mismos conteos por mes que filas_silver: no lanza.
-        esperado = [
-            (r["anio"], r["mes"], r["filas_silver"]) for r in reporte.collect()
-        ]
+        esperado = [(r["anio"], r["mes"], r["filas_silver"]) for r in reporte.collect()]
         completo = self.spark.createDataFrame(
             [(a, m) for a, m, n in esperado for _ in range(n)], "anio int, mes int"
         )

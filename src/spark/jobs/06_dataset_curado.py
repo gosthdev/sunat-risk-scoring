@@ -185,9 +185,13 @@ def verificar_dataset(dataset_df):
     ).first()
     filas, rucs, positivos = fila["filas"], fila["rucs"], fila["positivos"] or 0
     if filas == 0:
-        raise ValueError("Dataset curado vacío: ¿existe el mes de la versión en ruc_features?")
+        raise ValueError(
+            "Dataset curado vacío: ¿existe el mes de la versión en ruc_features?"
+        )
     if positivos == 0:
-        raise ValueError("Dataset curado sin positivos: el label SSCO no cruzó con ruc_features")
+        raise ValueError(
+            "Dataset curado sin positivos: el label SSCO no cruzó con ruc_features"
+        )
     if rucs != filas:
         raise ValueError(f"Dataset curado con RUC repetidos: {filas} filas, {rucs} RUC")
 

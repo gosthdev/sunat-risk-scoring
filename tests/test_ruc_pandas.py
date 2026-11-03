@@ -2,7 +2,6 @@
 
 import pandas as pd
 import pytest
-
 from ruc_pandas import filtrar_ruc_validos
 
 

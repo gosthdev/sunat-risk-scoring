@@ -344,8 +344,24 @@ class TestFeaturesA2(unittest.TestCase):
         assert self.spark is not None
         df = self.spark.createDataFrame(
             [
-                ("20100000001", 1000.0, "Vigente", 20500000001, "A", "2025-02-01", "Nuevos Soles"),
-                ("20100000001", 500.0, "Vigente", 20500000001, "A", "2025-03-01", "Dólar Norteamericano"),
+                (
+                    "20100000001",
+                    1000.0,
+                    "Vigente",
+                    20500000001,
+                    "A",
+                    "2025-02-01",
+                    "Nuevos Soles",
+                ),
+                (
+                    "20100000001",
+                    500.0,
+                    "Vigente",
+                    20500000001,
+                    "A",
+                    "2025-03-01",
+                    "Dólar Norteamericano",
+                ),
                 ("20100000001", 200.0, "Vigente", 20500000001, "A", "2025-04-01", None),
             ],
             "ruc_contratista string, monto_total_orden_original double, "
@@ -380,15 +396,24 @@ class TestFeaturesA2(unittest.TestCase):
         }
 
         self.assertEqual(
-            (filas[20100000001]["nrotrab_disponible"], filas[20100000001]["sin_trabajadores"]),
+            (
+                filas[20100000001]["nrotrab_disponible"],
+                filas[20100000001]["sin_trabajadores"],
+            ),
             (0, 0),
         )
         self.assertEqual(
-            (filas[20100000002]["nrotrab_disponible"], filas[20100000002]["sin_trabajadores"]),
+            (
+                filas[20100000002]["nrotrab_disponible"],
+                filas[20100000002]["sin_trabajadores"],
+            ),
             (1, 1),
         )
         self.assertEqual(
-            (filas[20100000003]["nrotrab_disponible"], filas[20100000003]["sin_trabajadores"]),
+            (
+                filas[20100000003]["nrotrab_disponible"],
+                filas[20100000003]["sin_trabajadores"],
+            ),
             (1, 0),
         )
 

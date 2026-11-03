@@ -215,12 +215,14 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         # El Padrón trae "NO DISPONIBLE" en ~97% de los RUC; ese texto no es 0
         # trabajadores. sin_trabajadores solo marca 0 declarados (<= 0).
         .withColumn(
-            "nrotrab_disponible", when(col("nro_trabajadores").isNotNull(), 1).otherwise(0)
+            "nrotrab_disponible",
+            when(col("nro_trabajadores").isNotNull(), 1).otherwise(0),
         )
         .withColumn(
             "sin_trabajadores",
             when(
-                col("nro_trabajadores").isNotNull() & (col("nro_trabajadores") <= 0.0), 1
+                col("nro_trabajadores").isNotNull() & (col("nro_trabajadores") <= 0.0),
+                1,
             ).otherwise(0),
         )
         .withColumn(

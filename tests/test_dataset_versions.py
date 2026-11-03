@@ -10,9 +10,7 @@ class TestDatasetVersions(unittest.TestCase):
         esperado = list(VERSION_CORTES.values())
         self.assertEqual(parse_cortes(""), esperado)
         self.assertEqual(parse_cortes("todas"), esperado)
-        self.assertEqual(
-            esperado, [("202506", "2025-06-30"), ("202512", "2025-12-31")]
-        )
+        self.assertEqual(esperado, [("202506", "2025-06-30"), ("202512", "2025-12-31")])
 
     def test_lista_configurable(self):
         self.assertEqual(

@@ -130,9 +130,7 @@ def agregar_recaudacion(ingresos):
     )
     normalize_dept_udf = udf(normalize_department, StringType())
     return (
-        sin_totales.withColumn(
-            "Departamento", normalize_dept_udf(col("Departamento"))
-        )
+        sin_totales.withColumn("Departamento", normalize_dept_udf(col("Departamento")))
         .groupBy(col("Departamento"))
         .agg(spark_sum("Monto_Recaudado").alias("recaudacion_soles"))
     )

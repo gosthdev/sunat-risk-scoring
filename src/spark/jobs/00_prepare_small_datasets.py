@@ -123,7 +123,9 @@ def prepare_ingresos_tributarios():
                     downloaded = True
                 except Exception as exc:  # noqa: BLE001
                     # El objeto existe pero no es un Excel válido: se baja el oficial.
-                    print(f"[prepare_ingresos_tributarios] {raw_path} no es Excel ({exc}).")
+                    print(
+                        f"[prepare_ingresos_tributarios] {raw_path} no es Excel ({exc})."
+                    )
 
         # 3. Si aún no está disponible o el archivo en S3 no es Excel válido,
         # descargar el Excel oficial directamente desde SUNAT
@@ -197,7 +199,9 @@ def prepare_ssco():
     df = wr.s3.read_excel(f"{RAW_SSCO}/sujesincapacidadOperativa.xlsx")
     # Columna "RUC" si existe; si no, la primera. filtrar_ruc_validos falla si la
     # elegida no parece contener RUC (p. ej. un índice).
-    columna = next((c for c in df.columns if str(c).strip().upper() == "RUC"), df.columns[0])
+    columna = next(
+        (c for c in df.columns if str(c).strip().upper() == "RUC"), df.columns[0]
+    )
     df = df.rename(columns={columna: "RUC"})
     df = filtrar_ruc_validos(df, "RUC", "prepare_ssco")
     df = df[["RUC"]].drop_duplicates()

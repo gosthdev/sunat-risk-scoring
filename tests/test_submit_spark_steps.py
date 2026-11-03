@@ -195,9 +195,7 @@ def _cancelaciones(llamadas):
 
 
 def test_fallo_transitorio_al_consultar_el_estado_no_relanza_el_job(tmp_path):
-    res, llamadas = _ejecutar(
-        tmp_path, ["SUCCESS"], extra_env={"AWS_FAIL_FIRST": "2"}
-    )
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"], extra_env={"AWS_FAIL_FIRST": "2"})
     assert res.returncode == 0, res.stderr
     assert len(_lanzamientos(llamadas)) == 1
     assert _cancelaciones(llamadas) == []
