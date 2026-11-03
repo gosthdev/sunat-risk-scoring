@@ -18,6 +18,7 @@ import json
 import os
 import sys
 
+from dataset_versions import mes_de_version
 from pyspark.sql.functions import (
     abs as spark_abs,
 )
@@ -216,7 +217,7 @@ def generar_reporte_curado(dataset_df, dataset_version="v1"):
 
 def main():
     dataset_version = os.environ.get("DATASET_VERSION", "v1")
-    mes_padron = "202506" if dataset_version == "v1" else "202512"
+    mes_padron = mes_de_version(dataset_version)
     semilla = int(os.environ.get("SEMILLA", str(SEMILLA_DEFAULT)))
 
     spark = create_spark_session("06_dataset_curado")

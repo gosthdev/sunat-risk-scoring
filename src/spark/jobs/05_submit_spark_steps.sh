@@ -388,7 +388,9 @@ run_step_once() {
 --conf spark.executorEnv.SILVER_BUCKET=${SILVER_BUCKET} \
 --conf spark.emr-serverless.driverEnv.GOLD_BUCKET=${GOLD_BUCKET} \
 --conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET} \
---conf spark.emr-serverless.driverEnv.DATASET_VERSION=${DATASET_VERSION:-v1}"
+--conf spark.emr-serverless.driverEnv.DATASET_VERSION=${DATASET_VERSION:-v1} \
+--conf spark.emr-serverless.driverEnv.GOLD_CORTES=${GOLD_CORTES:-todas} \
+--conf spark.emr-serverless.driverEnv.MAX_TASA_CUARENTENA_RUC=${MAX_TASA_CUARENTENA_RUC:-0.5}"
 
   # Iniciar Job Run en EMR Serverless
   JOB_RUN_ID=$(aws emr-serverless start-job-run \

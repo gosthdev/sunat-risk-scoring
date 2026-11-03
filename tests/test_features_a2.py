@@ -371,3 +371,24 @@ class TestFeaturesA2(unittest.TestCase):
         row = attached.first()
         assert row is not None
         self.assertIsNone(row["informalidad_epen_departamento"])
+
+    def test_verificar_salida_exige_cada_corte_y_ruc_unico(self):
+        assert self.spark is not None
+        cortes = [("202506", "2025-06-30"), ("202512", "2025-12-31")]
+        esquema = "RUC long, mes_referencia string"
+
+        # El mismo RUC en dos meses es válido (un corte por mes).
+        ok = self.spark.createDataFrame(
+            [(1, "202506"), (1, "202512"), (2, "202512")], esquema
+        )
+        job03.verificar_salida(ok, cortes)
+
+        sin_corte = self.spark.createDataFrame([(1, "202506")], esquema)
+        with self.assertRaises(ValueError):
+            job03.verificar_salida(sin_corte, cortes)
+
+        repetido = self.spark.createDataFrame(
+            [(1, "202506"), (1, "202506"), (1, "202512")], esquema
+        )
+        with self.assertRaises(ValueError):
+            job03.verificar_salida(repetido, cortes)

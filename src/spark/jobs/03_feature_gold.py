@@ -15,9 +15,11 @@ Construye, por RUC, las features ampliadas de entrada para el modelo de scoring 
 Uso: spark-submit --py-files common.zip 03_feature_gold.py
 """
 
-import os
 import sys
+from functools import reduce
 
+from dataset_versions import parse_cortes
+from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     coalesce,
     col,
@@ -347,25 +349,50 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
     return features
 
 
+def verificar_salida(features_df, cortes):
+    """Falla si falta un corte configurado o si un RUC se repite dentro de un mes.
+
+    Un RUC duplicado puede caer en train y test a la vez en 06 (fuga).
+    """
+    filas_mes = features_df.select("mes_referencia").distinct().collect()
+    meses = {r["mes_referencia"] for r in filas_mes}
+    faltan = sorted({mes for mes, _ in cortes} - meses)
+    if faltan:
+        raise ValueError(f"ruc_features sin filas para los cortes: {faltan}")
+
+    repetidos = (
+        features_df.groupBy("RUC", "mes_referencia")
+        .count()
+        .filter(col("count") > 1)
+        .limit(1)
+        .count()
+    )
+    if repetidos:
+        raise ValueError("ruc_features tiene RUC repetidos dentro de un mes_referencia")
+
+
 def main():
-    dataset_version = os.environ.get("DATASET_VERSION", "v1")
-    mes_padron = os.environ.get(
-        "MES_PADRON", "202506" if dataset_version == "v1" else "202512"
-    )
-    fecha_corte_ordenes = os.environ.get(
-        "FECHA_CORTE_ORDENES",
-        "2025-06-30" if dataset_version == "v1" else "2025-12-31",
-    )
+    cortes = parse_cortes()
 
     spark = create_spark_session("03_feature_gold")
     try:
-        padron = build_padron_features(spark, mes_padron=mes_padron)
-        contratacion = build_contratacion_estado_features(
-            spark, fecha_corte=fecha_corte_ordenes
-        )
+        padron_silver = spark.read.parquet(SILVER_PADRON_RUC)
+        ordenes = spark.read.parquet(SILVER_ORDENES_COMPRA)
         pricos = build_prico_flag(spark)
 
-        features = compute_all_ruc_features(padron, contratacion, pricos)
+        # Un corte por (foto del Padrón, fecha de corte de órdenes); gold queda con
+        # una partición mes_referencia por corte configurado.
+        partes = [
+            compute_all_ruc_features(
+                build_padron_features(spark, padron_df=padron_silver, mes_padron=mes),
+                build_contratacion_estado_features(
+                    spark, ordenes_df=ordenes, fecha_corte=fecha
+                ),
+                pricos,
+            )
+            for mes, fecha in cortes
+        ]
+        features = reduce(DataFrame.unionByName, partes)
         features = attach_regional_features(spark, features)
 
         (
@@ -373,8 +400,11 @@ def main():
             .partitionBy("mes_referencia")
             .parquet(staging_de(GOLD_RUC_FEATURES))
         )
+        escrito = spark.read.parquet(staging_de(GOLD_RUC_FEATURES))
+        verificar_salida(escrito, cortes)
         print(
-            f"[03_feature_gold] SALIDA gold_ruc_features: filas={spark.read.parquet(staging_de(GOLD_RUC_FEATURES)).count()}"
+            f"[03_feature_gold] SALIDA gold_ruc_features: filas={escrito.count()} "
+            f"cortes={cortes}"
         )
     finally:
         spark.stop()
