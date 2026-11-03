@@ -116,6 +116,29 @@ class TestJob06Dataset(unittest.TestCase):
         interseccion = pricos_rucs.intersection(curado_rucs)
         self.assertEqual(len(interseccion), 0)
 
+    def test_verificar_dataset_rechaza_vacio_sin_positivos_y_repetidos(self):
+        assert self.spark is not None
+        esquema = "ruc string, label int"
+        job06.verificar_dataset(
+            self.spark.createDataFrame([("1", 0), ("2", 1)], esquema)
+        )
+
+        casos = {
+            "vacio": [],
+            "sin_positivos": [("1", 0), ("2", 0)],
+            "repetidos": [("1", 1), ("1", 0)],
+        }
+        for nombre, filas in casos.items():
+            with self.subTest(nombre), self.assertRaises(ValueError):
+                job06.verificar_dataset(self.spark.createDataFrame(filas, esquema))
+
+    def test_es_prico_no_viaja_al_dataset_curado(self):
+        padron, ssco, pricos = self._crear_datos_sinteticos()
+        curado = job06.curar_dataset(
+            padron.withColumn("es_prico", col("RUC") < 0), ssco, pricos, semilla=42
+        )
+        self.assertNotIn("es_prico", curado.columns)
+
     def test_split_disjunto_y_folds_validos(self):
         """Verifica que train y test sean disjuntos y que fold solo exista en train."""
         padron, ssco, pricos = self._crear_datos_sinteticos()

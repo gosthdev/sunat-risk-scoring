@@ -25,6 +25,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.functions import (
     col,
     concat,
+    countDistinct,
     format_string,
     lit,
     row_number,
@@ -35,6 +36,9 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.functions import (
     hash as spark_hash,
+)
+from pyspark.sql.functions import (
+    sum as spark_sum,
 )
 from pyspark.sql.window import Window
 from s3_paths import (
@@ -87,7 +91,7 @@ def curar_dataset(
         pricos_norm,
         padron["ruc_norm"] == pricos_norm["ruc_prico_norm"],
         how="left_anti",
-    ).drop("ruc_prico_norm")
+    ).drop("ruc_prico_norm", "es_prico")  # constante tras excluir PRICOS
 
     # 3. Incorporar label oficial de SSCO
     # Evalúa columna 'ruc' o 'RUC' y cualquier flag 'es_ssco'
@@ -167,6 +171,27 @@ def curar_dataset(
     return dataset
 
 
+def verificar_dataset(dataset_df):
+    """Falla si el dataset está vacío, sin positivos o con un RUC repetido.
+
+    Un RUC repetido puede caer en train y test a la vez (fuga); un dataset vacío
+    o sin positivos significa que el mes de la versión no existe en ruc_features
+    o que el label no cruzó, y no debe llegar a model_inputs.
+    """
+    fila = dataset_df.agg(
+        spark_count("*").alias("filas"),
+        countDistinct("ruc").alias("rucs"),
+        spark_sum("label").alias("positivos"),
+    ).first()
+    filas, rucs, positivos = fila["filas"], fila["rucs"], fila["positivos"] or 0
+    if filas == 0:
+        raise ValueError("Dataset curado vacío: ¿existe el mes de la versión en ruc_features?")
+    if positivos == 0:
+        raise ValueError("Dataset curado sin positivos: el label SSCO no cruzó con ruc_features")
+    if rucs != filas:
+        raise ValueError(f"Dataset curado con RUC repetidos: {filas} filas, {rucs} RUC")
+
+
 def generar_reporte_curado(dataset_df, dataset_version="v1"):
     """Genera diccionario de resumen de estadísticas de calidad del dataset curado."""
     split_label_counts = dataset_df.groupBy("split", "label").count().collect()
@@ -239,6 +264,7 @@ def main():
 
         dataset = dataset.withColumn("dataset_version", lit(dataset_version))
         dataset = dataset.persist()
+        verificar_dataset(dataset)
 
         (
             dataset.write.mode("overwrite")
