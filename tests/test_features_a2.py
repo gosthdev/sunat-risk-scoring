@@ -194,8 +194,9 @@ class TestFeaturesA2(unittest.TestCase):
         assert row is not None
 
         self.assertEqual(row["contrata_con_estado"], 0)
-        self.assertIsNone(row["monto_total_soles"])
-        self.assertIsNone(row["monto_por_trabajador"])
+        self.assertEqual(row["n_ordenes"], 0)
+        self.assertEqual(row["monto_total_soles"], 0.0)
+        self.assertEqual(row["monto_por_trabajador"], 0.0)
         self.assertEqual(row["monto_total_contratado_estado"], 0.0)
         self.assertEqual(row["cantidad_contratos_estado"], 0)
         self.assertIsNone(row["antiguedad_contratacion_estado_dias"])
@@ -371,6 +372,58 @@ class TestFeaturesA2(unittest.TestCase):
         row = attached.first()
         assert row is not None
         self.assertIsNone(row["informalidad_epen_departamento"])
+
+    def test_solo_se_suman_montos_en_soles(self):
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [
+                ("20100000001", 1000.0, "Vigente", 20500000001, "A", "2025-02-01", "Nuevos Soles"),
+                ("20100000001", 500.0, "Vigente", 20500000001, "A", "2025-03-01", "Dólar Norteamericano"),
+                ("20100000001", 200.0, "Vigente", 20500000001, "A", "2025-04-01", None),
+            ],
+            "ruc_contratista string, monto_total_orden_original double, "
+            "estadocontratacion string, ruc_entidad long, entidad string, "
+            "fecha_de_emision string, moneda string",
+        )
+        row = (
+            job03.build_contratacion_estado_features(self.spark, ordenes_df=df)
+            .filter(col("RUC") == 20100000001)
+            .first()
+        )
+
+        assert row is not None
+        self.assertEqual(row["n_ordenes"], 3)  # la orden en USD sí cuenta
+        self.assertAlmostEqual(row["monto_total_soles"], 1200.0)  # sin los 500 USD
+
+    def test_nrotrab_no_disponible_no_es_cero_trabajadores(self):
+        assert self.spark is not None
+        padron = self.spark.createDataFrame(
+            [
+                (20100000001, "NO DISPONIBLE", 2025, 6),
+                (20100000002, "0", 2025, 6),
+                (20100000003, "12", 2025, 6),
+            ],
+            "RUC long, NroTrab string, anio int, mes int",
+        )
+        filas = {
+            r["RUC"]: r
+            for r in job03.build_padron_features(
+                self.spark, padron_df=padron, mes_padron="202506"
+            ).collect()
+        }
+
+        self.assertEqual(
+            (filas[20100000001]["nrotrab_disponible"], filas[20100000001]["sin_trabajadores"]),
+            (0, 0),
+        )
+        self.assertEqual(
+            (filas[20100000002]["nrotrab_disponible"], filas[20100000002]["sin_trabajadores"]),
+            (1, 1),
+        )
+        self.assertEqual(
+            (filas[20100000003]["nrotrab_disponible"], filas[20100000003]["sin_trabajadores"]),
+            (1, 0),
+        )
 
     def test_verificar_salida_exige_cada_corte_y_ruc_unico(self):
         assert self.spark is not None

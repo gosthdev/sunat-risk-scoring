@@ -81,9 +81,19 @@ def build_contratacion_estado_features(spark, ordenes_df=None, fecha_corte=None)
     )
     es_anulada = lower(coalesce(estado_col, lit(""))) == "anulada"
 
-    # Monto válido solo para órdenes vigentes (NULL para órdenes anuladas para no distorsionar la mediana ni el máximo)
+    # Solo se suman montos en soles: USD/CAD/EUR... no son comparables y sumarlos
+    # como soles distorsiona monto total, mediana, máximo y concentración (~0.1% de
+    # las órdenes). Una moneda nula se asume soles. Estas órdenes sí cuentan en n_ordenes.
+    es_soles = (
+        coalesce(lower(col("moneda")), lit("nuevos soles")) == "nuevos soles"
+        if "moneda" in ordenes.columns
+        else lit(True)
+    )
+
+    # Monto válido solo para órdenes vigentes en soles (NULL para anuladas o en otra
+    # moneda, para no distorsionar la mediana ni el máximo)
     monto_valido = when(
-        ~es_anulada, coalesce(col("monto_total_orden_original"), lit(0.0))
+        ~es_anulada & es_soles, coalesce(col("monto_total_orden_original"), lit(0.0))
     ).otherwise(lit(None))
     ordenes = ordenes.withColumn("_monto_valido", monto_valido)
     ordenes = ordenes.withColumn("_es_anulada_flag", when(es_anulada, 1).otherwise(0))
@@ -202,10 +212,15 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         )
         .withColumn("departamento", coalesce(trim(dept_col), lit("DESCONOCIDO")))
         .withColumn("nro_trabajadores", nro_trab_col)
+        # El Padrón trae "NO DISPONIBLE" en ~97% de los RUC; ese texto no es 0
+        # trabajadores. sin_trabajadores solo marca 0 declarados (<= 0).
+        .withColumn(
+            "nrotrab_disponible", when(col("nro_trabajadores").isNotNull(), 1).otherwise(0)
+        )
         .withColumn(
             "sin_trabajadores",
             when(
-                col("nro_trabajadores").isNull() | (col("nro_trabajadores") <= 0.0), 1
+                col("nro_trabajadores").isNotNull() & (col("nro_trabajadores") <= 0.0), 1
             ).otherwise(0),
         )
         .withColumn(
@@ -238,6 +253,7 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         "tipo_contribuyente",
         "departamento",
         "nro_trabajadores",
+        "nrotrab_disponible",
         "sin_trabajadores",
         "n_actividades",
         "mes_referencia",
@@ -288,9 +304,18 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
         to_date(concat(col("mes_referencia"), lit("01")), "yyyyMMdd")
     )
 
+    joined = padron_df.join(contratacion_df, on="RUC", how="left").join(
+        pricos_df, on="RUC", how="left"
+    )
+    # Un RUC sin órdenes tiene 0 órdenes, 0 soles y 0 entidades (no NULL). Mediana,
+    # máximo y porcentajes siguen NULL: no hay órdenes de donde calcularlos.
+    sin_ordenes_en_cero = {
+        c: 0
+        for c in ("n_ordenes", "monto_total_soles", "n_entidades_distintas")
+        if c in joined.columns
+    }
     features = (
-        padron_df.join(contratacion_df, on="RUC", how="left")
-        .join(pricos_df, on="RUC", how="left")
+        joined.fillna(sin_ordenes_en_cero)
         .withColumn(
             "antiguedad_contratacion_estado_dias",
             datediff(fecha_ref_mes, col("fecha_primera_orden")),

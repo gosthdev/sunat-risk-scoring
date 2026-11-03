@@ -228,6 +228,7 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "antiguedad_contratacion_estado_dias",
         "antiguedad_meses",
         "nro_trabajadores",
+        "nrotrab_disponible",
         "sin_trabajadores",
         "monto_por_trabajador",
         "informalidad_epen_departamento",
