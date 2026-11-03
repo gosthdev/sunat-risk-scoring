@@ -33,6 +33,8 @@ MOTIVO_COL = "motivo_cuarentena"
 MOTIVO_RUC_INVALIDO = "ruc_invalido"
 MOTIVO_RUC_ENTIDAD_INVALIDO = "ruc_entidad_invalido"
 MOTIVO_RUC_CONTRATISTA_INVALIDO = "ruc_contratista_invalido"
+MOTIVO_MONTO_NULO = "monto_nulo"
+MOTIVO_MONTO_NEGATIVO = "monto_negativo"
 
 _normalize_department_udf = udf(normalize_department, StringType())
 
@@ -86,31 +88,29 @@ def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
     - ruc_entidad debe ser un RUC de 11 dígitos.
     - ruc_contratista puede venir nulo, pero si viene debe ser un RUC de 11
       dígitos (el crudo mezcla RUC y DNI de 8 dígitos; un DNI no es un RUC).
-    - Sobre las filas válidas se mantiene la regla de negocio de monto >= 0
-      (esa sí se descarta, no es un problema de identificador). Un monto nulo
-      no es negativo: la fila se conserva y 03 lo trata como 0.
+    - monto_total_orden_original debe existir y ser >= 0. Un monto nulo o negativo
+      no se descarta en silencio: va a cuarentena con su motivo.
     """
     entidad_ok = ruc_valido(col("ruc_entidad"))
     contratista_ok = col("ruc_contratista").isNull() | ruc_valido(
         col("ruc_contratista")
     )
-    valido = entidad_ok & contratista_ok
+    monto = col("monto_total_orden_original")
+    aceptada = entidad_ok & contratista_ok & coalesce(monto >= 0, lit(False))
 
     motivo = concat_ws(
         ";",
         when(~entidad_ok, lit(MOTIVO_RUC_ENTIDAD_INVALIDO)),
         when(~contratista_ok, lit(MOTIVO_RUC_CONTRATISTA_INVALIDO)),
+        when(monto.isNull(), lit(MOTIVO_MONTO_NULO)),
+        when(monto < 0, lit(MOTIVO_MONTO_NEGATIVO)),
     )
 
-    silver = (
-        entrada.filter(valido)
-        .filter(coalesce(col("monto_total_orden_original") >= 0, lit(True)))
-        .withColumn(
-            "departamento_entidad",
-            _normalize_department_udf(trim(col("departamento_entidad"))),
-        )
+    silver = entrada.filter(aceptada).withColumn(
+        "departamento_entidad",
+        _normalize_department_udf(trim(col("departamento_entidad"))),
     )
-    cuarentena = entrada.filter(~valido).withColumn(MOTIVO_COL, motivo)
+    cuarentena = entrada.filter(~aceptada).withColumn(MOTIVO_COL, motivo)
     return silver, cuarentena
 
 
@@ -131,7 +131,7 @@ def construir_reporte_calidad(
     - filas_bronze: filas limpias leídas de bronze (antes de deduplicar).
     - filas_cuarentena_bronze: rechazadas en bronze por esquema o fecha.
     - filas_entrada: filas tras deduplicar, las que evalúa la validación de RUC.
-    - filas_cuarentena_ruc: rechazadas en Silver por RUC inválido.
+    - filas_cuarentena_ruc: rechazadas en Silver (RUC inválido, monto nulo o negativo).
     - filas_silver: filas que quedan en Silver.
     - tasa_cuarentena_bronze = rechazadas / (limpias + rechazadas) en bronze.
     - tasa_cuarentena_ruc = filas_cuarentena_ruc / filas_entrada.

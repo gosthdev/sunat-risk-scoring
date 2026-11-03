@@ -111,10 +111,11 @@ class TestSilverTransforms(unittest.TestCase):
                 "O3": "ruc_contratista_invalido",
                 "O4": "ruc_entidad_invalido",
                 "O5": "ruc_entidad_invalido;ruc_contratista_invalido",
+                "O6": "monto_negativo",
             },
         )
-        # El monto negativo es regla de negocio: se descarta, no va a cuarentena.
-        self.assertNotIn("O6", motivos)
+        # Un monto negativo no se descarta en silencio: va a cuarentena con su motivo.
+        self.assertEqual(motivos["O6"], "monto_negativo")
 
     def test_ordenes_repetidas_conservan_la_ultima_carga_y_orden_nulo_no_colapsa(self):
         bronze = self.spark.createDataFrame(
@@ -135,19 +136,21 @@ class TestSilverTransforms(unittest.TestCase):
         self.assertEqual((o1[0]["mes"], o1[0]["monto_total_orden_original"]), (3, 99.0))
         self.assertEqual(len([r for r in filas if r["orden"] is None]), 2)
 
-    def test_monto_nulo_se_conserva_y_el_negativo_se_descarta(self):
+    def test_monto_nulo_y_negativo_van_a_cuarentena_con_su_motivo(self):
         bronze = self.spark.createDataFrame(
             [
                 ("O1", 20100000001, "20200000002", None, "lima", 2025, 1),
                 ("O2", 20100000001, "20200000002", -5.0, "lima", 2025, 1),
+                ("O3", 20100000001, "20200000002", 0.0, "lima", 2025, 1),
             ],
             "orden string, ruc_entidad long, ruc_contratista string, "
             "monto_total_orden_original double, departamento_entidad string, anio int, mes int",
         )
         silver, cuarentena = separar_ordenes_compra(bronze)
 
-        self.assertEqual([r["orden"] for r in silver.collect()], ["O1"])
-        self.assertEqual(cuarentena.count(), 0)
+        self.assertEqual([r["orden"] for r in silver.collect()], ["O3"])
+        motivos = {r["orden"]: r[MOTIVO_COL] for r in cuarentena.collect()}
+        self.assertEqual(motivos, {"O1": "monto_nulo", "O2": "monto_negativo"})
 
     def test_todo_ruc_en_silver_tiene_once_digitos(self):
         bronze = self.spark.createDataFrame(
