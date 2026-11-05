@@ -11,7 +11,10 @@
     "2025-09": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202509.zip",
     "2025-10": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202510.zip",
     "2025-11": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202511.zip",
-    "2025-12": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202512.zip"
+    "2025-12": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202512.zip",
+    "2026-01": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202601.zip",
+    "2026-02": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202602.zip",
+    "2026-03": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202603.zip"
   },
   "ordenes_compra": {
     "2025-01": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAENERO2025_0.xlsx",

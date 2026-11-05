@@ -2,7 +2,12 @@
 
 import unittest
 
-from dataset_versions import VERSION_CORTES, mes_de_version, parse_cortes
+from dataset_versions import (
+    VERSION_CORTES,
+    fecha_de_version,
+    mes_de_version,
+    parse_cortes,
+)
 
 
 class TestDatasetVersions(unittest.TestCase):
@@ -10,7 +15,14 @@ class TestDatasetVersions(unittest.TestCase):
         esperado = list(VERSION_CORTES.values())
         self.assertEqual(parse_cortes(""), esperado)
         self.assertEqual(parse_cortes("todas"), esperado)
-        self.assertEqual(esperado, [("202506", "2025-06-30"), ("202512", "2025-12-31")])
+        self.assertEqual(
+            esperado,
+            [
+                ("202506", "2025-06-30"),
+                ("202512", "2025-12-31"),
+                ("202603", "2026-03-31"),
+            ],
+        )
 
     def test_lista_configurable(self):
         self.assertEqual(
@@ -26,8 +38,12 @@ class TestDatasetVersions(unittest.TestCase):
     def test_mes_de_version(self):
         self.assertEqual(mes_de_version("v1"), "202506")
         self.assertEqual(mes_de_version("v2"), "202512")
+        self.assertEqual(mes_de_version("v3"), "202603")
+        self.assertEqual(fecha_de_version("v3"), "2026-03-31")
         with self.assertRaises(ValueError):
             mes_de_version("v9")
+        with self.assertRaises(ValueError):
+            fecha_de_version("v9")
 
 
 if __name__ == "__main__":
