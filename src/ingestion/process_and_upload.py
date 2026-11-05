@@ -205,8 +205,10 @@ def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path):
         f"https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/{anio}/"
     )
     variantes = MONTH_VARIANTS.get(mes, [f"MES{mes}"])
+    # OSCE publicó con y sin el prefijo "CONOSCE_" según la época.
     for var in variantes:
-        candidate_urls.append(f"{base_osce}CONOSCE_ORDENESCOMPRA{var}{anio}_0.xlsx")
+        for prefijo in ("", "CONOSCE_"):
+            candidate_urls.append(f"{base_osce}{prefijo}ORDENESCOMPRA{var}{anio}_0.xlsx")
 
     # Intentar descargar de cada candidato hasta encontrar un XLSX válido (ZIP: magic bytes 'PK')
     for candidate in candidate_urls:
