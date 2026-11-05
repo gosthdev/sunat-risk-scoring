@@ -7,6 +7,7 @@ explicit_package_bases = true
 module = [
     "awswrangler",
     "boto3",
+    "botocore.*",
     "openpyxl",
     "smart_open",
     "smart_open.*",
