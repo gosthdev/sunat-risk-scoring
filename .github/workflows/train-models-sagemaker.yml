@@ -12,10 +12,11 @@ on:
         type: string
         default: "ALL"
       dataset_version:
-        description: "Versión del dataset (model_inputs/dataset_version=<v>)"
+        description: "Versión del dataset: corte del Padrón (v1 jun-2025, v2 dic-2025, v3 mar-2026)"
         required: false
-        type: string
-        default: "v1"
+        type: choice
+        options: [v1, v2, v3]
+        default: "v3"
       rebuild_dataset:
         description: "Regenerar model_inputs con el Job 06 aunque ya exista"
         required: false
@@ -69,13 +70,24 @@ jobs:
         run: |
           set -euo pipefail
           PREFIX="s3://${GOLD_BUCKET}/model_inputs/dataset_version=${DATASET_VERSION}/"
+          # Fecha "YYYY-MM-DD HH:MM:SS" del objeto más nuevo bajo una ruta (vacío si no hay).
+          ultima() { aws s3 ls "$1" --recursive 2>/dev/null | sort | tail -1 | awk '{print $1" "$2}' || true; }
+          DATASET=$(ultima "${PREFIX}")
+          # gold/ruc_features (Job 03) y silver/ssco (Job 00) alimentan el Job 06: si
+          # se rehicieron después del dataset, model_inputs está desactualizado.
+          UPSTREAM=$(printf '%s\n' \
+            "$(ultima "s3://${GOLD_BUCKET}/_markers/job03_complete.json")" \
+            "$(ultima "s3://${SILVER_BUCKET}/_markers/job00_complete.json")" | sort | tail -1)
           if [ "${{ inputs.rebuild_dataset }}" = "true" ]; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
-          elif [ -n "$(aws s3 ls "${PREFIX}" --recursive | grep '\.parquet' | head -1)" ]; then
-            echo "Dataset ya existe en ${PREFIX}; se omite el Job 06."
-            echo "needs_build=false" >> "$GITHUB_OUTPUT"
-          else
+          elif [ -z "${DATASET}" ]; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${UPSTREAM}" > "${DATASET}" ]]; then
+            echo "Gold o silver/ssco (${UPSTREAM}) son más nuevos que ${PREFIX} (${DATASET}); se rehace el Job 06."
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Dataset ya existe y está al día en ${PREFIX}; se omite el Job 06."
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Package and upload Spark jobs
