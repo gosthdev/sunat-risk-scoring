@@ -6,9 +6,9 @@ from ruc_pandas import filtrar_ruc_validos
 
 
 def test_descarta_ruc_no_numericos_y_de_otra_longitud():
-    df = pd.DataFrame({"RUC": ["20100000001"] * 30 + ["ABC", "12345678", None]})
+    df = pd.DataFrame({"RUC": ["20100000001"] * 100 + ["ABC", "12345678", None]})
     salida = filtrar_ruc_validos(df, "RUC", "test")
-    assert len(salida) == 30
+    assert len(salida) == 100
     assert salida["RUC"].dtype == "int64"
     assert (salida["RUC"] == 20100000001).all()
 
