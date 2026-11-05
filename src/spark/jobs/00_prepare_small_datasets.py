@@ -1,6 +1,6 @@
 """
 Script auxiliar de preparación de datasets pequeños: PRICOS, Ingresos
-Tributarios y EPEN.
+Tributarios, EPEN, SSCO y Padrón SEE.
 
 IMPORTANTE — esto NO es un EMR Step y NO se envía con spark-submit:
 EMR Serverless solo acepta job runs de tipo Spark/Hive (no tiene un nodo

@@ -19,13 +19,16 @@ sale del registro oficial de SSCO; el resto de fuentes aportan las variables.
 
 | Fuente | Uso |
 |---|---|
-| Padrón RUC (mensual, 12 snapshots de 2025) | Atributos registrales del contribuyente |
-| Órdenes de Compra (OSCE, mensual) | Actividad de contratación con el Estado |
-| SSCO | Etiqueta objetivo |
+| Padrón RUC (mensual, ene-2025 a mar-2026) | Atributos registrales y su historia mes a mes |
+| Órdenes de Compra (OSCE/SEACE, mensual, ene-2025 a mar-2026) | Actividad de contratación con el Estado |
+| SSCO | Etiqueta objetivo, con fecha de emisión y de firmeza de la resolución |
+| Padrón SEE (SUNAT, emisores electrónicos) | Tipos de comprobante y antigüedad como emisor, solo afiliaciones hasta el corte |
 | PRICOS | Marca de principales contribuyentes |
 | Ingresos tributarios y EPEN | Contexto regional |
 
 Las URLs de descarga están en `src/ingestion/urls.json`.
+
+Versiones del dataset (`src/spark/common/dataset_versions.py`): cada una es un mes de corte de las features. `v1` = jun-2025, `v2` = dic-2025, `v3` = mar-2026. El Job 06 descarta los SSCO cuya resolución se emitió antes del corte (sus features ya reflejan la designación) y manda a test el 20 % de positivos designados más recientemente.
 
 ## Arquitectura
 
@@ -47,7 +50,7 @@ Fuentes públicas
 | Etapa | Qué hace | Cómputo |
 |---|---|---|
 | 0a Ingesta Raw | Descarga y sube las fuentes a S3 | EC2 efímera, se destruye al terminar |
-| 0b Job 00 | PRICOS, EPEN, Ingresos y SSCO → Silver | Runner de GitHub (pandas) |
+| 0b Job 00 | PRICOS, EPEN, Ingresos, SSCO y SEE → Silver | Runner de GitHub (pandas) |
 | 1 Bronze (Job 01) | Aplica esquema explícito; lo inválido va a cuarentena | EMR Serverless |
 | 2 Silver (Job 02) | Limpieza, validación de RUC (11 dígitos), reporte de calidad | EMR Serverless |
 | 3 Gold RUC (Job 03) | Features por RUC | EMR Serverless |
