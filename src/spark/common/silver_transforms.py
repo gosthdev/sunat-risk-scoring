@@ -18,11 +18,13 @@ from pyspark.sql.functions import (
     concat_ws,
     count,
     lit,
+    row_number,
     trim,
     udf,
     when,
 )
 from pyspark.sql.types import StringType
+from pyspark.sql.window import Window
 from region_normalizer import normalize_department
 
 RUC_REGEX = r"^[0-9]{11}$"
@@ -31,6 +33,8 @@ MOTIVO_COL = "motivo_cuarentena"
 MOTIVO_RUC_INVALIDO = "ruc_invalido"
 MOTIVO_RUC_ENTIDAD_INVALIDO = "ruc_entidad_invalido"
 MOTIVO_RUC_CONTRATISTA_INVALIDO = "ruc_contratista_invalido"
+MOTIVO_MONTO_NULO = "monto_nulo"
+MOTIVO_MONTO_NEGATIVO = "monto_negativo"
 
 _normalize_department_udf = udf(normalize_department, StringType())
 
@@ -58,8 +62,24 @@ def separar_padron_ruc(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
 
 
 def preparar_ordenes_compra(bronze: DataFrame) -> DataFrame:
-    """Deduplica las órdenes por número de orden."""
-    return bronze.dropDuplicates(["orden"])
+    """Deduplica las órdenes por número de orden, quedándose con la última foto.
+
+    La misma orden llega en varias cargas mensuales (≈37% de las filas de bronze).
+    `dropDuplicates` elegía una versión y una partición (anio, mes) distintas en
+    cada evaluación, y colapsaba en una sola todas las órdenes con `orden` nulo.
+    Aquí gana la carga más reciente y las filas sin `orden` pasan sin deduplicar.
+    """
+    orden_de_recencia = [col("anio").desc(), col("mes").desc()]
+    if "fecha_de_emision" in bronze.columns:
+        orden_de_recencia.append(col("fecha_de_emision").desc())
+    ultima = Window.partitionBy("orden").orderBy(*orden_de_recencia)
+    con_orden = (
+        bronze.filter(col("orden").isNotNull())
+        .withColumn("_rn", row_number().over(ultima))
+        .filter(col("_rn") == 1)
+        .drop("_rn")
+    )
+    return con_orden.unionByName(bronze.filter(col("orden").isNull()))
 
 
 def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
@@ -68,30 +88,29 @@ def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
     - ruc_entidad debe ser un RUC de 11 dígitos.
     - ruc_contratista puede venir nulo, pero si viene debe ser un RUC de 11
       dígitos (el crudo mezcla RUC y DNI de 8 dígitos; un DNI no es un RUC).
-    - Sobre las filas válidas se mantiene la regla de negocio de monto >= 0
-      (esa sí se descarta, no es un problema de identificador).
+    - monto_total_orden_original debe existir y ser >= 0. Un monto nulo o negativo
+      no se descarta en silencio: va a cuarentena con su motivo.
     """
     entidad_ok = ruc_valido(col("ruc_entidad"))
     contratista_ok = col("ruc_contratista").isNull() | ruc_valido(
         col("ruc_contratista")
     )
-    valido = entidad_ok & contratista_ok
+    monto = col("monto_total_orden_original")
+    aceptada = entidad_ok & contratista_ok & coalesce(monto >= 0, lit(False))
 
     motivo = concat_ws(
         ";",
         when(~entidad_ok, lit(MOTIVO_RUC_ENTIDAD_INVALIDO)),
         when(~contratista_ok, lit(MOTIVO_RUC_CONTRATISTA_INVALIDO)),
+        when(monto.isNull(), lit(MOTIVO_MONTO_NULO)),
+        when(monto < 0, lit(MOTIVO_MONTO_NEGATIVO)),
     )
 
-    silver = (
-        entrada.filter(valido)
-        .filter(col("monto_total_orden_original") >= 0)
-        .withColumn(
-            "departamento_entidad",
-            _normalize_department_udf(trim(col("departamento_entidad"))),
-        )
+    silver = entrada.filter(aceptada).withColumn(
+        "departamento_entidad",
+        _normalize_department_udf(trim(col("departamento_entidad"))),
     )
-    cuarentena = entrada.filter(~valido).withColumn(MOTIVO_COL, motivo)
+    cuarentena = entrada.filter(~aceptada).withColumn(MOTIVO_COL, motivo)
     return silver, cuarentena
 
 
@@ -112,7 +131,7 @@ def construir_reporte_calidad(
     - filas_bronze: filas limpias leídas de bronze (antes de deduplicar).
     - filas_cuarentena_bronze: rechazadas en bronze por esquema o fecha.
     - filas_entrada: filas tras deduplicar, las que evalúa la validación de RUC.
-    - filas_cuarentena_ruc: rechazadas en Silver por RUC inválido.
+    - filas_cuarentena_ruc: rechazadas en Silver (RUC inválido, monto nulo o negativo).
     - filas_silver: filas que quedan en Silver.
     - tasa_cuarentena_bronze = rechazadas / (limpias + rechazadas) en bronze.
     - tasa_cuarentena_ruc = filas_cuarentena_ruc / filas_entrada.
@@ -162,6 +181,34 @@ def construir_reporte_calidad(
         .otherwise(lit(0.0))
         .alias("tasa_cuarentena_ruc"),
     )
+
+
+class SilverIncompletoError(RuntimeError):
+    """Lo escrito en staging no coincide con lo contado en el reporte: no se publica."""
+
+
+def verificar_silver_escrito(reporte: DataFrame, escrito: DataFrame) -> None:
+    """Falla si las filas por (anio, mes) escritas difieren de `filas_silver` del reporte.
+
+    Detecta meses que faltan o escrituras parciales antes de que el orquestador
+    publique a la ruta viva (un silver con 5 de 12 meses llegó a publicarse).
+    """
+    esperado = {
+        (r["anio"], r["mes"]): r["filas_silver"]
+        for r in reporte.select("anio", "mes", "filas_silver").collect()
+        if r["filas_silver"] > 0
+    }
+    real = {
+        (r["anio"], r["mes"]): r["n"]
+        for r in escrito.groupBy("anio", "mes").agg(count(lit(1)).alias("n")).collect()
+    }
+    if esperado != real:
+        claves = esperado.keys() | real.keys()
+        difieren = sorted(k for k in claves if esperado.get(k) != real.get(k))
+        raise SilverIncompletoError(
+            "Silver escrito no coincide con el reporte en (anio, mes): "
+            f"{difieren}. Se aborta sin publicar."
+        )
 
 
 class CuarentenaExcedidaError(RuntimeError):

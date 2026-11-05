@@ -121,6 +121,28 @@ class TestGoldJobs(unittest.TestCase):
             self.assertEqual(padron_filtrado.count(), 1)
 
     @unittest.skipIf(not HAS_JAVA, "Requiere Java para Spark local")
+    @unittest.skipUnless(HAS_JAVA, "requiere Java para PySpark")
+    def test_recaudacion_no_cuenta_dos_veces_a_callao(self):
+        from importlib import import_module
+
+        regional_mod = import_module("04_regional_gold")
+        ingresos = self.spark.createDataFrame(
+            [
+                ("Lima", 100.0),  # incluye a Callao
+                ("Lima Metropolitana", 80.0),
+                ("Lima Provincias", 10.0),
+                ("Callao", 10.0),
+                ("Cusco", 5.0),
+                ("Total", 115.0),
+            ],
+            "Departamento string, Monto_Recaudado double",
+        )
+        filas = {
+            r["Departamento"]: r["recaudacion_soles"]
+            for r in regional_mod.agregar_recaudacion(ingresos).collect()
+        }
+        self.assertEqual(filas, {"LIMA": 90.0, "CALLAO": 10.0, "CUSCO": 5.0})
+
     def test_pyspark_integration(self):
         """Test de integración cuando Java está disponible (e.g. en GitHub Actions)."""
         from pyspark.sql.functions import (

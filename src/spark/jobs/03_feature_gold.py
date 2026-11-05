@@ -15,9 +15,11 @@ Construye, por RUC, las features ampliadas de entrada para el modelo de scoring 
 Uso: spark-submit --py-files common.zip 03_feature_gold.py
 """
 
-import os
 import sys
+from functools import reduce
 
+from dataset_versions import parse_cortes
+from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     coalesce,
     col,
@@ -79,9 +81,19 @@ def build_contratacion_estado_features(spark, ordenes_df=None, fecha_corte=None)
     )
     es_anulada = lower(coalesce(estado_col, lit(""))) == "anulada"
 
-    # Monto válido solo para órdenes vigentes (NULL para órdenes anuladas para no distorsionar la mediana ni el máximo)
+    # Solo se suman montos en soles: USD/CAD/EUR... no son comparables y sumarlos
+    # como soles distorsiona monto total, mediana, máximo y concentración (~0.1% de
+    # las órdenes). Una moneda nula se asume soles. Estas órdenes sí cuentan en n_ordenes.
+    es_soles = (
+        coalesce(lower(col("moneda")), lit("nuevos soles")) == "nuevos soles"
+        if "moneda" in ordenes.columns
+        else lit(True)
+    )
+
+    # Monto válido solo para órdenes vigentes en soles (NULL para anuladas o en otra
+    # moneda, para no distorsionar la mediana ni el máximo)
     monto_valido = when(
-        ~es_anulada, coalesce(col("monto_total_orden_original"), lit(0.0))
+        ~es_anulada & es_soles, coalesce(col("monto_total_orden_original"), lit(0.0))
     ).otherwise(lit(None))
     ordenes = ordenes.withColumn("_monto_valido", monto_valido)
     ordenes = ordenes.withColumn("_es_anulada_flag", when(es_anulada, 1).otherwise(0))
@@ -162,10 +174,10 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
     )
 
     nro_trab_col = (
-        col("NroTrab").cast("double")
+        expr("try_cast(NroTrab as double)")
         if "NroTrab" in padron_df.columns
         else (
-            col("nro_trabajadores").cast("double")
+            expr("try_cast(nro_trabajadores as double)")
             if "nro_trabajadores" in padron_df.columns
             else lit(None).cast("double")
         )
@@ -200,10 +212,17 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         )
         .withColumn("departamento", coalesce(trim(dept_col), lit("DESCONOCIDO")))
         .withColumn("nro_trabajadores", nro_trab_col)
+        # El Padrón trae "NO DISPONIBLE" en ~97% de los RUC; ese texto no es 0
+        # trabajadores. sin_trabajadores solo marca 0 declarados (<= 0).
+        .withColumn(
+            "nrotrab_disponible",
+            when(col("nro_trabajadores").isNotNull(), 1).otherwise(0),
+        )
         .withColumn(
             "sin_trabajadores",
             when(
-                col("nro_trabajadores").isNull() | (col("nro_trabajadores") <= 0.0), 1
+                col("nro_trabajadores").isNotNull() & (col("nro_trabajadores") <= 0.0),
+                1,
             ).otherwise(0),
         )
         .withColumn(
@@ -236,6 +255,7 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         "tipo_contribuyente",
         "departamento",
         "nro_trabajadores",
+        "nrotrab_disponible",
         "sin_trabajadores",
         "n_actividades",
         "mes_referencia",
@@ -246,38 +266,38 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
 
 
 def attach_regional_features(spark, features_df, regional_path=GOLD_REGIONAL_SUMMARY):
-    """Une la tasa de informalidad regional desde gold/regional_summary si existe."""
+    """Une la tasa de informalidad regional desde gold/regional_summary.
+
+    El Job 04 debe haberlo publicado antes (pipeline.yml: gold-ruc depende de
+    gold-regional). Si falta o no se puede leer, el job falla: antes se capturaba
+    cualquier error y la feature salía NULL para todo el Padrón sin avisar.
+    """
     if "informalidad_epen_departamento" in features_df.columns:
         features_df = features_df.drop("informalidad_epen_departamento")
-    try:
-        regional = spark.read.parquet(regional_path)
-        col_dept = (
-            col("Departamento")
-            if "Departamento" in regional.columns
-            else (
-                col("departamento")
-                if "departamento" in regional.columns
-                else lit("DESCONOCIDO")
-            )
+    regional = spark.read.parquet(regional_path)
+    col_dept = (
+        col("Departamento")
+        if "Departamento" in regional.columns
+        else (
+            col("departamento")
+            if "departamento" in regional.columns
+            else lit("DESCONOCIDO")
         )
-        col_inf = (
-            col("pct_informalidad")
-            if "pct_informalidad" in regional.columns
-            else (
-                col("tasa_informalidad_laboral")
-                if "tasa_informalidad_laboral" in regional.columns
-                else lit(None).cast("double")
-            )
+    )
+    col_inf = (
+        col("pct_informalidad")
+        if "pct_informalidad" in regional.columns
+        else (
+            col("tasa_informalidad_laboral")
+            if "tasa_informalidad_laboral" in regional.columns
+            else lit(None).cast("double")
         )
-        reg_clean = regional.select(
-            col_dept.alias("departamento"),
-            col_inf.alias("informalidad_epen_departamento"),
-        ).distinct()
-        return features_df.join(reg_clean, on="departamento", how="left")
-    except Exception:  # noqa: BLE001
-        return features_df.withColumn(
-            "informalidad_epen_departamento", lit(None).cast("double")
-        )
+    )
+    reg_clean = regional.select(
+        col_dept.alias("departamento"),
+        col_inf.alias("informalidad_epen_departamento"),
+    ).distinct()
+    return features_df.join(reg_clean, on="departamento", how="left")
 
 
 def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=None):
@@ -286,9 +306,18 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
         to_date(concat(col("mes_referencia"), lit("01")), "yyyyMMdd")
     )
 
+    joined = padron_df.join(contratacion_df, on="RUC", how="left").join(
+        pricos_df, on="RUC", how="left"
+    )
+    # Un RUC sin órdenes tiene 0 órdenes, 0 soles y 0 entidades (no NULL). Mediana,
+    # máximo y porcentajes siguen NULL: no hay órdenes de donde calcularlos.
+    sin_ordenes_en_cero = {
+        c: 0
+        for c in ("n_ordenes", "monto_total_soles", "n_entidades_distintas")
+        if c in joined.columns
+    }
     features = (
-        padron_df.join(contratacion_df, on="RUC", how="left")
-        .join(pricos_df, on="RUC", how="left")
+        joined.fillna(sin_ordenes_en_cero)
         .withColumn(
             "antiguedad_contratacion_estado_dias",
             datediff(fecha_ref_mes, col("fecha_primera_orden")),
@@ -347,25 +376,50 @@ def compute_all_ruc_features(padron_df, contratacion_df, pricos_df, regional_df=
     return features
 
 
+def verificar_salida(features_df, cortes):
+    """Falla si falta un corte configurado o si un RUC se repite dentro de un mes.
+
+    Un RUC duplicado puede caer en train y test a la vez en 06 (fuga).
+    """
+    filas_mes = features_df.select("mes_referencia").distinct().collect()
+    meses = {r["mes_referencia"] for r in filas_mes}
+    faltan = sorted({mes for mes, _ in cortes} - meses)
+    if faltan:
+        raise ValueError(f"ruc_features sin filas para los cortes: {faltan}")
+
+    repetidos = (
+        features_df.groupBy("RUC", "mes_referencia")
+        .count()
+        .filter(col("count") > 1)
+        .limit(1)
+        .count()
+    )
+    if repetidos:
+        raise ValueError("ruc_features tiene RUC repetidos dentro de un mes_referencia")
+
+
 def main():
-    dataset_version = os.environ.get("DATASET_VERSION", "v1")
-    mes_padron = os.environ.get(
-        "MES_PADRON", "202506" if dataset_version == "v1" else "202512"
-    )
-    fecha_corte_ordenes = os.environ.get(
-        "FECHA_CORTE_ORDENES",
-        "2025-06-30" if dataset_version == "v1" else "2025-12-31",
-    )
+    cortes = parse_cortes()
 
     spark = create_spark_session("03_feature_gold")
     try:
-        padron = build_padron_features(spark, mes_padron=mes_padron)
-        contratacion = build_contratacion_estado_features(
-            spark, fecha_corte=fecha_corte_ordenes
-        )
+        padron_silver = spark.read.parquet(SILVER_PADRON_RUC)
+        ordenes = spark.read.parquet(SILVER_ORDENES_COMPRA)
         pricos = build_prico_flag(spark)
 
-        features = compute_all_ruc_features(padron, contratacion, pricos)
+        # Un corte por (foto del Padrón, fecha de corte de órdenes); gold queda con
+        # una partición mes_referencia por corte configurado.
+        partes = [
+            compute_all_ruc_features(
+                build_padron_features(spark, padron_df=padron_silver, mes_padron=mes),
+                build_contratacion_estado_features(
+                    spark, ordenes_df=ordenes, fecha_corte=fecha
+                ),
+                pricos,
+            )
+            for mes, fecha in cortes
+        ]
+        features = reduce(DataFrame.unionByName, partes)
         features = attach_regional_features(spark, features)
 
         (
@@ -373,8 +427,11 @@ def main():
             .partitionBy("mes_referencia")
             .parquet(staging_de(GOLD_RUC_FEATURES))
         )
+        escrito = spark.read.parquet(staging_de(GOLD_RUC_FEATURES))
+        verificar_salida(escrito, cortes)
         print(
-            f"[03_feature_gold] SALIDA gold_ruc_features: filas={spark.read.parquet(staging_de(GOLD_RUC_FEATURES)).count()}"
+            f"[03_feature_gold] SALIDA gold_ruc_features: filas={escrito.count()} "
+            f"cortes={cortes}"
         )
     finally:
         spark.stop()

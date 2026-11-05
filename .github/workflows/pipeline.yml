@@ -268,7 +268,8 @@ jobs:
   gold-ruc:
     name: Gold RUC (Job 03)
     timeout-minutes: 240
-    needs: [deploy, silver]
+    # Job 03 une informalidad regional: necesita gold/regional_summary del Job 04.
+    needs: [deploy, silver, gold-regional]
     if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     environment: aws
@@ -285,7 +286,7 @@ jobs:
         id: check
         run: |
           FORCE_VAL="false"
-          if [[ "${{ inputs.force == 'gold_ruc' || needs.silver.outputs.ran == 'true' }}" == "true" ]]; then
+          if [[ "${{ inputs.force == 'gold_ruc' || needs.silver.outputs.ran == 'true' || needs.gold-regional.outputs.ran == 'true' }}" == "true" ]]; then
             FORCE_VAL="true"
           fi
           bash scripts/check_stage.sh \
@@ -293,6 +294,7 @@ jobs:
             --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
             --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
             --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json" \
             --gold-bucket "${GOLD_BUCKET}" \
             --silver-bucket "${SILVER_BUCKET}" \
             --force "$FORCE_VAL"
@@ -308,7 +310,8 @@ jobs:
             --stage gold_ruc \
             --marker-uri "s3://${GOLD_BUCKET}/_markers/job03_complete.json" \
             --files src/spark/jobs/03_feature_gold.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json"
+            --upstream-marker "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
+            --upstream-marker "s3://${GOLD_BUCKET}/_markers/job04_complete.json"
 
   # ============================================================================
   # ETAPA 4: Gold Regional Summary (Job 04)

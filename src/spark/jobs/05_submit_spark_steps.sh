@@ -6,8 +6,8 @@
 # AWS EMR Serverless:
 #   1. 01_ingest_bronze.py
 #   2. 02_clean_silver.py
-#   3. 03_feature_gold.py
-#   4. 04_regional_gold.py
+#   3. 04_regional_gold.py   (antes que 03: 03 une su regional_summary)
+#   4. 03_feature_gold.py
 #   5. 05_scoring_dataset_gold.py
 #
 # Variables de entorno requeridas:
@@ -41,6 +41,10 @@ STEP_MAX_ATTEMPTS="${STEP_MAX_ATTEMPTS:-2}"
 RETRY_BACKOFF_SECONDS="${RETRY_BACKOFF_SECONDS:-30}"
 MIN_EXECUTORS="${MIN_EXECUTORS:-2}"
 MAX_EXECUTORS_CAP="${MAX_EXECUTORS_CAP:-6}"
+if (( MIN_EXECUTORS > MAX_EXECUTORS_CAP )); then
+  echo "WARN: MIN_EXECUTORS (${MIN_EXECUTORS}) supera MAX_EXECUTORS_CAP (${MAX_EXECUTORS_CAP}); se usa el techo." >&2
+  MIN_EXECUTORS="$MAX_EXECUTORS_CAP"
+fi
 EMR_APPLICATION_NAME="${EMR_APPLICATION_NAME:-sunat-ssco-spark}"
 DATALAKE_BUCKET="${DATALAKE_BUCKET:-sunat-risk-scoring-raw}"
 ARTIFACTS_BUCKET="${ARTIFACTS_BUCKET:-sunat-risk-scoring-artifacts}"
@@ -126,8 +130,8 @@ done
 ALL_STEPS=(
   "01_ingest_bronze"
   "02_clean_silver"
-  "03_feature_gold"
   "04_regional_gold"
+  "03_feature_gold"
   "05_scoring_dataset_gold"
 )
 
@@ -221,8 +225,20 @@ step_outputs() {
   esac
 }
 
+# 0 si el prefijo tiene objetos, 1 si está vacío. `aws s3 ls` sale con 1 cuando no hay
+# objetos y con otro código ante un error (credenciales, permisos, red): ese caso aborta,
+# porque tratarlo como "vacío" borraría la cuarentena publicada.
 s3_prefix_has_objects() {
-  [[ -n "$(aws s3 ls "$1/" 2>/dev/null | head -n 1)" ]]
+  local salida rc=0
+  salida="$(aws s3 ls "$1/" 2>/dev/null)" || rc=$?
+  if (( rc == 0 )); then
+    [[ -n "$salida" ]]
+  elif (( rc == 1 )); then
+    return 1
+  else
+    echo "✗ ERROR: no se pudo listar ${1}/ (aws s3 ls salió con ${rc}); no se publica ni se borra nada." >&2
+    exit 1
+  fi
 }
 
 clear_staging() {
@@ -231,6 +247,20 @@ clear_staging() {
     [[ -z "$bucket" ]] && continue
     aws s3 rm "$(staging_uri "$bucket" "$layer" "$sub")/" --recursive --only-show-errors >/dev/null 2>&1 || true
   done < <(step_outputs "$1")
+}
+
+# sync con reintentos: un fallo de red a mitad dejaría la ruta viva a medias.
+sync_con_reintentos() {
+  local origen="$1" destino="$2" intento
+  for intento in 1 2 3; do
+    if aws s3 sync "${origen}/" "${destino}/" --delete --only-show-errors; then
+      return 0
+    fi
+    echo "WARN: falló el sync a ${destino} (intento ${intento}/3)." >&2
+    sleep "${RETRY_BACKOFF_SECONDS}"
+  done
+  echo "✗ ERROR: la publicación a ${destino} falló; la ruta viva puede estar parcialmente actualizada. Repetir el step (no hay rollback)." >&2
+  return 1
 }
 
 # Publica staging -> ruta viva. Primero verifica que toda salida obligatoria exista:
@@ -252,7 +282,7 @@ publish_step() {
     live="$(live_uri "$bucket" "$layer" "$sub")"
     if s3_prefix_has_objects "$staging"; then
       echo "Publicando ${staging} -> ${live}"
-      aws s3 sync "${staging}/" "${live}/" --delete --only-show-errors
+      sync_con_reintentos "$staging" "$live" || return 1
     else
       echo "Sin ${staging} (salida opcional): se limpia ${live}"
       aws s3 rm "${live}/" --recursive --only-show-errors >/dev/null 2>&1 || true
@@ -356,6 +386,59 @@ show_step_logs() {
   rm -f "$lines_file"
 }
 
+# Job Run en curso (para cancelarlo si el script recibe INT/TERM o pierde el estado).
+CURRENT_JOB_RUN_ID=""
+
+# Imprime el estado del Job Run; reintenta ante fallos transitorios de la API
+# (throttling, token caducado) en lugar de dar el intento por perdido.
+consultar_estado() {
+  local intento estado
+  for intento in 1 2 3; do
+    if estado=$(aws emr-serverless get-job-run \
+      --region "${AWS_REGION}" \
+      --application-id "${EMR_APPLICATION_ID}" \
+      --job-run-id "$1" \
+      --query 'jobRun.state' \
+      --output text); then
+      echo "$estado"
+      return 0
+    fi
+    echo "WARN: no se pudo consultar el Job Run $1 (intento ${intento}/3)." >&2
+    sleep "${POLL_INTERVAL_SECONDS}"
+  done
+  return 1
+}
+
+# Cancela el Job Run y espera (acotado) a que deje de escribir: si no, el reintento
+# limpiaría staging con el job anterior todavía vivo.
+cancelar_job_run() {
+  local id="$1" estado i
+  aws emr-serverless cancel-job-run \
+    --region "${AWS_REGION}" \
+    --application-id "${EMR_APPLICATION_ID}" \
+    --job-run-id "$id" >/dev/null 2>&1 || true
+  for i in $(seq 1 20); do
+    estado=$(aws emr-serverless get-job-run \
+      --region "${AWS_REGION}" \
+      --application-id "${EMR_APPLICATION_ID}" \
+      --job-run-id "$id" \
+      --query 'jobRun.state' \
+      --output text 2>/dev/null) || break
+    case "$estado" in
+      SUCCESS|FAILED|CANCELLED) break ;;
+    esac
+    sleep "${POLL_INTERVAL_SECONDS}"
+  done
+}
+
+al_recibir_senal() {
+  echo "✗ Señal recibida: se cancela el Job Run en curso." >&2
+  [[ -n "$CURRENT_JOB_RUN_ID" ]] && cancelar_job_run "$CURRENT_JOB_RUN_ID"
+  [[ -n "${step:-}" ]] && clear_staging "$step"
+  exit 143
+}
+trap al_recibir_senal INT TERM
+
 # run_step_once <step>: devuelve 0 si el Job Run termina en SUCCESS, 1 en otro caso.
 run_step_once() {
   local step="$1"
@@ -388,7 +471,16 @@ run_step_once() {
 --conf spark.executorEnv.SILVER_BUCKET=${SILVER_BUCKET} \
 --conf spark.emr-serverless.driverEnv.GOLD_BUCKET=${GOLD_BUCKET} \
 --conf spark.executorEnv.GOLD_BUCKET=${GOLD_BUCKET} \
---conf spark.emr-serverless.driverEnv.DATASET_VERSION=${DATASET_VERSION:-v1}"
+--conf spark.emr-serverless.driverEnv.DATASET_VERSION=${DATASET_VERSION:-v1} \
+--conf spark.emr-serverless.driverEnv.GOLD_CORTES=${GOLD_CORTES:-todas} \
+--conf spark.emr-serverless.driverEnv.MAX_TASA_CUARENTENA_RUC=${MAX_TASA_CUARENTENA_RUC:-0.5}"
+  # Mes de referencia de 04_regional_gold: solo si se define (por defecto usa el último).
+  if [[ -n "${ANIO_REFERENCIA_REGIONAL:-}" ]]; then
+    SPARK_PARAMS+=" --conf spark.emr-serverless.driverEnv.ANIO_REFERENCIA_REGIONAL=${ANIO_REFERENCIA_REGIONAL}"
+  fi
+  if [[ -n "${MES_REFERENCIA_REGIONAL:-}" ]]; then
+    SPARK_PARAMS+=" --conf spark.emr-serverless.driverEnv.MES_REFERENCIA_REGIONAL=${MES_REFERENCIA_REGIONAL}"
+  fi
 
   # Iniciar Job Run en EMR Serverless
   JOB_RUN_ID=$(aws emr-serverless start-job-run \
@@ -414,27 +506,39 @@ run_step_once() {
     --output text) || { echo "✗ No se pudo lanzar el Job Run de '${step}'." >&2; return 1; }
 
   echo "Job Run ID asignado: ${JOB_RUN_ID}"
+  CURRENT_JOB_RUN_ID="$JOB_RUN_ID"
   echo "Esperando finalización (sondeo cada ${POLL_INTERVAL_SECONDS}s)..."
+
+  # Tope propio del sondeo: el de EMR (execution-timeout) + 10 min de margen.
+  local inicio="$SECONDS" tope=$(( ${STEP_TIMEOUT_MINUTES:-720} * 60 + 600 ))
 
   # Bucle de sondeo hasta estado terminal
   while true; do
-    STATE=$(aws emr-serverless get-job-run \
-      --region "${AWS_REGION}" \
-      --application-id "${EMR_APPLICATION_ID}" \
-      --job-run-id "${JOB_RUN_ID}" \
-      --query 'jobRun.state' \
-      --output text) || { echo "✗ No se pudo consultar el estado del Job Run ${JOB_RUN_ID}." >&2; return 1; }
+    if (( SECONDS - inicio > tope )); then
+      echo "✗ El Job Run ${JOB_RUN_ID} superó el tope de ${tope}s; se cancela." >&2
+      cancelar_job_run "$JOB_RUN_ID"
+      CURRENT_JOB_RUN_ID=""
+      return 1
+    fi
+    STATE=$(consultar_estado "$JOB_RUN_ID") || {
+      echo "✗ No se pudo consultar el estado del Job Run ${JOB_RUN_ID}; se cancela para no dejar dos escritores." >&2
+      cancelar_job_run "$JOB_RUN_ID"
+      CURRENT_JOB_RUN_ID=""
+      return 1
+    }
 
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[${TIMESTAMP}] Step: ${step} | Estado: ${STATE}"
 
     case "${STATE}" in
       SUCCESS)
+        CURRENT_JOB_RUN_ID=""
         echo "✓ Step '${step}' completado con éxito."
         show_step_logs "$step" "$JOB_RUN_ID" "$STATE"
         return 0
         ;;
       FAILED|CANCELLED|CANCELLING)
+        CURRENT_JOB_RUN_ID=""
         echo "✗ El step '${step}' terminó con estado '${STATE}'." >&2
         echo "Detalles del error:" >&2
         aws emr-serverless get-job-run \

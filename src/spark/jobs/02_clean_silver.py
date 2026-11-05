@@ -51,6 +51,7 @@ from silver_transforms import (
     preparar_padron_ruc,
     separar_ordenes_compra,
     separar_padron_ruc,
+    verificar_silver_escrito,
     verificar_tasa_cuarentena,
 )
 from spark_session_factory import create_spark_session
@@ -117,6 +118,9 @@ def _procesar(
             # orquestador solo si el job completo termina bien.
             silver.write.mode("overwrite").partitionBy("anio", "mes").parquet(
                 staging_de(silver_path)
+            )
+            verificar_silver_escrito(
+                reporte, spark.read.parquet(staging_de(silver_path))
             )
             _write_if_not_empty(cuarentena, staging_de(silver_quarantine_path))
             reporte.write.mode("overwrite").partitionBy("fuente").parquet(

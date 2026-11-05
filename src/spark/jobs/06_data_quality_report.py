@@ -24,9 +24,6 @@ def count_s3_parquet(path):
         return len(df)
     except wr.exceptions.NoFilesFound:
         return 0
-    except Exception as e:  # noqa: BLE001
-        print(f"Error leyendo {path}: {e}")
-        return 0
 
 
 def calculate_completeness_s3(path, columns):
@@ -46,9 +43,6 @@ def calculate_completeness_s3(path, columns):
         return completeness
     except wr.exceptions.NoFilesFound:
         return {c: 0 for c in columns}
-    except Exception as e:  # noqa: BLE001
-        print(f"Error calculando completitud en {path}: {e}")
-        return {c: 0 for c in columns}
 
 
 def analyze_padron():
@@ -67,9 +61,7 @@ def analyze_padron():
     silver_count = count_s3_parquet(SILVER_PADRON_RUC)
     business_rejects = bronze_clean_count - silver_count
 
-    print(
-        f"Rechazados por nulos/lógica de negocio (Bronze -> Silver): {business_rejects}"
-    )
+    print(f"Rechazados por RUC inválido (Bronze -> Silver): {business_rejects}")
     print(f"Total registros válidos en Silver: {silver_count}\n")
 
     print("Porcentaje de Completitud por Campo Crítico en Silver:")
@@ -98,7 +90,8 @@ def analyze_ordenes():
     business_rejects = bronze_clean_count - silver_count
 
     print(
-        f"Rechazados por lógica de negocio (RUC nulo o Monto Negativo): {business_rejects}"
+        "Duplicados por orden y rechazados por RUC o monto inválido "
+        f"(Bronze -> Silver): {business_rejects}"
     )
     print(f"Total registros válidos en Silver: {silver_count}\n")
 

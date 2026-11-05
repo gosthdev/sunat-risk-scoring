@@ -38,6 +38,7 @@ def _clean(text: str) -> str:
 # por _clean() antes de buscarse en este diccionario.
 OVERRIDES = {
     "LIMA METROPOLITANA": "LIMA",
+    "LIMA PROVINCIAS": "LIMA",
     "PROVINCIA DE LIMA": "LIMA",
     "PROV. CONST. DEL CALLAO": "CALLAO",
     "PROVINCIA CONSTITUCIONAL DEL CALLAO": "CALLAO",

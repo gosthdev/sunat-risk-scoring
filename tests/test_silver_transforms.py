@@ -6,12 +6,14 @@ import unittest
 from silver_transforms import (
     MOTIVO_COL,
     CuarentenaExcedidaError,
+    SilverIncompletoError,
     construir_reporte_calidad,
     preparar_ordenes_compra,
     preparar_padron_ruc,
     ruc_valido,
     separar_ordenes_compra,
     separar_padron_ruc,
+    verificar_silver_escrito,
     verificar_tasa_cuarentena,
 )
 
@@ -109,10 +111,46 @@ class TestSilverTransforms(unittest.TestCase):
                 "O3": "ruc_contratista_invalido",
                 "O4": "ruc_entidad_invalido",
                 "O5": "ruc_entidad_invalido;ruc_contratista_invalido",
+                "O6": "monto_negativo",
             },
         )
-        # El monto negativo es regla de negocio: se descarta, no va a cuarentena.
-        self.assertNotIn("O6", motivos)
+        # Un monto negativo no se descarta en silencio: va a cuarentena con su motivo.
+        self.assertEqual(motivos["O6"], "monto_negativo")
+
+    def test_ordenes_repetidas_conservan_la_ultima_carga_y_orden_nulo_no_colapsa(self):
+        bronze = self.spark.createDataFrame(
+            [
+                ("O1", 20100000001, "20200000002", 10.0, "lima", 2025, 1),
+                ("O1", 20100000001, "20200000002", 99.0, "lima", 2025, 3),
+                ("O1", 20100000001, "20200000002", 50.0, "lima", 2025, 2),
+                (None, 20100000001, "20200000002", 1.0, "lima", 2025, 1),
+                (None, 20100000001, "20200000003", 2.0, "lima", 2025, 1),
+            ],
+            "orden string, ruc_entidad long, ruc_contratista string, "
+            "monto_total_orden_original double, departamento_entidad string, anio int, mes int",
+        )
+        filas = preparar_ordenes_compra(bronze).collect()
+
+        o1 = [r for r in filas if r["orden"] == "O1"]
+        self.assertEqual(len(o1), 1)
+        self.assertEqual((o1[0]["mes"], o1[0]["monto_total_orden_original"]), (3, 99.0))
+        self.assertEqual(len([r for r in filas if r["orden"] is None]), 2)
+
+    def test_monto_nulo_y_negativo_van_a_cuarentena_con_su_motivo(self):
+        bronze = self.spark.createDataFrame(
+            [
+                ("O1", 20100000001, "20200000002", None, "lima", 2025, 1),
+                ("O2", 20100000001, "20200000002", -5.0, "lima", 2025, 1),
+                ("O3", 20100000001, "20200000002", 0.0, "lima", 2025, 1),
+            ],
+            "orden string, ruc_entidad long, ruc_contratista string, "
+            "monto_total_orden_original double, departamento_entidad string, anio int, mes int",
+        )
+        silver, cuarentena = separar_ordenes_compra(bronze)
+
+        self.assertEqual([r["orden"] for r in silver.collect()], ["O3"])
+        motivos = {r["orden"]: r[MOTIVO_COL] for r in cuarentena.collect()}
+        self.assertEqual(motivos, {"O1": "monto_nulo", "O2": "monto_negativo"})
 
     def test_todo_ruc_en_silver_tiene_once_digitos(self):
         bronze = self.spark.createDataFrame(
@@ -169,6 +207,20 @@ class TestSilverTransforms(unittest.TestCase):
         with self.assertRaises(CuarentenaExcedidaError) as ctx:
             verificar_tasa_cuarentena(reporte, 0.1)
         self.assertIn("padron_ruc 2025-1", str(ctx.exception))
+
+    def test_silver_escrito_debe_coincidir_con_el_reporte(self):
+        reporte = self._reporte()
+        # Mismos conteos por mes que filas_silver: no lanza.
+        esperado = [(r["anio"], r["mes"], r["filas_silver"]) for r in reporte.collect()]
+        completo = self.spark.createDataFrame(
+            [(a, m) for a, m, n in esperado for _ in range(n)], "anio int, mes int"
+        )
+        verificar_silver_escrito(reporte, completo)
+
+        # Falta un mes entero (el caso real de 5 de 12 meses): lanza.
+        sin_febrero = completo.filter("mes != 2")
+        with self.assertRaises(SilverIncompletoError):
+            verificar_silver_escrito(reporte, sin_febrero)
 
 
 if __name__ == "__main__":

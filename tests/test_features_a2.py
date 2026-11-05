@@ -194,8 +194,9 @@ class TestFeaturesA2(unittest.TestCase):
         assert row is not None
 
         self.assertEqual(row["contrata_con_estado"], 0)
-        self.assertIsNone(row["monto_total_soles"])
-        self.assertIsNone(row["monto_por_trabajador"])
+        self.assertEqual(row["n_ordenes"], 0)
+        self.assertEqual(row["monto_total_soles"], 0.0)
+        self.assertEqual(row["monto_por_trabajador"], 0.0)
         self.assertEqual(row["monto_total_contratado_estado"], 0.0)
         self.assertEqual(row["cantidad_contratos_estado"], 0)
         self.assertIsNone(row["antiguedad_contratacion_estado_dias"])
@@ -326,48 +327,113 @@ class TestFeaturesA2(unittest.TestCase):
             out_path = f"{tmp_dir}/output_features"
             attached.write.parquet(out_path)
 
-    def test_attach_regional_features_missing_path_fallback(self):
-        """Verifica fallback graceful cuando el path regional no existe."""
+    def test_attach_regional_features_sin_regional_falla(self):
+        """Sin gold/regional_summary el job falla; no deja la feature en NULL en silencio."""
+        from pyspark.errors import AnalysisException
+
         assert self.spark is not None
-        padron_schema = StructType(
+        features = self.spark.createDataFrame(
+            [(20100000001, "LIMA")], "RUC long, departamento string"
+        )
+        with self.assertRaises(AnalysisException):
+            job03.attach_regional_features(
+                self.spark, features, regional_path="/tmp/ruta_inexistente_no_file"
+            )
+
+    def test_solo_se_suman_montos_en_soles(self):
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
             [
-                StructField("RUC", LongType(), True),
-                StructField("mes_referencia", StringType(), True),
-                StructField("departamento", StringType(), True),
-                StructField("nro_trabajadores", DoubleType(), True),
-            ]
+                (
+                    "20100000001",
+                    1000.0,
+                    "Vigente",
+                    20500000001,
+                    "A",
+                    "2025-02-01",
+                    "Nuevos Soles",
+                ),
+                (
+                    "20100000001",
+                    500.0,
+                    "Vigente",
+                    20500000001,
+                    "A",
+                    "2025-03-01",
+                    "Dólar Norteamericano",
+                ),
+                ("20100000001", 200.0, "Vigente", 20500000001, "A", "2025-04-01", None),
+            ],
+            "ruc_contratista string, monto_total_orden_original double, "
+            "estadocontratacion string, ruc_entidad long, entidad string, "
+            "fecha_de_emision string, moneda string",
         )
-        padron = self.spark.createDataFrame(
-            [(20100000001, "202506", "LIMA", 10.0)], padron_schema
-        )
-        contrat = self.spark.createDataFrame(
-            [],
-            StructType(
-                [
-                    StructField("RUC", LongType(), True),
-                    StructField("monto_total_soles", DoubleType(), True),
-                    StructField("n_ordenes", LongType(), True),
-                    StructField("pct_ordenes_anuladas", DoubleType(), True),
-                    StructField("fecha_primera_orden", StringType(), True),
-                ]
-            ),
-        )
-        pricos = self.spark.createDataFrame(
-            [],
-            StructType(
-                [
-                    StructField("RUC", LongType(), True),
-                    StructField("es_prico", StringType(), True),
-                ]
-            ),
+        row = (
+            job03.build_contratacion_estado_features(self.spark, ordenes_df=df)
+            .filter(col("RUC") == 20100000001)
+            .first()
         )
 
-        features = job03.compute_all_ruc_features(padron, contrat, pricos)
-        attached = job03.attach_regional_features(
-            self.spark, features, regional_path="/tmp/ruta_inexistente_no_file"
-        )
-        cols = [c for c in attached.columns if c == "informalidad_epen_departamento"]
-        self.assertEqual(len(cols), 1)
-        row = attached.first()
         assert row is not None
-        self.assertIsNone(row["informalidad_epen_departamento"])
+        self.assertEqual(row["n_ordenes"], 3)  # la orden en USD sí cuenta
+        self.assertAlmostEqual(row["monto_total_soles"], 1200.0)  # sin los 500 USD
+
+    def test_nrotrab_no_disponible_no_es_cero_trabajadores(self):
+        assert self.spark is not None
+        padron = self.spark.createDataFrame(
+            [
+                (20100000001, "NO DISPONIBLE", 2025, 6),
+                (20100000002, "0", 2025, 6),
+                (20100000003, "12", 2025, 6),
+            ],
+            "RUC long, NroTrab string, anio int, mes int",
+        )
+        filas = {
+            r["RUC"]: r
+            for r in job03.build_padron_features(
+                self.spark, padron_df=padron, mes_padron="202506"
+            ).collect()
+        }
+
+        self.assertEqual(
+            (
+                filas[20100000001]["nrotrab_disponible"],
+                filas[20100000001]["sin_trabajadores"],
+            ),
+            (0, 0),
+        )
+        self.assertEqual(
+            (
+                filas[20100000002]["nrotrab_disponible"],
+                filas[20100000002]["sin_trabajadores"],
+            ),
+            (1, 1),
+        )
+        self.assertEqual(
+            (
+                filas[20100000003]["nrotrab_disponible"],
+                filas[20100000003]["sin_trabajadores"],
+            ),
+            (1, 0),
+        )
+
+    def test_verificar_salida_exige_cada_corte_y_ruc_unico(self):
+        assert self.spark is not None
+        cortes = [("202506", "2025-06-30"), ("202512", "2025-12-31")]
+        esquema = "RUC long, mes_referencia string"
+
+        # El mismo RUC en dos meses es válido (un corte por mes).
+        ok = self.spark.createDataFrame(
+            [(1, "202506"), (1, "202512"), (2, "202512")], esquema
+        )
+        job03.verificar_salida(ok, cortes)
+
+        sin_corte = self.spark.createDataFrame([(1, "202506")], esquema)
+        with self.assertRaises(ValueError):
+            job03.verificar_salida(sin_corte, cortes)
+
+        repetido = self.spark.createDataFrame(
+            [(1, "202506"), (1, "202506"), (1, "202512")], esquema
+        )
+        with self.assertRaises(ValueError):
+            job03.verificar_salida(repetido, cortes)
