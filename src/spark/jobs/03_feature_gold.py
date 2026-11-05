@@ -11,6 +11,10 @@ Construye, por RUC, las features ampliadas de entrada para el modelo de scoring 
   - Relación capacidad vs contratación: monto_por_trabajador.
   - Contextual regional: informalidad_epen_departamento (desde regional_summary).
   - Pertenencia a PRICOS: es_prico.
+  - Número de RUC: ruc_prefijo (10 persona natural, 20 empresa...) y
+    ruc_correlativo (crece con la fecha de inscripción: proxy de antigüedad).
+  - Historia del Padrón hasta el corte (una foto por mes): meses_en_padron,
+    nuevo_en_periodo, meses_hueco, cambio_tipo_facturacion, cambio_estado.
 
 Uso: spark-submit --py-files common.zip 03_feature_gold.py
 """
@@ -32,6 +36,7 @@ from pyspark.sql.functions import (
     last_day,
     lit,
     lower,
+    substring,
     to_date,
     trim,
     when,
@@ -152,6 +157,58 @@ def build_prico_flag(spark, pricos_df=None):
     return pricos_df.select(col("RUC")).distinct().withColumn("es_prico", lit(True))
 
 
+def _con_mes_referencia(padron):
+    if "mes_referencia" in padron.columns:
+        return padron
+    if "anio" in padron.columns and "mes" in padron.columns:
+        return padron.withColumn(
+            "mes_referencia",
+            format_string("%d%02d", col("anio").cast("int"), col("mes").cast("int")),
+        )
+    return padron.withColumn("mes_referencia", lit("202506"))
+
+
+def build_padron_historia(padron_df, mes_corte):
+    """Resume las fotos mensuales del Padrón hasta `mes_corte` (yyyymm) en una fila por RUC.
+
+    Solo mira meses <= corte: los posteriores serían información del futuro.
+    """
+    padron = _con_mes_referencia(padron_df).filter(
+        col("mes_referencia") <= str(mes_corte)
+    )
+    padron = padron.withColumn("RUC", col("RUC").cast("long")).withColumn(
+        "_idx",
+        substring("mes_referencia", 1, 4).cast("int") * 12
+        + substring("mes_referencia", 5, 2).cast("int"),
+    )
+    primer_idx = padron.agg(spark_min("_idx")).first()[0]
+
+    distintos = {
+        "TipoFacturacion": "cambio_tipo_facturacion",
+        "Estado": "cambio_estado",
+    }
+    aggs = [
+        countDistinct("_idx").alias("meses_en_padron"),
+        spark_min("_idx").alias("_primero"),
+        spark_max("_idx").alias("_ultimo"),
+    ] + [
+        (countDistinct(trim(col(origen))) > 1).cast("int").alias(destino)
+        for origen, destino in distintos.items()
+        if origen in padron.columns
+    ]
+    return (
+        padron.groupBy("RUC")
+        .agg(*aggs)
+        .withColumn("nuevo_en_periodo", (col("_primero") > primer_idx).cast("int"))
+        # Meses en que desaparece entre su primera y su última aparición.
+        .withColumn(
+            "meses_hueco",
+            col("_ultimo") - col("_primero") + 1 - col("meses_en_padron"),
+        )
+        .drop("_primero", "_ultimo")
+    )
+
+
 def build_padron_features(spark, padron_df=None, mes_padron=None):
     """Extrae y normaliza features registrales y de capacidad desde Padrón RUC."""
     if padron_df is None:
@@ -225,6 +282,9 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
                 1,
             ).otherwise(0),
         )
+        # RUC = 2 dígitos de tipo + 8 de correlativo (o DNI) + 1 verificador.
+        .withColumn("ruc_prefijo", (col("RUC") / 10**9).cast("int").cast("string"))
+        .withColumn("ruc_correlativo", ((col("RUC") / 10).cast("long") % 10**8))
         .withColumn(
             "n_actividades",
             when(ciiu_rev3_sec.isNotNull() & (trim(ciiu_rev3_sec) != ""), 2).otherwise(
@@ -233,15 +293,14 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         )
     )
 
-    if "mes_referencia" in padron.columns:
-        padron_res = padron
-    elif "anio" in padron.columns and "mes" in padron.columns:
-        padron_res = padron.withColumn(
-            "mes_referencia",
-            format_string("%d%02d", col("anio").cast("int"), col("mes").cast("int")),
-        )
-    else:
-        padron_res = padron.withColumn("mes_referencia", lit("202506"))
+    for origen, destino in (
+        ("TipoFacturacion", "tipo_facturacion"),
+        ("TipoContabilidad", "tipo_contabilidad"),
+    ):
+        if origen in padron.columns:
+            padron = padron.withColumn(destino, trim(col(origen)))
+
+    padron_res = _con_mes_referencia(padron)
 
     if mes_padron is not None:
         padron_res = padron_res.filter(col("mes_referencia") == str(mes_padron))
@@ -258,6 +317,10 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
         "nrotrab_disponible",
         "sin_trabajadores",
         "n_actividades",
+        "tipo_facturacion",
+        "tipo_contabilidad",
+        "ruc_prefijo",
+        "ruc_correlativo",
         "mes_referencia",
     ]
     # Filtrar solo columnas que realmente existan
@@ -411,7 +474,9 @@ def main():
         # una partición mes_referencia por corte configurado.
         partes = [
             compute_all_ruc_features(
-                build_padron_features(spark, padron_df=padron_silver, mes_padron=mes),
+                build_padron_features(
+                    spark, padron_df=padron_silver, mes_padron=mes
+                ).join(build_padron_historia(padron_silver, mes), on="RUC", how="left"),
                 build_contratacion_estado_features(
                     spark, ordenes_df=ordenes, fecha_corte=fecha
                 ),

@@ -437,3 +437,56 @@ class TestFeaturesA2(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             job03.verificar_salida(repetido, cortes)
+
+    def test_features_del_numero_de_ruc_y_facturacion(self):
+        assert self.spark is not None
+        padron = self.spark.createDataFrame(
+            [
+                (20612345678, " ELECTRONICO ", 2025, 6),
+                (10460556584, "MANUAL", 2025, 6),
+            ],
+            "RUC long, TipoFacturacion string, anio int, mes int",
+        )
+        filas = {
+            r["RUC"]: r
+            for r in job03.build_padron_features(
+                self.spark, padron_df=padron, mes_padron="202506"
+            ).collect()
+        }
+
+        self.assertEqual(filas[20612345678]["ruc_prefijo"], "20")
+        self.assertEqual(filas[20612345678]["ruc_correlativo"], 61234567)
+        self.assertEqual(filas[20612345678]["tipo_facturacion"], "ELECTRONICO")
+        self.assertEqual(filas[10460556584]["ruc_prefijo"], "10")
+        self.assertEqual(filas[10460556584]["ruc_correlativo"], 46055658)
+
+    def test_historia_del_padron_ignora_meses_posteriores_al_corte(self):
+        assert self.spark is not None
+        esquema = "RUC long, TipoFacturacion string, Estado string, anio int, mes int"
+        filas = [
+            # 1: está desde el primer mes, cambia de facturación en marzo.
+            (1, "MANUAL", "ACTIVO", 2025, 1),
+            (1, "MANUAL", "ACTIVO", 2025, 2),
+            (1, "ELECTRONICO", "ACTIVO", 2025, 3),
+            # 2: aparece en febrero, desaparece en marzo y vuelve en abril.
+            (2, "MANUAL", "ACTIVO", 2025, 2),
+            (2, "MANUAL", "ACTIVO", 2025, 4),
+            # 3: el cambio de estado ocurre después del corte (mayo).
+            (3, "MANUAL", "ACTIVO", 2025, 1),
+            (3, "MANUAL", "BAJA DE OFICIO", 2025, 5),
+        ]
+        historia = {
+            r["RUC"]: r
+            for r in job03.build_padron_historia(
+                self.spark.createDataFrame(filas, esquema), "202504"
+            ).collect()
+        }
+
+        self.assertEqual(historia[1]["meses_en_padron"], 3)
+        self.assertEqual(historia[1]["nuevo_en_periodo"], 0)
+        self.assertEqual(historia[1]["cambio_tipo_facturacion"], 1)
+        self.assertEqual(historia[2]["nuevo_en_periodo"], 1)
+        self.assertEqual(historia[2]["meses_hueco"], 1)
+        self.assertEqual(historia[2]["cambio_tipo_facturacion"], 0)
+        self.assertEqual(historia[3]["meses_en_padron"], 1)
+        self.assertEqual(historia[3]["cambio_estado"], 0)
