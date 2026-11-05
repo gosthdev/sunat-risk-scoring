@@ -415,6 +415,27 @@ def process_small_datasets(small_dict: dict):
 
             log(f"✓ EPEN guardado en partición: {out_csv}")
 
+    # Padrón SEE (SUNAT): una fila por RUC y tipo de comprobante electrónico con su
+    # fecha de inicio. Basta una foto: gold filtra por fecha_inicio <= corte.
+    if small_dict.get("see"):
+        s3_see = f"s3://{RAW_BUCKET}/see/padron_see.csv"
+        size_see = s3_object_size(s3_see)
+        if size_see > 1024 * 1024:
+            log(f"✓ SEE ya existe en S3 ({size_see / 1024**2:.2f} MB). Omitiendo descarga.")
+        else:
+            temp_zip = BASE_DIR / "tmp" / "padron_see.zip"
+            download_file(small_dict["see"].strip(), temp_zip)
+            with zipfile.ZipFile(temp_zip) as z:
+                csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
+                if len(csvs) != 1:
+                    raise FileNotFoundError(f"ZIP del SEE sin un único CSV: {z.namelist()}")
+                out_csv = BASE_DIR / "see" / "padron_see.csv"
+                out_csv.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(csvs[0]) as src, open(out_csv, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+            temp_zip.unlink(missing_ok=True)
+            log(f"✓ SEE guardado ({out_csv.stat().st_size / 1024**2:.2f} MB): {out_csv}")
+
 
 def upload_to_s3():
     log(f"Iniciando sincronización con S3: s3://{RAW_BUCKET}/...")
@@ -426,6 +447,7 @@ def upload_to_s3():
         "ssco",
         "ingresos_tributarios",
         "epen",
+        "see",
     ]
     uploaded_summary = []
 

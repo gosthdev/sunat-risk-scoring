@@ -490,3 +490,37 @@ class TestFeaturesA2(unittest.TestCase):
         self.assertEqual(historia[2]["cambio_tipo_facturacion"], 0)
         self.assertEqual(historia[3]["meses_en_padron"], 1)
         self.assertEqual(historia[3]["cambio_estado"], 0)
+
+    def test_see_solo_cuenta_afiliaciones_hasta_el_corte(self):
+        from datetime import date
+
+        assert self.spark is not None
+        see = self.spark.createDataFrame(
+            [
+                (1, "factura portal", date(2025, 1, 1)),
+                (1, "boleta portal", date(2026, 5, 1)),  # después del corte
+                (2, "recibos por honorarios", date(2020, 3, 31)),
+                (3, "factura portal", date(2026, 6, 1)),  # solo después del corte
+                (4, "recibos por honorarios", None),
+            ],
+            "RUC long, tipo_see string, fecha_inicio date",
+        )
+        features = self.spark.createDataFrame([(1,), (2,), (3,), (4,)], "RUC long")
+        filas = {
+            r["RUC"]: r
+            for r in job03.attach_see_features(
+                features, job03.build_see_features(see, "2026-03-31")
+            ).collect()
+        }
+
+        self.assertEqual(filas[1]["see_afiliado"], 1)
+        self.assertEqual(filas[1]["see_n_tipos"], 1)
+        self.assertEqual(filas[1]["see_factura_portal"], 1)
+        self.assertEqual(filas[1]["see_boleta_portal"], 0)
+        self.assertEqual(filas[1]["see_solo_honorarios"], 0)
+        self.assertEqual(filas[1]["see_antiguedad_dias"], 454)
+        self.assertEqual(filas[2]["see_solo_honorarios"], 1)
+        for sin_afiliacion in (3, 4):
+            self.assertEqual(filas[sin_afiliacion]["see_afiliado"], 0)
+            self.assertEqual(filas[sin_afiliacion]["see_n_tipos"], 0)
+            self.assertIsNone(filas[sin_afiliacion]["see_antiguedad_dias"])

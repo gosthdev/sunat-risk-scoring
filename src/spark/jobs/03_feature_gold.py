@@ -15,6 +15,9 @@ Construye, por RUC, las features ampliadas de entrada para el modelo de scoring 
     ruc_correlativo (crece con la fecha de inscripción: proxy de antigüedad).
   - Historia del Padrón hasta el corte (una foto por mes): meses_en_padron,
     nuevo_en_periodo, meses_hueco, cambio_tipo_facturacion, cambio_estado.
+  - Padrón SEE (comprobantes electrónicos, solo afiliaciones hasta el corte):
+    see_afiliado, see_antiguedad_dias, see_n_tipos, see_factura_portal,
+    see_boleta_portal, see_sistema_propio, see_solo_honorarios.
 
 Uso: spark-submit --py-files common.zip 03_feature_gold.py
 """
@@ -56,6 +59,7 @@ from s3_paths import (
     SILVER_ORDENES_COMPRA,
     SILVER_PADRON_RUC,
     SILVER_PRICOS,
+    SILVER_SEE,
     staging_de,
 )
 from spark_session_factory import create_spark_session
@@ -206,6 +210,48 @@ def build_padron_historia(padron_df, mes_corte):
             col("_ultimo") - col("_primero") + 1 - col("meses_en_padron"),
         )
         .drop("_primero", "_ultimo")
+    )
+
+
+# Flag -> texto que debe contener tipo_see (minúsculas, ver 00_prepare_small_datasets).
+SEE_TIPOS = {
+    "see_factura_portal": "factura portal",
+    "see_boleta_portal": "boleta portal",
+    "see_sistema_propio": "sistemas del contribuyente",
+}
+SEE_FLAGS = [*SEE_TIPOS, "see_solo_honorarios", "see_afiliado"]
+
+
+def build_see_features(see_df, fecha_corte):
+    """Una fila por RUC con sus afiliaciones al SEE vigentes en `fecha_corte` (yyyy-mm-dd).
+
+    La foto del SEE es posterior al corte; filtrar por fecha_inicio evita usar
+    afiliaciones que todavía no existían.
+    """
+    corte = to_date(lit(fecha_corte))
+    see = see_df.withColumn("RUC", col("RUC").cast("long")).filter(
+        col("fecha_inicio").isNotNull() & (col("fecha_inicio") <= corte)
+    )
+    es_honorario = col("tipo_see").contains("honorarios")
+    return (
+        see.groupBy("RUC")
+        .agg(
+            datediff(corte, spark_min("fecha_inicio")).alias("see_antiguedad_dias"),
+            countDistinct("tipo_see").alias("see_n_tipos"),
+            *[
+                spark_max(col("tipo_see").contains(texto).cast("int")).alias(nombre)
+                for nombre, texto in SEE_TIPOS.items()
+            ],
+            spark_min(es_honorario.cast("int")).alias("see_solo_honorarios"),
+        )
+        .withColumn("see_afiliado", lit(1))
+    )
+
+
+def attach_see_features(features_df, see_features_df):
+    """Un RUC sin afiliación al corte queda con flags y n_tipos en 0 (antigüedad NULL)."""
+    return features_df.join(see_features_df, on="RUC", how="left").fillna(
+        {c: 0 for c in [*SEE_FLAGS, "see_n_tipos"]}
     )
 
 
@@ -469,18 +515,24 @@ def main():
         padron_silver = spark.read.parquet(SILVER_PADRON_RUC)
         ordenes = spark.read.parquet(SILVER_ORDENES_COMPRA)
         pricos = build_prico_flag(spark)
+        see = spark.read.parquet(SILVER_SEE)
 
         # Un corte por (foto del Padrón, fecha de corte de órdenes); gold queda con
         # una partición mes_referencia por corte configurado.
         partes = [
-            compute_all_ruc_features(
-                build_padron_features(
-                    spark, padron_df=padron_silver, mes_padron=mes
-                ).join(build_padron_historia(padron_silver, mes), on="RUC", how="left"),
-                build_contratacion_estado_features(
-                    spark, ordenes_df=ordenes, fecha_corte=fecha
+            attach_see_features(
+                compute_all_ruc_features(
+                    build_padron_features(
+                        spark, padron_df=padron_silver, mes_padron=mes
+                    ).join(
+                        build_padron_historia(padron_silver, mes), on="RUC", how="left"
+                    ),
+                    build_contratacion_estado_features(
+                        spark, ordenes_df=ordenes, fecha_corte=fecha
+                    ),
+                    pricos,
                 ),
-                pricos,
+                build_see_features(see, fecha),
             )
             for mes, fecha in cortes
         ]

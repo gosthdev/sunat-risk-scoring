@@ -37,6 +37,7 @@
     "pricos": "https://www.sunat.gob.pe/padronesnotificaciones/pricos/principalesContrib-PRICOS.xlsx",
     "ssco": "https://www.sunat.gob.pe/padronesnotificaciones/ssco/sujesincapacidadOperativa.xlsx",
     "ingresos_tributarios": "https://www.sunat.gob.pe/estadisticasestudios/nota_tributaria/cdro_A13.xlsx",
-    "epen": "https://proyectos.inei.gob.pe/iinei/srienaho/descarga/CSV/1001-Modulo76.zip"
+    "epen": "https://proyectos.inei.gob.pe/iinei/srienaho/descarga/CSV/1001-Modulo76.zip",
+    "see": "https://www.datosabiertos.gob.pe/sites/default/files/padron_SEE_202606.zip"
   }
 }

@@ -1,4 +1,4 @@
-"""Normalización de la lista SSCO de SUNAT (fechas de la resolución y representante)."""
+"""Normalización de la lista SSCO y del Padrón SEE de SUNAT."""
 
 import importlib
 from datetime import date
@@ -64,3 +64,27 @@ def test_falla_sin_fecha_de_emision():
     df = df.drop(columns=["Fecha de emisión de la resolución de atribución"])
     with pytest.raises(ValueError, match="Fecha de emisión"):
         job00.normalizar_ssco(df)
+
+
+def test_normalizar_see():
+    df = pd.DataFrame(
+        {
+            "fecha_corte": ["2026-06-30"] * 20,
+            "RUC": ["20100000001"] * 10 + ["10460556584"] * 10,
+            "tipo_SEE": [" Factura Portal "] * 10 + ["recibos por honorarios"] * 10,
+            "tipo_incorporacion": ["desde"] * 20,
+            "fecha_inicio": ["2025-08-19"] * 10 + ["no-es-fecha"] * 10,
+        }
+    )
+    salida = job00.normalizar_see(df).set_index("RUC")
+
+    assert list(salida.columns) == ["tipo_see", "fecha_inicio"]
+    assert len(salida) == 2  # filas repetidas se colapsan
+    assert salida.loc[20100000001, "tipo_see"] == "factura portal"
+    assert salida.loc[20100000001, "fecha_inicio"] == date(2025, 8, 19)
+    assert pd.isna(salida.loc[10460556584, "fecha_inicio"])
+
+
+def test_normalizar_see_falla_sin_columnas():
+    with pytest.raises(ValueError, match="tipo_SEE"):
+        job00.normalizar_see(pd.DataFrame({"RUC": ["20100000001"]}))

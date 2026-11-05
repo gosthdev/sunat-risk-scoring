@@ -238,6 +238,13 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "meses_hueco",
         "cambio_tipo_facturacion",
         "cambio_estado",
+        "see_afiliado",
+        "see_antiguedad_dias",
+        "see_n_tipos",
+        "see_factura_portal",
+        "see_boleta_portal",
+        "see_sistema_propio",
+        "see_solo_honorarios",
     ]
     num_cols = [c for c in candidatos_num if c in df.columns]
 

@@ -379,7 +379,7 @@ case "${STAGE}" in
   small|job00)
     echo "INFO [check_stage:small]: Verificando presencia física de small datasets en Silver..." >&2
     s_target=$([[ "$IS_SINGLE_BUCKET" -eq 1 ]] && echo "$DATALAKE_BUCKET" || echo "$SILVER_BUCKET")
-    for tbl in epen ingresos_tributarios pricos ssco; do
+    for tbl in epen ingresos_tributarios pricos ssco see; do
       p_tbl=$(get_layer_prefix "silver" "$tbl")
       if ! check_s3_prefix_has_data "$s_target" "$p_tbl"; then
         emit_result "true" "Datos físicos ausentes en Silver (s3://${s_target}/${p_tbl})"
