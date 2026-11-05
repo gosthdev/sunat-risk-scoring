@@ -174,10 +174,10 @@ def build_padron_features(spark, padron_df=None, mes_padron=None):
     )
 
     nro_trab_col = (
-        col("NroTrab").cast("double")
+        expr("try_cast(NroTrab as double)")
         if "NroTrab" in padron_df.columns
         else (
-            col("nro_trabajadores").cast("double")
+            expr("try_cast(nro_trabajadores as double)")
             if "nro_trabajadores" in padron_df.columns
             else lit(None).cast("double")
         )
