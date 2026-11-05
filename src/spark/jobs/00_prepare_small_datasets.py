@@ -194,18 +194,65 @@ def prepare_epen():
     )
 
 
-def prepare_ssco():
-    # Foto única (corte 30-sep-2026), no se vuelve a descargar.
-    df = wr.s3.read_excel(f"{RAW_SSCO}/sujesincapacidadOperativa.xlsx")
+# Texto del encabezado del Excel de SUNAT (en minúsculas) -> columna silver.
+# Las fechas permiten excluir en 06 a quien ya era SSCO en el mes de corte de
+# las features y separar train/test en el tiempo.
+SSCO_COLUMNAS = {
+    "fecha de emisión": "fecha_emision",
+    "quedó firme": "fecha_firme",
+    "fecha de publicación": "fecha_publicacion",
+    "documento de identidad del representante": "doc_representante",
+}
+SSCO_FECHAS = ["fecha_emision", "fecha_firme", "fecha_publicacion"]
+
+
+def _a_fecha(serie):
+    # SUNAT guarda las fechas como serial de Excel; pandas a veces ya las parsea.
+    numeros = pd.to_numeric(serie, errors="coerce")
+    if numeros.notna().all():
+        return pd.to_datetime(numeros, unit="D", origin="1899-12-30").dt.date
+    return pd.to_datetime(serie, dayfirst=True, errors="coerce").dt.date
+
+
+def normalizar_ssco(df):
+    """RUC, fechas de la resolución y representante; una fila por RUC."""
     # Columna "RUC" si existe; si no, la primera. filtrar_ruc_validos falla si la
     # elegida no parece contener RUC (p. ej. un índice).
     columna = next(
         (c for c in df.columns if str(c).strip().upper() == "RUC"), df.columns[0]
     )
-    df = df.rename(columns={columna: "RUC"})
+    renombres = {columna: "RUC"}
+    for c in df.columns:
+        for texto, destino in SSCO_COLUMNAS.items():
+            if texto in str(c).lower():
+                renombres[c] = destino
+    df = df.rename(columns=renombres)
+    if "fecha_emision" not in df.columns:
+        raise ValueError(
+            "Excel SSCO sin 'Fecha de emisión de la resolución': sin ella no se "
+            f"puede evitar la fuga temporal. Columnas: {list(df.columns)}"
+        )
+
     df = filtrar_ruc_validos(df, "RUC", "prepare_ssco")
-    df = df[["RUC"]].drop_duplicates()
+    columnas = ["RUC"] + [c for c in SSCO_COLUMNAS.values() if c in df.columns]
+    df = df[columnas].copy()
+    for c in SSCO_FECHAS:
+        if c in df.columns:
+            df[c] = _a_fecha(df[c])
+    if df["fecha_emision"].isna().any():
+        raise ValueError("Excel SSCO con fecha_emision vacía o ilegible")
+    if "doc_representante" in df.columns:
+        df["doc_representante"] = df["doc_representante"].astype("string").str.strip()
+
+    # Un RUC repetido conserva su resolución más antigua.
+    df = df.sort_values("fecha_emision").drop_duplicates(subset=["RUC"])
     df["es_ssco"] = True
+    return df
+
+
+def prepare_ssco():
+    # Lista oficial de SUNAT; se reemplaza en raw/ssco/ cuando SUNAT la actualiza.
+    df = normalizar_ssco(wr.s3.read_excel(f"{RAW_SSCO}/sujesincapacidadOperativa.xlsx"))
     wr.s3.to_parquet(df, path=SILVER_SSCO, dataset=True, mode="overwrite")
 
 
