@@ -28,7 +28,19 @@ def _excel(filas):
 def test_conserva_fechas_y_representante():
     # 46260 es el serial de Excel del 2026-08-26.
     df = _excel(
-        [["20100000001", "X SAC", "LIMA", "R-1", 46260, 46275, " 10460556584 ", "Y", 46295]]
+        [
+            [
+                "20100000001",
+                "X SAC",
+                "LIMA",
+                "R-1",
+                46260,
+                46275,
+                " 10460556584 ",
+                "Y",
+                46295,
+            ]
+        ]
         * 20
     )
     salida = job00.normalizar_ssco(df)

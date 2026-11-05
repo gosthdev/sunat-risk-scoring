@@ -208,7 +208,9 @@ def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path):
     # OSCE publicó con y sin el prefijo "CONOSCE_" según la época.
     for var in variantes:
         for prefijo in ("", "CONOSCE_"):
-            candidate_urls.append(f"{base_osce}{prefijo}ORDENESCOMPRA{var}{anio}_0.xlsx")
+            candidate_urls.append(
+                f"{base_osce}{prefijo}ORDENESCOMPRA{var}{anio}_0.xlsx"
+            )
 
     # Intentar descargar de cada candidato hasta encontrar un XLSX válido (ZIP: magic bytes 'PK')
     for candidate in candidate_urls:
@@ -421,20 +423,26 @@ def process_small_datasets(small_dict: dict):
         s3_see = f"s3://{RAW_BUCKET}/see/padron_see.csv"
         size_see = s3_object_size(s3_see)
         if size_see > 1024 * 1024:
-            log(f"✓ SEE ya existe en S3 ({size_see / 1024**2:.2f} MB). Omitiendo descarga.")
+            log(
+                f"✓ SEE ya existe en S3 ({size_see / 1024**2:.2f} MB). Omitiendo descarga."
+            )
         else:
             temp_zip = BASE_DIR / "tmp" / "padron_see.zip"
             download_file(small_dict["see"].strip(), temp_zip)
             with zipfile.ZipFile(temp_zip) as z:
                 csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
                 if len(csvs) != 1:
-                    raise FileNotFoundError(f"ZIP del SEE sin un único CSV: {z.namelist()}")
+                    raise FileNotFoundError(
+                        f"ZIP del SEE sin un único CSV: {z.namelist()}"
+                    )
                 out_csv = BASE_DIR / "see" / "padron_see.csv"
                 out_csv.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(csvs[0]) as src, open(out_csv, "wb") as dst:
                     shutil.copyfileobj(src, dst)
             temp_zip.unlink(missing_ok=True)
-            log(f"✓ SEE guardado ({out_csv.stat().st_size / 1024**2:.2f} MB): {out_csv}")
+            log(
+                f"✓ SEE guardado ({out_csv.stat().st_size / 1024**2:.2f} MB): {out_csv}"
+            )
 
 
 def upload_to_s3():

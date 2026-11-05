@@ -361,7 +361,9 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertEqual(len(positivos), 25)
         self.assertNotIn("_fecha_firme", curado.columns)
 
-        test = sorted(int(k) - 20100000000 for k, r in positivos.items() if r["split"] == "test")
+        test = sorted(
+            int(k) - 20100000000 for k, r in positivos.items() if r["split"] == "test"
+        )
         self.assertEqual(test, list(range(26, 31)))  # el 20% más reciente
         desde_test = stats["fecha_firme_positivos"]["test"][0]
         hasta_train = stats["fecha_firme_positivos"]["train"][1]

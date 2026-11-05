@@ -265,7 +265,9 @@ def normalizar_see(df):
     """Padrón SEE: RUC, tipo de comprobante (minúsculas) y fecha de inicio."""
     faltan = set(SEE_COLUMNAS) - set(df.columns)
     if faltan:
-        raise ValueError(f"Padrón SEE sin columnas {sorted(faltan)}: {list(df.columns)}")
+        raise ValueError(
+            f"Padrón SEE sin columnas {sorted(faltan)}: {list(df.columns)}"
+        )
     df = filtrar_ruc_validos(df[list(SEE_COLUMNAS)], "RUC", "prepare_see")
     df = df.rename(columns=SEE_COLUMNAS)
     df["tipo_see"] = df["tipo_see"].astype("string").str.strip().str.lower()

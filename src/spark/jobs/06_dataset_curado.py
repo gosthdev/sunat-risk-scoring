@@ -109,7 +109,9 @@ def curar_dataset(
     # Sin fechas (silver antiguo) el split de positivos cae al hash, como antes.
     fechas_ssco = {
         destino: (
-            col(origen).cast("date") if origen in ssco_df.columns else lit(None).cast("date")
+            col(origen).cast("date")
+            if origen in ssco_df.columns
+            else lit(None).cast("date")
         )
         for origen, destino in (
             ("fecha_emision", "_fecha_emision"),
@@ -137,7 +139,9 @@ def curar_dataset(
 
     if fecha_corte is not None:
         if "fecha_emision" not in ssco_df.columns:
-            raise ValueError("silver/ssco sin fecha_emision: no se puede aplicar el corte")
+            raise ValueError(
+                "silver/ssco sin fecha_emision: no se puede aplicar el corte"
+            )
         ya_ssco = col("_fecha_emision") <= lit(fecha_corte).cast("date")
         if return_stats:
             excluidos = dataset.filter(ya_ssco).count()
@@ -326,7 +330,11 @@ def main():
 
         reporte = generar_reporte_curado(dataset, dataset_version=dataset_version)
         reporte.update(
-            {k: v for k, v in stats.items() if k not in ("top_ciiu", "top_departamentos")}
+            {
+                k: v
+                for k, v in stats.items()
+                if k not in ("top_ciiu", "top_departamentos")
+            }
         )
         print("[06_dataset_curado] Reporte de Curado e Invariantes:")
         print(json.dumps(reporte, indent=2))
