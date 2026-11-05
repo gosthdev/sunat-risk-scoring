@@ -11,26 +11,33 @@
     "2025-09": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202509.zip",
     "2025-10": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202510.zip",
     "2025-11": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202511.zip",
-    "2025-12": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202512.zip"
+    "2025-12": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202512.zip",
+    "2026-01": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202601.zip",
+    "2026-02": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202602.zip",
+    "2026-03": "https://www.datosabiertos.gob.pe/sites/default/files/PadronRUC_202603.zip"
   },
   "ordenes_compra": {
-    "2025-01": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAENERO2025_0.xlsx",
-    "2025-02": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAFEBRERO2025_0.xlsx",
-    "2025-03": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAMARZO2025_0.xlsx",
-    "2025-04": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAABRIL2025_0.xlsx",
-    "2025-05": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAMAYO2025_0.xlsx",
-    "2025-06": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAJUNIO2025_0.xlsx",
-    "2025-07": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAJULIO2025_0.xlsx",
-    "2025-08": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAAGOSTO2025_0.xlsx",
-    "2025-09": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRASEPTIEMBRE2025_0.xlsx",
-    "2025-10": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRAOCTUBRE2025_0.xlsx",
-    "2025-11": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRANOVIEMBRE2025_0.xlsx",
-    "2025-12": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/CONOSCE_ORDENESCOMPRADICIEMBRE2025_0.xlsx"
+    "2025-01": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAENERO2025_0.xlsx",
+    "2025-02": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAFEBRERO2025_0.xlsx",
+    "2025-03": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAMARZO2025_0.xlsx",
+    "2025-04": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAABRIL2025_0.xlsx",
+    "2025-05": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAMAYO2025_0.xlsx",
+    "2025-06": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAJUNIO2025_0.xlsx",
+    "2025-07": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAJULIO2025_0.xlsx",
+    "2025-08": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAAGOSTO2025_0.xlsx",
+    "2025-09": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRASEPTIEMBRE2025_0.xlsx",
+    "2025-10": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRAOCTUBRE2025_0.xlsx",
+    "2025-11": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRANOVIEMBRE2025_0.xlsx",
+    "2025-12": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2025/ORDENESCOMPRADICIEMBRE2025_0.xlsx",
+    "2026-01": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2026/ORDENESCOMPRAENERO2026_0.xlsx",
+    "2026-02": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2026/ORDENESCOMPRAFEBRERO2026_0.xlsx",
+    "2026-03": "https://conosce.osce.gob.pe/buscador/assets/67ae6c4a/reportes/ordenes/2026/ORDENESCOMPRAMARZO2026_0.xlsx"
   },
   "small_datasets": {
     "pricos": "https://www.sunat.gob.pe/padronesnotificaciones/pricos/principalesContrib-PRICOS.xlsx",
     "ssco": "https://www.sunat.gob.pe/padronesnotificaciones/ssco/sujesincapacidadOperativa.xlsx",
     "ingresos_tributarios": "https://www.sunat.gob.pe/estadisticasestudios/nota_tributaria/cdro_A13.xlsx",
-    "epen": "https://proyectos.inei.gob.pe/iinei/srienaho/descarga/CSV/1001-Modulo76.zip"
+    "epen": "https://proyectos.inei.gob.pe/iinei/srienaho/descarga/CSV/1001-Modulo76.zip",
+    "see": "https://www.datosabiertos.gob.pe/sites/default/files/padron_SEE_202606.zip"
   }
 }

@@ -232,6 +232,19 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "sin_trabajadores",
         "monto_por_trabajador",
         "informalidad_epen_departamento",
+        "ruc_correlativo",
+        "meses_en_padron",
+        "nuevo_en_periodo",
+        "meses_hueco",
+        "cambio_tipo_facturacion",
+        "cambio_estado",
+        "see_afiliado",
+        "see_antiguedad_dias",
+        "see_n_tipos",
+        "see_factura_portal",
+        "see_boleta_portal",
+        "see_sistema_propio",
+        "see_solo_honorarios",
     ]
     num_cols = [c for c in candidatos_num if c in df.columns]
 
@@ -240,6 +253,9 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "actividad_economica_principal",
         "departamento",
         "tipo_contribuyente",
+        "ruc_prefijo",
+        "tipo_facturacion",
+        "tipo_contabilidad",
     ]
     if variant == "V1":
         candidatos_cat.extend(["Estado", "Condicion"])

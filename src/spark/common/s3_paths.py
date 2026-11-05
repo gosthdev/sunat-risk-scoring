@@ -57,6 +57,7 @@ RAW_PRICOS = _build_path(RAW_BUCKET, "raw", "pricos")
 RAW_INGRESOS_TRIBUTARIOS = _build_path(RAW_BUCKET, "raw", "ingresos_tributarios")
 RAW_EPEN = _build_path(RAW_BUCKET, "raw", "epen")
 RAW_SSCO = _build_path(RAW_BUCKET, "raw", "ssco")
+RAW_SEE = _build_path(RAW_BUCKET, "raw", "see")
 
 # -------------------------------------------------------------- BRONZE ----
 BRONZE_PADRON_RUC = _build_path(BRONZE_BUCKET, "bronze", "padron_ruc")
@@ -77,6 +78,7 @@ SILVER_INGRESOS_TRIBUTARIOS = _build_path(
 )
 SILVER_EPEN = _build_path(SILVER_BUCKET, "silver", "epen")
 SILVER_SSCO = _build_path(SILVER_BUCKET, "silver", "ssco")
+SILVER_SEE = _build_path(SILVER_BUCKET, "silver", "see")
 # Cuarentena de Silver: carpetas de primer nivel (no anidadas en quarantine/)
 # para que el crawler de Glue las catalogue como tablas propias.
 SILVER_PADRON_RUC_QUARANTINE = _build_path(

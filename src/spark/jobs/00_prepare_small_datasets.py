@@ -1,6 +1,6 @@
 """
 Script auxiliar de preparación de datasets pequeños: PRICOS, Ingresos
-Tributarios y EPEN.
+Tributarios, EPEN, SSCO y Padrón SEE.
 
 IMPORTANTE — esto NO es un EMR Step y NO se envía con spark-submit:
 EMR Serverless solo acepta job runs de tipo Spark/Hive (no tiene un nodo
@@ -30,10 +30,12 @@ from s3_paths import (
     RAW_EPEN,
     RAW_INGRESOS_TRIBUTARIOS,
     RAW_PRICOS,
+    RAW_SEE,
     RAW_SSCO,
     SILVER_EPEN,
     SILVER_INGRESOS_TRIBUTARIOS,
     SILVER_PRICOS,
+    SILVER_SEE,
     SILVER_SSCO,
 )
 
@@ -194,19 +196,94 @@ def prepare_epen():
     )
 
 
-def prepare_ssco():
-    # Foto única (corte 30-sep-2026), no se vuelve a descargar.
-    df = wr.s3.read_excel(f"{RAW_SSCO}/sujesincapacidadOperativa.xlsx")
+# Texto del encabezado del Excel de SUNAT (en minúsculas) -> columna silver.
+# Las fechas permiten excluir en 06 a quien ya era SSCO en el mes de corte de
+# las features y separar train/test en el tiempo.
+SSCO_COLUMNAS = {
+    "fecha de emisión": "fecha_emision",
+    "quedó firme": "fecha_firme",
+    "fecha de publicación": "fecha_publicacion",
+    "documento de identidad del representante": "doc_representante",
+}
+SSCO_FECHAS = ["fecha_emision", "fecha_firme", "fecha_publicacion"]
+
+
+def _a_fecha(serie):
+    # SUNAT guarda las fechas como serial de Excel; pandas a veces ya las parsea.
+    numeros = pd.to_numeric(serie, errors="coerce")
+    if numeros.notna().all():
+        return pd.to_datetime(numeros, unit="D", origin="1899-12-30").dt.date
+    return pd.to_datetime(serie, dayfirst=True, errors="coerce").dt.date
+
+
+def normalizar_ssco(df):
+    """RUC, fechas de la resolución y representante; una fila por RUC."""
     # Columna "RUC" si existe; si no, la primera. filtrar_ruc_validos falla si la
     # elegida no parece contener RUC (p. ej. un índice).
     columna = next(
         (c for c in df.columns if str(c).strip().upper() == "RUC"), df.columns[0]
     )
-    df = df.rename(columns={columna: "RUC"})
+    renombres = {columna: "RUC"}
+    for c in df.columns:
+        for texto, destino in SSCO_COLUMNAS.items():
+            if texto in str(c).lower():
+                renombres[c] = destino
+    df = df.rename(columns=renombres)
+    if "fecha_emision" not in df.columns:
+        raise ValueError(
+            "Excel SSCO sin 'Fecha de emisión de la resolución': sin ella no se "
+            f"puede evitar la fuga temporal. Columnas: {list(df.columns)}"
+        )
+
     df = filtrar_ruc_validos(df, "RUC", "prepare_ssco")
-    df = df[["RUC"]].drop_duplicates()
+    columnas = ["RUC"] + [c for c in SSCO_COLUMNAS.values() if c in df.columns]
+    df = df[columnas].copy()
+    for c in SSCO_FECHAS:
+        if c in df.columns:
+            df[c] = _a_fecha(df[c])
+    if df["fecha_emision"].isna().any():
+        raise ValueError("Excel SSCO con fecha_emision vacía o ilegible")
+    if "doc_representante" in df.columns:
+        df["doc_representante"] = df["doc_representante"].astype("string").str.strip()
+
+    # Un RUC repetido conserva su resolución más antigua.
+    df = df.sort_values("fecha_emision").drop_duplicates(subset=["RUC"])
     df["es_ssco"] = True
+    return df
+
+
+def prepare_ssco():
+    # Lista oficial de SUNAT; se reemplaza en raw/ssco/ cuando SUNAT la actualiza.
+    df = normalizar_ssco(wr.s3.read_excel(f"{RAW_SSCO}/sujesincapacidadOperativa.xlsx"))
     wr.s3.to_parquet(df, path=SILVER_SSCO, dataset=True, mode="overwrite")
+
+
+SEE_COLUMNAS = {"RUC": "RUC", "tipo_SEE": "tipo_see", "fecha_inicio": "fecha_inicio"}
+
+
+def normalizar_see(df):
+    """Padrón SEE: RUC, tipo de comprobante (minúsculas) y fecha de inicio."""
+    faltan = set(SEE_COLUMNAS) - set(df.columns)
+    if faltan:
+        raise ValueError(
+            f"Padrón SEE sin columnas {sorted(faltan)}: {list(df.columns)}"
+        )
+    df = filtrar_ruc_validos(df[list(SEE_COLUMNAS)], "RUC", "prepare_see")
+    df = df.rename(columns=SEE_COLUMNAS)
+    df["tipo_see"] = df["tipo_see"].astype("string").str.strip().str.lower()
+    df["fecha_inicio"] = pd.to_datetime(
+        df["fecha_inicio"], format="%Y-%m-%d", errors="coerce"
+    ).dt.date
+    return df.drop_duplicates()
+
+
+def prepare_see():
+    df = wr.s3.read_csv(
+        f"{RAW_SEE}/padron_see.csv", dtype=str, usecols=list(SEE_COLUMNAS)
+    )
+    df = normalizar_see(df)
+    wr.s3.to_parquet(df, path=SILVER_SEE, dataset=True, mode="overwrite")
+    print(f"[prepare_see] SEE guardado en {SILVER_SEE} ({len(df):,} filas).")
 
 
 def main():
@@ -214,6 +291,7 @@ def main():
     prepare_ingresos_tributarios()
     prepare_epen()
     prepare_ssco()
+    prepare_see()
 
 
 if __name__ == "__main__":

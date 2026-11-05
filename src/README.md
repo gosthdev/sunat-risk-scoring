@@ -10,7 +10,7 @@ src/spark/
 │   ├── region_normalizer.py     # normalización de nombres de departamento
 │   └── spark_session_factory.py # factory de SparkSession con config estándar
 └── jobs/
-    ├── 00_prepare_small_datasets.py   # PRICOS/Ingresos/EPEN/SSCO → silver (pandas, NO es EMR Step)
+    ├── 00_prepare_small_datasets.py   # PRICOS/Ingresos/EPEN/SSCO/SEE → silver (pandas, NO es EMR Step)
     ├── 00_run_prepare_small_datasets.sh # Atajo de desarrollo local para 00_prepare_small_datasets.py
     ├── requirements.txt               # dependencias de 00_prepare_small_datasets.py
     ├── 01_ingest_bronze.py            # EMR Step 1: raw → bronze (+ quarantine)
