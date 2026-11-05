@@ -18,7 +18,7 @@ import json
 import os
 import sys
 
-from dataset_versions import mes_de_version
+from dataset_versions import fecha_de_version, mes_de_version
 from pyspark.sql.functions import (
     abs as spark_abs,
 )
@@ -36,6 +36,12 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.functions import (
     hash as spark_hash,
+)
+from pyspark.sql.functions import (
+    max as spark_max,
+)
+from pyspark.sql.functions import (
+    min as spark_min,
 )
 from pyspark.sql.functions import (
     sum as spark_sum,
@@ -60,10 +66,14 @@ def curar_dataset(
     top_ciiu_limit=30,
     top_dept_limit=25,
     return_stats=False,
+    fecha_corte=None,
 ):
     """Ejecuta la lógica completa de curado, exclusión, split y folds sobre DataFrames.
 
     Esta función pura permite pruebas unitarias deterministas sin depender de S3.
+    Con `fecha_corte` (yyyy-mm-dd) se descartan los SSCO cuya resolución se emitió
+    en o antes del corte de las features: en ellos las features ya reflejan la
+    designación (p. ej. facturación bloqueada), no la anticipan.
     """
     # 1. Normalizar clave RUC en padron
     padron = padron_features_df.withColumn(
@@ -96,6 +106,16 @@ def curar_dataset(
     # 3. Incorporar label oficial de SSCO
     # Evalúa columna 'ruc' o 'RUC' y cualquier flag 'es_ssco'
     ssco_col_name = "RUC" if "RUC" in ssco_df.columns else "ruc"
+    # Sin fechas (silver antiguo) el split de positivos cae al hash, como antes.
+    fechas_ssco = {
+        destino: (
+            col(origen).cast("date") if origen in ssco_df.columns else lit(None).cast("date")
+        )
+        for origen, destino in (
+            ("fecha_emision", "_fecha_emision"),
+            ("fecha_firme", "_fecha_firme"),
+        )
+    }
     ssco_norm = (
         ssco_df.withColumn(
             "ruc_ssco_norm",
@@ -104,8 +124,8 @@ def curar_dataset(
                 format_string("%011d", col(ssco_col_name).cast("long")),
             ).otherwise(col(ssco_col_name).cast("string")),
         )
-        .select("ruc_ssco_norm")
-        .distinct()
+        .select("ruc_ssco_norm", *[c.alias(n) for n, c in fechas_ssco.items()])
+        .dropDuplicates(["ruc_ssco_norm"])
         .withColumn("_flag_ssco", lit(1))
     )
 
@@ -115,10 +135,18 @@ def curar_dataset(
         how="left",
     ).drop("ruc_ssco_norm")
 
+    if fecha_corte is not None:
+        if "fecha_emision" not in ssco_df.columns:
+            raise ValueError("silver/ssco sin fecha_emision: no se puede aplicar el corte")
+        ya_ssco = col("_fecha_emision") <= lit(fecha_corte).cast("date")
+        if return_stats:
+            excluidos = dataset.filter(ya_ssco).count()
+        dataset = dataset.filter(col("_fecha_emision").isNull() | ~ya_ssco)
+
     dataset = dataset.withColumn(
         "label",
         when(col("_flag_ssco") == 1, 1).otherwise(0).cast("int"),
-    ).drop("_flag_ssco")
+    ).drop("_flag_ssco", "_fecha_emision")
 
     # 4. Asignar ruc oficial como string
     dataset = dataset.withColumn("ruc", col("ruc_norm")).drop("ruc_norm")
@@ -126,8 +154,10 @@ def curar_dataset(
         dataset = dataset.drop("RUC")
 
     # 5. Split determinista y estrictamente estratificado 80% train / 20% test
-    # Ordenar por hash determinista del RUC dentro de cada clase (label) y enviar el 20% con hash menor a test
+    # Positivos: el 20% más reciente por fecha_firme va a test (¿se detecta a los que
+    # SUNAT designó después?). Negativos (sin fecha): el 20% con hash menor.
     w_split = Window.partitionBy("label").orderBy(
+        col("_fecha_firme").desc_nulls_last(),
         spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla}_split")))),
         col("ruc"),
     )
@@ -166,6 +196,23 @@ def curar_dataset(
         "top_departamentos": [],
     }
 
+    if return_stats:
+        if fecha_corte is not None:
+            stats["ssco_excluidos_por_corte"] = excluidos
+        rango = (
+            dataset.filter(col("label") == 1)
+            .groupBy("split")
+            .agg(
+                spark_min("_fecha_firme").alias("desde"),
+                spark_max("_fecha_firme").alias("hasta"),
+            )
+            .collect()
+        )
+        stats["fecha_firme_positivos"] = {
+            r["split"]: [str(r["desde"]), str(r["hasta"])] for r in rango
+        }
+
+    dataset = dataset.drop("_fecha_firme")
     if return_stats:
         return dataset, stats
     return dataset
@@ -258,12 +305,13 @@ def main():
         ssco = spark.read.parquet(SILVER_SSCO)
         pricos = spark.read.parquet(SILVER_PRICOS)
 
-        dataset, _stats = curar_dataset(
+        dataset, stats = curar_dataset(
             padron_features_df=padron_features,
             ssco_df=ssco,
             pricos_df=pricos,
             semilla=semilla,
             return_stats=True,
+            fecha_corte=fecha_de_version(dataset_version),
         )
 
         dataset = dataset.withColumn("dataset_version", lit(dataset_version))
@@ -277,6 +325,9 @@ def main():
         )
 
         reporte = generar_reporte_curado(dataset, dataset_version=dataset_version)
+        reporte.update(
+            {k: v for k, v in stats.items() if k not in ("top_ciiu", "top_departamentos")}
+        )
         print("[06_dataset_curado] Reporte de Curado e Invariantes:")
         print(json.dumps(reporte, indent=2))
     finally:

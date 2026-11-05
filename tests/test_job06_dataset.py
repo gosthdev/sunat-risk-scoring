@@ -4,6 +4,7 @@ import unittest
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count
 from pyspark.sql.types import (
+    DateType,
     DoubleType,
     IntegerType,
     LongType,
@@ -326,3 +327,47 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertIsNone(res["20100000001"])
         self.assertEqual(res["20100000002"], "SOCIEDAD ANONIMA CERRADA")
         self.assertEqual(res["20100000003"], "SOCIEDAD ANONIMA")
+
+    def test_corte_excluye_ssco_previos_y_test_son_los_mas_recientes(self):
+        from datetime import date, timedelta
+
+        assert self.spark is not None
+        padron, _ssco, pricos = self._crear_datos_sinteticos()
+        # 30 SSCO: los 5 primeros emitidos antes del corte, el resto un día después
+        # del anterior (fecha_firme = emisión + 15 días).
+        base = date(2025, 12, 1)
+        filas = [
+            (20100000000 + i, base + timedelta(days=i), base + timedelta(days=i + 15))
+            for i in range(1, 31)
+        ]
+        esquema = StructType(
+            [
+                StructField("RUC", LongType(), False),
+                StructField("fecha_emision", DateType(), True),
+                StructField("fecha_firme", DateType(), True),
+            ]
+        )
+        ssco = self.spark.createDataFrame(filas, esquema)
+
+        curado, stats = job06.curar_dataset(
+            padron, ssco, pricos, return_stats=True, fecha_corte="2025-12-06"
+        )
+        rucs = {r["ruc"]: r for r in curado.collect()}
+
+        self.assertEqual(stats["ssco_excluidos_por_corte"], 5)
+        for i in range(1, 6):
+            self.assertNotIn(f"{20100000000 + i:011d}", rucs)
+        positivos = {k: r for k, r in rucs.items() if r["label"] == 1}
+        self.assertEqual(len(positivos), 25)
+        self.assertNotIn("_fecha_firme", curado.columns)
+
+        test = sorted(int(k) - 20100000000 for k, r in positivos.items() if r["split"] == "test")
+        self.assertEqual(test, list(range(26, 31)))  # el 20% más reciente
+        desde_test = stats["fecha_firme_positivos"]["test"][0]
+        hasta_train = stats["fecha_firme_positivos"]["train"][1]
+        self.assertLess(hasta_train, desde_test)
+
+    def test_corte_sin_fechas_en_ssco_falla(self):
+        padron, ssco, pricos = self._crear_datos_sinteticos()
+        with self.assertRaises(ValueError):
+            job06.curar_dataset(padron, ssco, pricos, fecha_corte="2025-12-31")
