@@ -6,7 +6,8 @@ Implementa:
   - Exclusión estricta de PRICOS (D2) mediante anti-join.
   - Unión del label oficial de SSCO (D1: 1 si está en lista, 0 si no).
   - Normalización de clave 'ruc' a string de 11 caracteres.
-  - Split determinista y estratificado 80/20 (train/test) con semilla 42.
+  - Split determinista y estratificado 70/30 (train/test) con semilla 42; los SSCO de un
+    mismo representante legal van juntos (mismo split y mismo fold).
   - Asignación de 5 folds (0 a 4) estratificados en train, y -1 en test (PredefinedSplit).
   - Preservación de categorías crudas sin agrupar, delegando OHE a scikit-learn.
   - Salida hacia <gold-bucket>/model_inputs/dataset_version=<v>/ respetando Contrato C1.
@@ -23,6 +24,7 @@ from pyspark.sql.functions import (
     abs as spark_abs,
 )
 from pyspark.sql.functions import (
+    coalesce,
     col,
     concat,
     countDistinct,
@@ -56,6 +58,36 @@ from s3_paths import (
 from spark_session_factory import create_spark_session
 
 SEMILLA_DEFAULT = 42
+# ~30 % de ~1.030 SSCO: unos 310 positivos en test, para un PR-AUC de test menos ruidoso.
+FRACCION_TEST = 0.3
+
+# Población elegible: tipos de contribuyente con algún SSCO en el registro, ACTIVO y
+# afiliado al SEE. En v3 deja ~2,1 M de 13 M RUC y conserva el 100 % de los SSCO; el
+# resto son negativos triviales (sobre todo personas naturales sin negocio).
+TIPOS_ELEGIBLES = (
+    "EMPRESA INDIVIDUAL DE RESPONSABILIDAD LIMITADA",
+    "PERSONA NATURAL CON NEGOCIO",
+    "SOCIEDAD ANONIMA CERRADA",
+    "SOCIEDAD COMERCIAL DE RESPONSABILIDAD LIMITADA",
+    "CONTRATOS COLABORACION EMPRESARIAL",
+    "SOCIEDAD POR ACCIONES CERRADA SIMPLIFICADA",
+    "SOCIEDAD IRREGULAR",
+    "SOCIEDAD ANONIMA",
+)
+
+
+def filtrar_poblacion(padron_features_df):
+    """Deja solo los RUC que pueden ser SSCO: tipo elegible, ACTIVO y afiliado al SEE."""
+    faltan = {"tipo_contribuyente", "Estado", "see_afiliado"} - set(
+        padron_features_df.columns
+    )
+    if faltan:
+        raise ValueError(f"ruc_features sin columnas para filtrar población: {faltan}")
+    return padron_features_df.filter(
+        col("tipo_contribuyente").isin(*TIPOS_ELEGIBLES)
+        & (col("Estado") == "ACTIVO")
+        & (col("see_afiliado") == 1)
+    )
 
 
 def curar_dataset(
@@ -126,7 +158,15 @@ def curar_dataset(
                 format_string("%011d", col(ssco_col_name).cast("long")),
             ).otherwise(col(ssco_col_name).cast("string")),
         )
-        .select("ruc_ssco_norm", *[c.alias(n) for n, c in fechas_ssco.items()])
+        .select(
+            "ruc_ssco_norm",
+            *[c.alias(n) for n, c in fechas_ssco.items()],
+            (
+                col("doc_representante").cast("string")
+                if "doc_representante" in ssco_df.columns
+                else lit(None).cast("string")
+            ).alias("_rep"),
+        )
         .dropDuplicates(["ruc_ssco_norm"])
         .withColumn("_flag_ssco", lit(1))
     )
@@ -150,16 +190,26 @@ def curar_dataset(
     dataset = dataset.withColumn(
         "label",
         when(col("_flag_ssco") == 1, 1).otherwise(0).cast("int"),
-    ).drop("_flag_ssco", "_fecha_emision")
+    ).drop("_flag_ssco")
 
     # 4. Asignar ruc oficial como string
     dataset = dataset.withColumn("ruc", col("ruc_norm")).drop("ruc_norm")
     if "RUC" in dataset.columns:
         dataset = dataset.drop("RUC")
 
-    # 5. Split determinista y estrictamente estratificado 80% train / 20% test
-    # Positivos: el 20% más reciente por fecha_firme va a test (¿se detecta a los que
-    # SUNAT designó después?). Negativos (sin fecha): el 20% con hash menor.
+    # Grupo de un positivo: su representante legal (SUNAT designa en lotes de empresas
+    # del mismo representante); sin representante, o en negativos, el propio RUC.
+    dataset = dataset.withColumn(
+        "_grupo",
+        when(col("label") == 1, coalesce(col("_rep"), col("ruc"))).otherwise(
+            col("ruc")
+        ),
+    ).drop("_rep")
+    w_grupo = Window.partitionBy("label", "_grupo")
+
+    # 5. Split determinista y estratificado 70% train / 30% test
+    # Positivos: el 30% más reciente por fecha_firme va a test (¿se detecta a los que
+    # SUNAT designó después?), con todo su grupo. Negativos (sin fecha): el 30% con hash menor.
     w_split = Window.partitionBy("label").orderBy(
         col("_fecha_firme").desc_nulls_last(),
         spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla}_split")))),
@@ -171,22 +221,45 @@ def curar_dataset(
         dataset.withColumn("_rn", row_number().over(w_split))
         .withColumn("_n_label", spark_count("*").over(w_label_cnt))
         .withColumn(
-            "split",
-            when(col("_rn") <= (col("_n_label") * 0.2), "test").otherwise("train"),
+            "_es_test", (col("_rn") <= (col("_n_label") * FRACCION_TEST)).cast("int")
         )
-        .drop("_rn", "_n_label")
+        .withColumn(
+            "split",
+            when(spark_max("_es_test").over(w_grupo) == 1, "test").otherwise("train"),
+        )
+        .drop("_rn", "_n_label", "_es_test")
     )
 
-    # 6. Asignar fold (0 a 4) estratificado cíclicamente exclusivamente para filas de train, y -1 para test
+    # 6. Folds (0 a 4) solo en train, -1 en test. Positivos: bloques por fecha de emisión
+    # y grupo completo en un fold, así un lote de designaciones o un mismo representante
+    # no cae en train y validación a la vez (con folds aleatorios la CV daba ~13x el
+    # PR-AUC de test). Negativos: cíclico por hash.
+    hash_fold = spark_abs(
+        spark_hash(concat(col("ruc"), lit(f"_salt_{semilla + 1}_fold")))
+    )
     w_fold = Window.partitionBy("label").orderBy(
-        spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla + 1}_fold")))),
+        when(col("label") == 1, col("_emision_grupo")).asc_nulls_last(),
+        when(col("label") == 1, col("_grupo")),
+        hash_fold,
         col("ruc"),
     )
     train_part = (
         dataset.filter(col("split") == "train")
+        .withColumn("_emision_grupo", spark_min("_fecha_emision").over(w_grupo))
         .withColumn("_rn_fold", row_number().over(w_fold))
-        .withColumn("fold", ((col("_rn_fold") - 1) % 5).cast("int"))
-        .drop("_rn_fold")
+        .withColumn("_n_fold", spark_count("*").over(w_label_cnt))
+        .withColumn(
+            "fold",
+            when(
+                col("label") == 1,
+                ((col("_rn_fold") - 1) * 5 / col("_n_fold")).cast("int"),
+            )
+            .otherwise((col("_rn_fold") - 1) % 5)
+            .cast("int"),
+        )
+        # El grupo queda contiguo en el orden: toma el fold de su primer miembro.
+        .withColumn("fold", spark_min("fold").over(w_grupo))
+        .drop("_rn_fold", "_n_fold", "_emision_grupo")
     )
     test_part = dataset.filter(col("split") == "test").withColumn(
         "fold", lit(-1).cast("int")
@@ -216,7 +289,7 @@ def curar_dataset(
             r["split"]: [str(r["desde"]), str(r["hasta"])] for r in rango
         }
 
-    dataset = dataset.drop("_fecha_firme")
+    dataset = dataset.drop("_fecha_firme", "_fecha_emision", "_grupo")
     if return_stats:
         return dataset, stats
     return dataset
@@ -303,8 +376,10 @@ def main():
     spark = create_spark_session("06_dataset_curado")
     try:
         spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        padron_features = spark.read.parquet(GOLD_RUC_FEATURES).filter(
-            col("mes_referencia") == mes_padron
+        padron_features = filtrar_poblacion(
+            spark.read.parquet(GOLD_RUC_FEATURES).filter(
+                col("mes_referencia") == mes_padron
+            )
         )
         ssco = spark.read.parquet(SILVER_SSCO)
         pricos = spark.read.parquet(SILVER_PRICOS)

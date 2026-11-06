@@ -210,6 +210,9 @@ def ejecutar_experimento_runner(
     if param_grid and isinstance(param_grid, dict):
         cli_args.extend(["--param_grid_json", json.dumps(param_grid)])
 
+    if exp.get("neg_ratio"):
+        cli_args.extend(["--neg_ratio", str(int(exp["neg_ratio"]))])
+
     t0 = time.time()
     try:
         ret = train_main(cli_args)
@@ -441,13 +444,15 @@ def seleccionar_modelo_campeon(
         and r.get("usa_pesos") == "si"
     ]
 
-    def _mejor_de(familia: str) -> dict[str, Any] | None:
-        de_familia = [r for r in candidatos_oficiales if r.get("model_name") == familia]
+    def _mejor_de(*familias: str) -> dict[str, Any] | None:
+        de_familia = [
+            r for r in candidatos_oficiales if r.get("model_name") in familias
+        ]
         return max(de_familia, key=lambda r: r.get("cv_pr_auc_mean", 0.0), default=None)
 
-    # Cada familia compite con su mejor configuración V2 con pesos (E1/E2 y variantes).
+    # LR contra el mejor modelo de árboles (DT o HGB), cada uno con su mejor configuración.
     r_lr = _mejor_de("LR")
-    r_dt = _mejor_de("DT")
+    r_dt = _mejor_de("DT", "HGB")
 
     if r_lr and r_dt:
         score_lr = r_lr.get("cv_pr_auc_mean", 0.0)
@@ -458,7 +463,7 @@ def seleccionar_modelo_campeon(
             campeon = r_lr
             retador = r_dt
             motivo = (
-                f"Regresión Logística ({r_lr.get('id')}) supera o iguala a Árbol de Decisión ({r_dt.get('id')}) en PR-AUC "
+                f"Regresión Logística ({r_lr.get('id')}) supera o iguala a {r_dt.get('model_name')} ({r_dt.get('id')}) en PR-AUC "
                 f"({score_lr:.4f} vs {score_dt:.4f}, diff = +{diff:.4f}). "
                 f"Se selecciona LR como Modelo Oficial por estabilidad asintótica, menor sobreajuste "
                 f"y el principio de parsimonia (Navaja de Ockham)."
@@ -467,9 +472,9 @@ def seleccionar_modelo_campeon(
             campeon = r_dt
             retador = r_lr
             motivo = (
-                f"Árbol de Decisión ({r_dt.get('id')}) supera a Regresión Logística ({r_lr.get('id')}) en PR-AUC "
+                f"{r_dt.get('model_name')} ({r_dt.get('id')}) supera a Regresión Logística ({r_lr.get('id')}) en PR-AUC "
                 f"({score_dt:.4f} vs {score_lr:.4f}, diff = +{abs(diff):.4f}). "
-                f"Se selecciona DT por mayor capacidad no lineal en la captura de no-linealidades tributarias."
+                f"Se selecciona {r_dt.get('model_name')} por mayor capacidad no lineal en la captura de no-linealidades tributarias."
             )
         return {
             "campeon_id": campeon.get("id"),

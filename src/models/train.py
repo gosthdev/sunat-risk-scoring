@@ -21,8 +21,9 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
@@ -36,6 +37,7 @@ try:
     from src.models.explainability import (
         extraer_explicabilidad_lr,
         extraer_importancias_dt,
+        extraer_importancias_permutacion,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
@@ -44,6 +46,7 @@ except ImportError:
     from explainability import (  # type: ignore[no-redef]
         extraer_explicabilidad_lr,
         extraer_importancias_dt,
+        extraer_importancias_permutacion,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
@@ -134,7 +137,9 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--run_id", type=str, required=True, help="Identificador único de la corrida"
     )
-    parser.add_argument("--model_name", type=str, choices=["LR", "DT"], required=True)
+    parser.add_argument(
+        "--model_name", type=str, choices=["LR", "DT", "HGB"], required=True
+    )
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
     parser.add_argument("--dataset_version", type=str, default="v1")
@@ -144,6 +149,12 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=3,
         help="Procesos paralelos de GridSearchCV (cada uno copia X_train: cuidar la RAM)",
+    )
+    parser.add_argument(
+        "--neg_ratio",
+        type=int,
+        default=0,
+        help="Negativos por positivo que se muestrean en train (0 = todos)",
     )
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
@@ -272,6 +283,7 @@ def construir_pipeline_preprocesamiento(
     num_cols: list[str],
     cat_cols: list[str],
     es_lr: bool = True,
+    denso: bool = False,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
 
@@ -317,7 +329,12 @@ def construir_pipeline_preprocesamiento(
         tope = MAX_CATEGORIAS.get(col, MAX_CATEGORIAS_DEFAULT)
         transformers.append((f"cat_{col}", _cat_pipeline(tope), [col]))
 
-    return ColumnTransformer(transformers=transformers, remainder="drop")
+    # HistGradientBoosting no acepta matrices dispersas.
+    return ColumnTransformer(
+        transformers=transformers,
+        remainder="drop",
+        **({"sparse_threshold": 0.0} if denso else {}),
+    )
 
 
 def empaquetar_modelo_sagemaker(model_dir: str) -> str:
@@ -359,7 +376,10 @@ def main(args_list: list[str] | None = None) -> int:
 
     # 2. Configurar Modelo y Pipeline
     es_lr = args.model_name == "LR"
-    preprocessor = construir_pipeline_preprocesamiento(num_cols, cat_cols, es_lr=es_lr)
+    es_hgb = args.model_name == "HGB"
+    preprocessor = construir_pipeline_preprocesamiento(
+        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb
+    )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 
     if es_lr:
@@ -367,6 +387,17 @@ def main(args_list: list[str] | None = None) -> int:
             class_weight=class_weight, random_state=args.seed, max_iter=1000
         )
         param_grid = {"model__C": [0.01, 0.1, 1.0, 10.0]}
+    elif es_hgb:
+        model = HistGradientBoostingClassifier(
+            class_weight=class_weight,
+            random_state=args.seed,
+            early_stopping=False,
+        )
+        param_grid = {
+            "model__learning_rate": [0.05, 0.1],
+            "model__max_iter": [200],
+            "model__max_leaf_nodes": [15, 31],
+        }
     else:
         model = DecisionTreeClassifier(
             class_weight=class_weight, random_state=args.seed
@@ -410,19 +441,43 @@ def main(args_list: list[str] | None = None) -> int:
     else:
         cv_splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)
 
+    rng = np.random.default_rng(args.seed)
+
+    def _muestra(idx: np.ndarray) -> np.ndarray:
+        """Todos los positivos de idx y neg_ratio negativos por cada uno."""
+        pos = idx[y_train[idx] == 1]
+        neg = idx[y_train[idx] == 0]
+        n_neg = min(len(neg), args.neg_ratio * len(pos))
+        return np.sort(np.concatenate([pos, rng.choice(neg, n_neg, replace=False)]))
+
+    cv_splits: Any = cv_splitter
+    idx_ajuste = None
+    if args.neg_ratio > 0:
+        # Solo se submuestrea lo que se ajusta: cada fold se valida completo, así el
+        # PR-AUC de CV mantiene la prevalencia real y es comparable con test.
+        cv_splits = [
+            (_muestra(tr), va) for tr, va in cv_splitter.split(X_train, y_train)
+        ]
+        idx_ajuste = _muestra(np.arange(n_train))
+        print(f"[METRIC] n_train_muestra={len(idx_ajuste)}")
+
     grid_search = GridSearchCV(
         estimator=full_pipeline,
         param_grid=param_grid,
         scoring="average_precision",
-        cv=cv_splitter,
-        refit=True,
+        cv=cv_splits,
+        refit=False,  # el modelo final se ajusta abajo, sobre la misma muestra que la CV
         n_jobs=args.n_jobs,
         verbose=2,
     )
 
     # 4. Ajuste del modelo sobre Train únicamente
     grid_search.fit(X_train, y_train)
-    best_pipeline = grid_search.best_estimator_
+    best_pipeline = clone(full_pipeline).set_params(**grid_search.best_params_)
+    if idx_ajuste is None:
+        best_pipeline.fit(X_train, y_train)
+    else:
+        best_pipeline.fit(X_train.iloc[idx_ajuste], y_train[idx_ajuste])
 
     # Extraer cantidad de variables transformadas
     X_train_trans = best_pipeline.named_steps["preprocessor"].transform(X_train)
@@ -486,6 +541,15 @@ def main(args_list: list[str] | None = None) -> int:
         print("[INFO] Top 5 Features por Coeficiente Absoluto (LR):")
         print(df_coefs.head(5)[["feature", "coeficiente", "impacto"]].to_string())
         tabla_explicabilidad = df_coefs
+    elif es_hgb:
+        # Sin coeficientes ni importancias nativas: permutación sobre la muestra de ajuste.
+        X_exp = X_train if idx_ajuste is None else X_train.iloc[idx_ajuste]
+        y_exp = y_train if idx_ajuste is None else y_train[idx_ajuste]
+        tabla_explicabilidad = extraer_importancias_permutacion(
+            best_pipeline, X_exp, y_exp, seed=args.seed
+        )
+        print("[INFO] Top 5 Features por importancia de permutación (HGB):")
+        print(tabla_explicabilidad.head(5).to_string())
     else:
         rules_text = extraer_reglas_dt(best_pipeline, feature_names, max_depth=3)
         print("[INFO] Reglas principales de Decision Tree (profundidad <= 3):")

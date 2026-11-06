@@ -17,7 +17,7 @@
 | :--- | :--- | :--- | :--- |
 | `ruc` | `StringType` | NUNCA | Identificador tributario (RUC de 11 dígitos). Llave primaria única. |
 | `label` | `IntegerType` | NUNCA | Etiqueta binaria de riesgo SSCO: `1` si el RUC pertenece al registro oficial de Sujetos sin Capacidad Operativa (SUNAT, corte 30-sep-2026); `0` si no pertenece. |
-| `split` | `StringType` | NUNCA | Segmento de partición: `"train"` (80% estratificado) o `"test"` (20% estratificado bajo llave). |
+| `split` | `StringType` | NUNCA | Segmento de partición: `"train"` (70% estratificado) o `"test"` (30% estratificado; SSCO con el mismo representante legal siempre juntos). |
 | `fold` | `IntegerType` | NUNCA | Identificador de partición de validación cruzada: `0`, `1`, `2`, `3` o `4` para filas donde `split == "train"`. Valor `-1` para filas donde `split == "test"` (requerido para compatibilidad con `PredefinedSplit` de scikit-learn). |
 | `departamento` | `StringType` | NO (imputa "DESCONOCIDO") | Departamento normalizado según estándar UBIGEO / `region_normalizer`. Se preserva crudo para OneHotEncoder en scikit-learn. |
 | `ciiu_principal` | `StringType` | NO (imputa "OTROS") | Código CIIU revisión 4 principal, preservado crudo para OneHotEncoder con top-30 y tratamiento infrecuente en scikit-learn. |
@@ -53,7 +53,7 @@
    - Para `dataset_version = v1` (oficial): Padrón Snapshot `202506` (junio 2025) y Órdenes de Compra con `fecha_de_emision <= '2025-06-30'`.
    - Horizonte de predicción respecto al label: ~15 meses (junio 2025 vs. septiembre 2026).
 5. **Estratificación del Split:**
-   - Proporción global: 80% `train`, 20% `test`.
+   - Proporción global: 70% `train`, 30% `test`.
    - La prevalencia de positivos ($\frac{\text{label}=1}{\text{total}}$) en `train` y `test` no debe diferir en más de un 10% relativo.
    - La partición es determinista mediante hash determinista del RUC con semilla $42$.
 6. **Validación Cruzada (K-Folds):**

@@ -28,7 +28,7 @@ sale del registro oficial de SSCO; el resto de fuentes aportan las variables.
 
 Las URLs de descarga están en `src/ingestion/urls.json`.
 
-Versiones del dataset (`src/spark/common/dataset_versions.py`): cada una es un mes de corte de las features. `v1` = jun-2025, `v2` = dic-2025, `v3` = mar-2026. El Job 06 descarta los SSCO cuya resolución se emitió antes del corte (sus features ya reflejan la designación) y manda a test el 20 % de positivos designados más recientemente.
+Versiones del dataset (`src/spark/common/dataset_versions.py`): cada una es un mes de corte de las features. `v1` = jun-2025, `v2` = dic-2025, `v3` = mar-2026. El Job 06 descarta los SSCO cuya resolución se emitió antes del corte (sus features ya reflejan la designación) y manda a test el 30 % de positivos designados más recientemente. Los SSCO con el mismo representante legal van siempre juntos (mismo split y mismo fold). Solo entran RUC que pueden ser SSCO: tipos de contribuyente con algún SSCO, Estado ACTIVO y afiliados al SEE (en v3, ~2,1 M de 13 M RUC, con el 100 % de los SSCO). Los folds de CV de los positivos van en bloques por fecha de emisión, para que un lote de designaciones no quede en train y validación a la vez.
 
 ## Arquitectura
 
@@ -86,6 +86,8 @@ selección `average_precision`):
   (sin fuga) y V1 (incluye Estado/Condición, solo como techo de referencia), con y
   sin pesos de clase.
 - **E9–E12:** exploraciones de hiperparámetros sobre LR y DT con V2.
+- **E13–E14:** gradient boosting (`HistGradientBoostingClassifier`) con y sin pesos.
+- `neg_ratio` en cada experimento: negativos por positivo que se muestrean en train (solo en lo que se ajusta: cada fold de CV se valida completo, con la prevalencia real). HGB se explica con importancia por permutación (magnitud, no sentido).
 
 El entrenamiento corre en SageMaker Training Jobs (workflow
 `train-models-sagemaker.yml`; resultados con `collect-training-results.yml`).
