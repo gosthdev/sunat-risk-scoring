@@ -324,7 +324,8 @@ def test_hgb_con_submuestreo_de_negativos(synthetic_dataframe, capsys):
         n_pos = int(synthetic_dataframe.loc[es_train, "label"].sum())
         assert f"n_train_muestra={3 * n_pos}" in capsys.readouterr().out
         assert len(pd.read_parquet(preds_path)) == len(synthetic_dataframe)
-        assert not os.path.exists(os.path.join(model_dir, "explicabilidad.csv"))
+        imp = pd.read_csv(os.path.join(model_dir, "explicabilidad.csv"))
+        assert {"feature", "importancia"} <= set(imp.columns)
 
 
 def test_explainability(synthetic_dataframe):

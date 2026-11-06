@@ -87,7 +87,7 @@ selección `average_precision`):
   sin pesos de clase.
 - **E9–E12:** exploraciones de hiperparámetros sobre LR y DT con V2.
 - **E13–E14:** gradient boosting (`HistGradientBoostingClassifier`) con y sin pesos.
-- `neg_ratio` en cada experimento: negativos por positivo que se muestrean en train (el PR-AUC de CV sale inflado frente a test; solo sirve para comparar).
+- `neg_ratio` en cada experimento: negativos por positivo que se muestrean en train (solo en lo que se ajusta: cada fold de CV se valida completo, con la prevalencia real). HGB se explica con importancia por permutación (magnitud, no sentido).
 
 El entrenamiento corre en SageMaker Training Jobs (workflow
 `train-models-sagemaker.yml`; resultados con `collect-training-results.yml`).

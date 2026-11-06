@@ -89,3 +89,33 @@ def extraer_importancias_dt(
         drop=True
     )
     return df_imp
+
+
+def extraer_importancias_permutacion(
+    best_pipeline: Any, X: pd.DataFrame, y: Any, seed: int = 42
+) -> pd.DataFrame:
+    """Importancia por permutación (para modelos sin coeficientes, como HGB).
+
+    Cuánto cae el PR-AUC al barajar cada variable original. Da la magnitud, no el
+    sentido (si sube o baja el riesgo).
+    """
+    from sklearn.inspection import permutation_importance
+
+    r = permutation_importance(
+        best_pipeline,
+        X,
+        y,
+        scoring="average_precision",
+        n_repeats=3,
+        random_state=seed,
+    )
+    df_imp = pd.DataFrame(
+        {
+            "feature": list(X.columns),
+            "importancia": r.importances_mean,
+            "desviacion": r.importances_std,
+        }
+    )
+    return df_imp.sort_values(by="importancia", ascending=False).reset_index(
+        drop=True
+    )

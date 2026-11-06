@@ -37,6 +37,7 @@ try:
     from src.models.explainability import (
         extraer_explicabilidad_lr,
         extraer_importancias_dt,
+        extraer_importancias_permutacion,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
@@ -45,6 +46,7 @@ except ImportError:
     from explainability import (  # type: ignore[no-redef]
         extraer_explicabilidad_lr,
         extraer_importancias_dt,
+        extraer_importancias_permutacion,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
@@ -527,7 +529,6 @@ def main(args_list: list[str] | None = None) -> int:
         best_params=grid_search.best_params_,
         grilla_probada=param_grid,
     )
-    tabla_explicabilidad: pd.DataFrame | None
 
     # 8. Extraer Explicabilidad preliminar (Tarea A6)
     feature_names = obtener_nombres_features(
@@ -539,17 +540,23 @@ def main(args_list: list[str] | None = None) -> int:
         print(df_coefs.head(5)[["feature", "coeficiente", "impacto"]].to_string())
         tabla_explicabilidad = df_coefs
     elif es_hgb:
-        tabla_explicabilidad = None  # sin coeficientes ni importancias nativas
+        # Sin coeficientes ni importancias nativas: permutación sobre la muestra de ajuste.
+        X_exp = X_train if idx_ajuste is None else X_train.iloc[idx_ajuste]
+        y_exp = y_train if idx_ajuste is None else y_train[idx_ajuste]
+        tabla_explicabilidad = extraer_importancias_permutacion(
+            best_pipeline, X_exp, y_exp, seed=args.seed
+        )
+        print("[INFO] Top 5 Features por importancia de permutación (HGB):")
+        print(tabla_explicabilidad.head(5).to_string())
     else:
         rules_text = extraer_reglas_dt(best_pipeline, feature_names, max_depth=3)
         print("[INFO] Reglas principales de Decision Tree (profundidad <= 3):")
         print(rules_text[:500] + "...")
         tabla_explicabilidad = extraer_importancias_dt(best_pipeline, feature_names)
     # Tabla completa (el log solo muestra 5 filas): el orquestador la publica en S3.
-    if tabla_explicabilidad is not None:
-        tabla_explicabilidad.to_csv(
-            os.path.join(args.model_dir, "explicabilidad.csv"), index=False
-        )
+    tabla_explicabilidad.to_csv(
+        os.path.join(args.model_dir, "explicabilidad.csv"), index=False
+    )
 
     print("[INFO] Entrenamiento y exportacion finalizada exitosamente.")
     return 0
