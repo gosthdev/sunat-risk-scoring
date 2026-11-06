@@ -369,6 +369,24 @@ class TestJob06Dataset(unittest.TestCase):
         hasta_train = stats["fecha_firme_positivos"]["train"][1]
         self.assertLess(hasta_train, desde_test)
 
+    def test_filtrar_poblacion(self):
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [
+                (1, "SOCIEDAD ANONIMA CERRADA", "ACTIVO", 1),
+                (2, "PERSONA NATURAL SIN NEGOCIO", "ACTIVO", 1),
+                (3, "SOCIEDAD ANONIMA CERRADA", "BAJA DE OFICIO", 1),
+                (4, "PERSONA NATURAL CON NEGOCIO", "ACTIVO", 0),
+                (5, "PERSONA NATURAL CON NEGOCIO", "ACTIVO", None),
+            ],
+            "RUC long, tipo_contribuyente string, Estado string, see_afiliado int",
+        )
+        self.assertEqual(
+            [r["RUC"] for r in job06.filtrar_poblacion(df).collect()], [1]
+        )
+        with self.assertRaises(ValueError):
+            job06.filtrar_poblacion(df.drop("see_afiliado"))
+
     def test_corte_sin_fechas_en_ssco_falla(self):
         padron, ssco, pricos = self._crear_datos_sinteticos()
         with self.assertRaises(ValueError):

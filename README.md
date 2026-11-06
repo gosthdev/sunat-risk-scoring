@@ -28,7 +28,7 @@ sale del registro oficial de SSCO; el resto de fuentes aportan las variables.
 
 Las URLs de descarga están en `src/ingestion/urls.json`.
 
-Versiones del dataset (`src/spark/common/dataset_versions.py`): cada una es un mes de corte de las features. `v1` = jun-2025, `v2` = dic-2025, `v3` = mar-2026. El Job 06 descarta los SSCO cuya resolución se emitió antes del corte (sus features ya reflejan la designación) y manda a test el 20 % de positivos designados más recientemente.
+Versiones del dataset (`src/spark/common/dataset_versions.py`): cada una es un mes de corte de las features. `v1` = jun-2025, `v2` = dic-2025, `v3` = mar-2026. El Job 06 descarta los SSCO cuya resolución se emitió antes del corte (sus features ya reflejan la designación) y manda a test el 20 % de positivos designados más recientemente. Solo entran RUC que pueden ser SSCO: tipos de contribuyente con algún SSCO, Estado ACTIVO y afiliados al SEE (en v3, ~2,1 M de 13 M RUC, con el 100 % de los SSCO). Los folds de CV de los positivos van en bloques por fecha de emisión, para que un lote de designaciones no quede en train y validación a la vez.
 
 ## Arquitectura
 

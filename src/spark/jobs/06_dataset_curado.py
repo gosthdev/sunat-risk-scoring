@@ -57,6 +57,34 @@ from spark_session_factory import create_spark_session
 
 SEMILLA_DEFAULT = 42
 
+# Población elegible: tipos de contribuyente con algún SSCO en el registro, ACTIVO y
+# afiliado al SEE. En v3 deja ~2,1 M de 13 M RUC y conserva el 100 % de los SSCO; el
+# resto son negativos triviales (sobre todo personas naturales sin negocio).
+TIPOS_ELEGIBLES = (
+    "EMPRESA INDIVIDUAL DE RESPONSABILIDAD LIMITADA",
+    "PERSONA NATURAL CON NEGOCIO",
+    "SOCIEDAD ANONIMA CERRADA",
+    "SOCIEDAD COMERCIAL DE RESPONSABILIDAD LIMITADA",
+    "CONTRATOS COLABORACION EMPRESARIAL",
+    "SOCIEDAD POR ACCIONES CERRADA SIMPLIFICADA",
+    "SOCIEDAD IRREGULAR",
+    "SOCIEDAD ANONIMA",
+)
+
+
+def filtrar_poblacion(padron_features_df):
+    """Deja solo los RUC que pueden ser SSCO: tipo elegible, ACTIVO y afiliado al SEE."""
+    faltan = {"tipo_contribuyente", "Estado", "see_afiliado"} - set(
+        padron_features_df.columns
+    )
+    if faltan:
+        raise ValueError(f"ruc_features sin columnas para filtrar población: {faltan}")
+    return padron_features_df.filter(
+        col("tipo_contribuyente").isin(*TIPOS_ELEGIBLES)
+        & (col("Estado") == "ACTIVO")
+        & (col("see_afiliado") == 1)
+    )
+
 
 def curar_dataset(
     padron_features_df,
@@ -303,8 +331,10 @@ def main():
     spark = create_spark_session("06_dataset_curado")
     try:
         spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        padron_features = spark.read.parquet(GOLD_RUC_FEATURES).filter(
-            col("mes_referencia") == mes_padron
+        padron_features = filtrar_poblacion(
+            spark.read.parquet(GOLD_RUC_FEATURES).filter(
+                col("mes_referencia") == mes_padron
+            )
         )
         ssco = spark.read.parquet(SILVER_SSCO)
         pricos = spark.read.parquet(SILVER_PRICOS)
