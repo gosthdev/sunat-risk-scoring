@@ -116,6 +116,4 @@ def extraer_importancias_permutacion(
             "desviacion": r.importances_std,
         }
     )
-    return df_imp.sort_values(by="importancia", ascending=False).reset_index(
-        drop=True
-    )
+    return df_imp.sort_values(by="importancia", ascending=False).reset_index(drop=True)

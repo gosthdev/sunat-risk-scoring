@@ -445,7 +445,9 @@ def seleccionar_modelo_campeon(
     ]
 
     def _mejor_de(*familias: str) -> dict[str, Any] | None:
-        de_familia = [r for r in candidatos_oficiales if r.get("model_name") in familias]
+        de_familia = [
+            r for r in candidatos_oficiales if r.get("model_name") in familias
+        ]
         return max(de_familia, key=lambda r: r.get("cv_pr_auc_mean", 0.0), default=None)
 
     # LR contra el mejor modelo de árboles (DT o HGB), cada uno con su mejor configuración.
