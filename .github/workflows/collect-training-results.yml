@@ -23,8 +23,10 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     environment: aws
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
+
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -68,3 +70,19 @@ jobs:
           path: out/leaderboard.png
           if-no-files-found: ignore
           retention-days: 30
+
+      # Con el leaderboard publicado ya están métricas, run records y predicciones:
+      # se catalogan para que Athena vea la corrida nueva.
+      - name: Refresh results tables in Athena
+        env:
+          TAG: ${{ inputs.run_tag }}
+        run: |
+          set -euo pipefail
+          if ! aws s3 ls "s3://${GOLD_BUCKET}/model_leaderboards/tag=${TAG}/leaderboard.md" >/dev/null; then
+            echo "Aún no hay leaderboard: no se actualiza Athena."
+            exit 0
+          fi
+          bash src/analysis/queries/06_create_glue_crawler.sh \
+            sunat-ssco-model-metrics-crawler \
+            sunat-ssco-model-runs-crawler \
+            sunat-ssco-predictions-crawler

@@ -4,7 +4,8 @@
 # no los crea ni los modifica. Si falta alguno, aplica infra/services primero.
 #
 # Uso:
-#   bash src/analysis/queries/06_create_glue_crawler.sh
+#   bash src/analysis/queries/06_create_glue_crawler.sh            # todos
+#   bash src/analysis/queries/06_create_glue_crawler.sh <crawler>... # solo esos
 #
 # Requisito: silver/ y gold/ ya deben tener datos (corre antes los jobs 02 a 05).
 set -euo pipefail
@@ -12,7 +13,8 @@ set -euo pipefail
 GLUE_DATABASE="${GLUE_DATABASE:-sunat_ssco}"
 
 # Nombres definidos en infra/services/main.tf.
-CRAWLERS=(
+CRAWLERS=("$@")
+[[ $# -gt 0 ]] || CRAWLERS=(
   "sunat-ssco-silver-crawler"
   "sunat-ssco-gold-crawler"
   "sunat-ssco-model-inputs-crawler"

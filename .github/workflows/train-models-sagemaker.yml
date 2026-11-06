@@ -104,6 +104,11 @@ jobs:
           set -euo pipefail
           bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 06_dataset_curado
 
+      # El crawler del pipeline corre antes que el Job 06: sin esto Athena no ve la versión nueva.
+      - name: Refresh model_inputs table in Athena
+        if: steps.check.outputs.needs_build == 'true'
+        run: bash src/analysis/queries/06_create_glue_crawler.sh sunat-ssco-model-inputs-crawler
+
       - name: Verify dataset was written
         run: |
           set -euo pipefail
