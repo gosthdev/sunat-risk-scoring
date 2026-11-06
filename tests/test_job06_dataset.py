@@ -364,7 +364,7 @@ class TestJob06Dataset(unittest.TestCase):
         test = sorted(
             int(k) - 20100000000 for k, r in positivos.items() if r["split"] == "test"
         )
-        self.assertEqual(test, list(range(26, 31)))  # el 20% más reciente
+        self.assertEqual(test, list(range(24, 31)))  # el 30% más reciente
         desde_test = stats["fecha_firme_positivos"]["test"][0]
         hasta_train = stats["fecha_firme_positivos"]["train"][1]
         self.assertLess(hasta_train, desde_test)
@@ -400,6 +400,40 @@ class TestJob06Dataset(unittest.TestCase):
         tamanos = [folds.count(f) for f in range(5)]
         self.assertLessEqual(max(tamanos) - min(tamanos), 1)
         self.assertNotIn("_fecha_emision", curado.columns)
+
+    def test_mismo_representante_mismo_split_y_fold(self):
+        from datetime import date, timedelta
+
+        assert self.spark is not None
+        padron, _ssco, pricos = self._crear_datos_sinteticos()
+        base = date(2026, 5, 1)
+        # El 1 (el más antiguo) comparte representante con el 30 (test); el 5 y el 6
+        # caen en el borde entre el fold 0 y el 1.
+        reps = {1: "R1", 30: "R1", 5: "R5", 6: "R5"}
+        filas = [
+            (
+                20100000000 + i,
+                base + timedelta(days=i),
+                base + timedelta(days=i),
+                reps.get(i, f"SOLO{i}"),
+            )
+            for i in range(1, 31)
+        ]
+        ssco = self.spark.createDataFrame(
+            filas,
+            "RUC long, fecha_emision date, fecha_firme date, doc_representante string",
+        )
+
+        curado = job06.curar_dataset(padron, ssco, pricos)
+        pos = {
+            int(r["ruc"]) - 20100000000: r
+            for r in curado.filter(col("label") == 1).collect()
+        }
+        self.assertEqual(pos[1]["split"], "test")
+        self.assertEqual(pos[30]["split"], "test")
+        self.assertEqual(pos[5]["split"], "train")
+        self.assertEqual(pos[5]["fold"], pos[6]["fold"])
+        self.assertNotIn("_grupo", curado.columns)
 
     def test_filtrar_poblacion(self):
         assert self.spark is not None
