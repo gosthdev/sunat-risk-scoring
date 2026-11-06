@@ -210,6 +210,9 @@ def ejecutar_experimento_runner(
     if param_grid and isinstance(param_grid, dict):
         cli_args.extend(["--param_grid_json", json.dumps(param_grid)])
 
+    if exp.get("neg_ratio"):
+        cli_args.extend(["--neg_ratio", str(int(exp["neg_ratio"]))])
+
     t0 = time.time()
     try:
         ret = train_main(cli_args)

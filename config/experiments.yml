@@ -5,6 +5,8 @@ dataset_version: "v1"
 seed: 42
 scoring_metric: "average_precision"
 
+# neg_ratio: negativos por positivo muestreados en train (0 o ausente = todos).
+
 # Matriz de Experimentos E1..E6 (Sección 4.2.3.F de informe_modelado_ssco.md)
 experiments:
   - id: "E1"
@@ -12,6 +14,7 @@ experiments:
     variant: "V2"
     usa_pesos: "si"
     priority: "MUST"
+    neg_ratio: 200
     description: "Candidato Oficial 1: Regresión Logística con features V2 (sin fuga) y pesos de clase balanceados"
     hyperparameters:
       param_grid:
@@ -22,6 +25,7 @@ experiments:
     variant: "V2"
     usa_pesos: "si"
     priority: "MUST"
+    neg_ratio: 200
     description: "Candidato Oficial 2: Árbol de Decisión con features V2 (sin fuga) y pesos de clase balanceados"
     hyperparameters:
       param_grid:
@@ -33,6 +37,7 @@ experiments:
     variant: "V1"
     usa_pesos: "si"
     priority: "MUST"
+    neg_ratio: 200
     description: "Benchmark Techo: Regresión Logística con features V1 (incluye Estado/Condicion con fuga)"
     hyperparameters:
       param_grid:
@@ -43,6 +48,7 @@ experiments:
     variant: "V1"
     usa_pesos: "si"
     priority: "MUST"
+    neg_ratio: 200
     description: "Benchmark Techo: Árbol de Decisión con features V1 (incluye Estado/Condicion con fuga)"
     hyperparameters:
       param_grid:
@@ -54,6 +60,7 @@ experiments:
     variant: "V2"
     usa_pesos: "no"
     priority: "MUST"
+    neg_ratio: 200
     description: "Control de Ablación: Regresión Logística V2 sin reponderación de clases"
     hyperparameters:
       param_grid:
@@ -64,6 +71,7 @@ experiments:
     variant: "V2"
     usa_pesos: "no"
     priority: "MUST"
+    neg_ratio: 200
     description: "Control de Ablación: Árbol de Decisión V2 sin reponderación de clases"
     hyperparameters:
       param_grid:
@@ -77,6 +85,7 @@ experiments:
     variant: "V2"
     usa_pesos: "si"
     priority: "SHOULD"
+    neg_ratio: 200
     description: "Exploración LR V2: rango de regularización C ampliado"
     hyperparameters:
       param_grid:
@@ -87,6 +96,7 @@ experiments:
     variant: "V2"
     usa_pesos: "si"
     priority: "SHOULD"
+    neg_ratio: 200
     description: "Exploración DT V2: árboles más profundos con hojas más grandes"
     hyperparameters:
       param_grid:
@@ -98,6 +108,7 @@ experiments:
     variant: "V2"
     usa_pesos: "si"
     priority: "SHOULD"
+    neg_ratio: 200
     description: "Exploración DT V2: criterio de entropía y poda por complejidad"
     hyperparameters:
       param_grid:
@@ -111,6 +122,7 @@ experiments:
     variant: "V2"
     usa_pesos: "si"
     priority: "SHOULD"
+    neg_ratio: 200
     description: "Exploración DT V2: criterio de Gini con divisiones mínimas amplias"
     hyperparameters:
       param_grid:

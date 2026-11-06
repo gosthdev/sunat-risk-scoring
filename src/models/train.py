@@ -146,6 +146,12 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
         default=3,
         help="Procesos paralelos de GridSearchCV (cada uno copia X_train: cuidar la RAM)",
     )
+    parser.add_argument(
+        "--neg_ratio",
+        type=int,
+        default=0,
+        help="Negativos por positivo que se muestrean en train (0 = todos)",
+    )
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
     parser.add_argument(
@@ -363,6 +369,25 @@ def main(args_list: list[str] | None = None) -> int:
 
     print(f"[METRIC] n_train={n_train}")
     print(f"[METRIC] n_pos_train={n_pos_train}")
+
+    if args.neg_ratio > 0:
+        # Todos los positivos y neg_ratio negativos por cada uno, solo para ajustar: el
+        # PR-AUC de CV sale inflado frente a test (sirve para comparar, no para reportar).
+        rng = np.random.default_rng(args.seed)
+        idx_neg = np.flatnonzero(y_train == 0)
+        n_neg = min(len(idx_neg), args.neg_ratio * n_pos_train)
+        keep = np.sort(
+            np.concatenate(
+                [
+                    np.flatnonzero(y_train == 1),
+                    rng.choice(idx_neg, n_neg, replace=False),
+                ]
+            )
+        )
+        X_train = X_train.iloc[keep]
+        y_train = y_train[keep]
+        folds_train = folds_train[keep]
+        print(f"[METRIC] n_train_muestra={len(keep)}")
 
     # 2. Configurar Modelo y Pipeline
     es_lr = args.model_name == "LR"

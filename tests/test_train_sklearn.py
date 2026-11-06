@@ -297,6 +297,36 @@ def test_full_training_loop_local(synthetic_dataframe):
         assert "cv_pr_auc_mean" in record["metricas_cv"]
 
 
+def test_hgb_con_submuestreo_de_negativos(synthetic_dataframe, capsys):
+    """HGB entrena con muestreo de negativos y predice todas las filas."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_file = os.path.join(tmp_dir, "dataset.parquet")
+        synthetic_dataframe.to_parquet(input_file, index=False)
+        preds_path = os.path.join(tmp_dir, "out", "predictions.parquet")
+        model_dir = os.path.join(tmp_dir, "model")
+
+        exit_code = train_main(
+            [
+                "--train_dir", input_file,
+                "--model_dir", model_dir,
+                "--output_dir", os.path.join(tmp_dir, "out"),
+                "--run_id", "ssco-run-test-hgb",
+                "--model_name", "HGB",
+                "--neg_ratio", "2",
+                "--param_grid_json", '{"model__max_iter": [20]}',
+                "--ruta_salida_predicciones", preds_path,
+                "--ruta_salida_run_record", os.path.join(tmp_dir, "out", "rr.json"),
+            ]
+        )  # fmt: skip
+        assert exit_code == 0
+
+        es_train = synthetic_dataframe["split"] == "train"
+        n_pos = int(synthetic_dataframe.loc[es_train, "label"].sum())
+        assert f"n_train_muestra={3 * n_pos}" in capsys.readouterr().out
+        assert len(pd.read_parquet(preds_path)) == len(synthetic_dataframe)
+        assert not os.path.exists(os.path.join(model_dir, "explicabilidad.csv"))
+
+
 def test_explainability(synthetic_dataframe):
     """Verifica la extracción de explicabilidad para LR y DT."""
     from sklearn.linear_model import LogisticRegression

@@ -86,6 +86,8 @@ selección `average_precision`):
   (sin fuga) y V1 (incluye Estado/Condición, solo como techo de referencia), con y
   sin pesos de clase.
 - **E9–E12:** exploraciones de hiperparámetros sobre LR y DT con V2.
+- **E13–E14:** gradient boosting (`HistGradientBoostingClassifier`) con y sin pesos.
+- `neg_ratio` en cada experimento: negativos por positivo que se muestrean en train (el PR-AUC de CV sale inflado frente a test; solo sirve para comparar).
 
 El entrenamiento corre en SageMaker Training Jobs (workflow
 `train-models-sagemaker.yml`; resultados con `collect-training-results.yml`).
