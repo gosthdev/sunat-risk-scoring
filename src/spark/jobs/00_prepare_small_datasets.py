@@ -209,7 +209,11 @@ SSCO_FECHAS = ["fecha_emision", "fecha_firme", "fecha_publicacion"]
 
 
 def _a_fecha(serie):
-    # SUNAT guarda las fechas como serial de Excel; pandas a veces ya las parsea.
+    # SUNAT guarda las fechas como serial de Excel; read_excel ya las devuelve como
+    # datetime cuando la celda tiene formato de fecha. to_numeric sobre un datetime da
+    # nanosegundos, que leídos como días desbordan.
+    if pd.api.types.is_datetime64_any_dtype(serie):
+        return serie.dt.date
     numeros = pd.to_numeric(serie, errors="coerce")
     if numeros.notna().all():
         return pd.to_datetime(numeros, unit="D", origin="1899-12-30").dt.date

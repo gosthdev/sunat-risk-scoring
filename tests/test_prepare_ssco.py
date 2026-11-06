@@ -71,6 +71,16 @@ def test_ruc_repetido_conserva_la_resolucion_mas_antigua():
     assert salida.iloc[0]["fecha_emision"] == date(2024, 10, 30)
 
 
+def test_fechas_ya_parseadas_por_read_excel():
+    # read_excel entrega datetime64 cuando la celda del Excel tiene formato de fecha.
+    df = _excel([["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 10)
+    for c in ENCABEZADOS[4:6] + ENCABEZADOS[8:]:
+        df[c] = pd.to_datetime("2026-09-28")
+    salida = job00.normalizar_ssco(df)
+    assert salida.iloc[0]["fecha_emision"] == date(2026, 9, 28)
+    assert salida.iloc[0]["fecha_publicacion"] == date(2026, 9, 28)
+
+
 def test_falla_sin_fecha_de_emision():
     df = _excel([["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 10)
     df = df.drop(columns=["Fecha de emisión de la resolución de atribución"])

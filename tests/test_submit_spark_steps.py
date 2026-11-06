@@ -16,8 +16,9 @@ def _ejecutar(tmp_path, estados, step="03_feature_gold", extra_env=None):
     log.write_text("")
     states = tmp_path / "states"
     states.write_text("\n".join(estados) + "\n")
+    # Sin GITHUB_STEP_SUMMARY: en CI los Job Runs simulados aparecían en el resumen real.
     env = {
-        **os.environ,
+        **{k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"},
         "PATH": f"{STUBS}:{os.environ['PATH']}",
         "AWS_LOG": str(log),
         "AWS_STATES_FILE": str(states),
