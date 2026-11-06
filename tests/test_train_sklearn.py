@@ -440,6 +440,34 @@ def test_cargar_datos_deja_el_texto_repetitivo_como_categorico():
     assert set(df["split"].astype(str)) == {"train", "test"}
 
 
+def test_rf_entrena_con_target_encoding(synthetic_dataframe):
+    """RF entrena, usa las columnas te_* y deja importancias en explicabilidad.csv."""
+    df = synthetic_dataframe.copy()
+    df["te_ciiu"] = np.linspace(0.0, 0.01, len(df))
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_file = os.path.join(tmp_dir, "dataset.parquet")
+        df.to_parquet(input_file, index=False)
+        preds_path = os.path.join(tmp_dir, "out", "predictions.parquet")
+        model_dir = os.path.join(tmp_dir, "model")
+
+        exit_code = train_main(
+            [
+                "--train_dir", input_file,
+                "--model_dir", model_dir,
+                "--output_dir", os.path.join(tmp_dir, "out"),
+                "--run_id", "ssco-run-test-rf",
+                "--model_name", "RF",
+                "--param_grid_json", '{"model__n_estimators": [10], "model__max_depth": [3]}',
+                "--ruta_salida_predicciones", preds_path,
+                "--ruta_salida_run_record", os.path.join(tmp_dir, "out", "rr.json"),
+            ]
+        )  # fmt: skip
+        assert exit_code == 0
+        assert len(pd.read_parquet(preds_path)) == len(df)
+        imp = pd.read_csv(os.path.join(model_dir, "explicabilidad.csv"))
+        assert "te_ciiu" in set(imp["feature"].str.split("__").str[-1])
+
+
 def test_seleccionar_columnas_excluye_features_vacias(synthetic_dataframe, capsys):
     df = synthetic_dataframe.copy()
     df["te_ciiu"] = np.nan

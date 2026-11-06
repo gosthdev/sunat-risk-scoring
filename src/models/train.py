@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
@@ -137,7 +137,7 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--run_id", type=str, required=True, help="Identificador único de la corrida"
     )
-    parser.add_argument("--model_name", type=str, choices=["LR", "DT", "HGB"], required=True)
+    parser.add_argument("--model_name", type=str, choices=["LR", "DT", "RF", "HGB"], required=True)
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
     parser.add_argument("--dataset_version", type=str, default="v1")
@@ -407,6 +407,19 @@ def main(args_list: list[str] | None = None) -> int:
             "model__max_iter": [200],
             "model__max_leaf_nodes": [15, 31],
         }
+    elif args.model_name == "RF":
+        # Solo hiperparámetros con equivalente en MLlib (numTrees, maxDepth,
+        # minInstancesPerNode), para migrar sin cambiar la grilla.
+        model = RandomForestClassifier(
+            class_weight="balanced_subsample" if class_weight else None,
+            max_features="sqrt",
+            random_state=args.seed,
+        )
+        param_grid = {
+            "model__n_estimators": [300],
+            "model__max_depth": [8, 16],
+            "model__min_samples_leaf": [50, 200] if n_train > 1000 else [2, 5],
+        }
     else:
         model = DecisionTreeClassifier(
             class_weight=class_weight, random_state=args.seed
@@ -550,6 +563,11 @@ def main(args_list: list[str] | None = None) -> int:
         print("[INFO] Top 5 Features por Coeficiente Absoluto (LR):")
         print(df_coefs.head(5)[["feature", "coeficiente", "impacto"]].to_string())
         tabla_explicabilidad = df_coefs
+    elif args.model_name == "RF":
+        # Un bosque no tiene reglas legibles: solo importancias promedio de sus árboles.
+        tabla_explicabilidad = extraer_importancias_dt(best_pipeline, feature_names)
+        print("[INFO] Top 5 Features por importancia (RF):")
+        print(tabla_explicabilidad.head(5).to_string())
     elif es_hgb:
         # Sin coeficientes ni importancias nativas: permutación sobre la muestra de ajuste.
         X_exp = X_train if idx_ajuste is None else X_train.iloc[idx_ajuste]
