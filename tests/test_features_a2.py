@@ -438,6 +438,12 @@ class TestFeaturesA2(unittest.TestCase):
         with self.assertRaises(ValueError):
             job03.verificar_salida(repetido, cortes)
 
+        # Releído de parquet, mes_referencia llega como entero.
+        releido = self.spark.createDataFrame(
+            [(1, 202506), (1, 202512)], "RUC long, mes_referencia int"
+        )
+        job03.verificar_salida(releido, cortes)
+
     def test_features_del_numero_de_ruc_y_facturacion(self):
         assert self.spark is not None
         padron = self.spark.createDataFrame(

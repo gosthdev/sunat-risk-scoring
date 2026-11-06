@@ -490,8 +490,9 @@ def verificar_salida(features_df, cortes):
 
     Un RUC duplicado puede caer en train y test a la vez en 06 (fuga).
     """
+    # Al releer el parquet, Spark infiere la partición mes_referencia=202506 como entero.
     filas_mes = features_df.select("mes_referencia").distinct().collect()
-    meses = {r["mes_referencia"] for r in filas_mes}
+    meses = {str(r["mes_referencia"]) for r in filas_mes}
     faltan = sorted({mes for mes, _ in cortes} - meses)
     if faltan:
         raise ValueError(f"ruc_features sin filas para los cortes: {faltan}")
