@@ -167,6 +167,9 @@ COLS_TEXTO_CATEGORICAS = [
     "departamento",
     "ciiu_principal",
     "tipo_contribuyente",
+    "ruc_prefijo",
+    "tipo_facturacion",
+    "tipo_contabilidad",
     "split",
 ]
 
