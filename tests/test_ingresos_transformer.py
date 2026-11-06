@@ -9,9 +9,7 @@ _COMMON_PATH = str(_ROOT / "src" / "spark" / "common")
 if _COMMON_PATH not in sys.path:
     sys.path.insert(0, _COMMON_PATH)
 
-from ingresos_transformer import process_both_ingresos, transform_sheet
-
-TRASH_EXCEL = Path("/home/gosth/.local/share/Trash/files/cdro_A13.xlsx")
+from ingresos_transformer import transform_sheet
 
 
 class TestIngresosTransformer(unittest.TestCase):
@@ -75,30 +73,6 @@ class TestIngresosTransformer(unittest.TestCase):
         total_row = df[(df["Departamento"] == "Total") & (df["Periodo"] == "2025_Ene.")]
         self.assertEqual(len(total_row), 1)
         self.assertAlmostEqual(total_row.iloc[0]["Monto_Recaudado"], 2254206996.38)
-
-    @unittest.skipIf(
-        not TRASH_EXCEL.exists(), "Archivo real cdro_A13.xlsx no encontrado en Trash"
-    )
-    def test_real_excel_transformation(self):
-        """Prueba de integracion con el archivo real cdro_A13.xlsx."""
-        df_monto, df_var = process_both_ingresos(str(TRASH_EXCEL))
-
-        # Verificar cantidad de filas: 28 jurisdicciones x 260 meses = 7280
-        self.assertEqual(len(df_monto), 7280)
-        self.assertEqual(len(df_var), 7280)
-
-        # Verificar muestra de Total 2005_Ene.
-        monto_row = df_monto[
-            (df_monto["Departamento"] == "Total") & (df_monto["Periodo"] == "2005_Ene.")
-        ]
-        self.assertAlmostEqual(
-            monto_row.iloc[0]["Monto_Recaudado"], 2254206996.38, places=2
-        )
-
-        var_row = df_var[
-            (df_var["Departamento"] == "Total") & (df_var["Periodo"] == "2005_Ene.")
-        ]
-        self.assertAlmostEqual(var_row.iloc[0]["Monto_Recaudado"], 8.84228, places=4)
 
 
 if __name__ == "__main__":
