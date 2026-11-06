@@ -60,7 +60,6 @@ COLS_LOG1P = {
     "total_ordenes_validas",
     "n_entidades_distintas",
     "antiguedad_contratacion_estado_dias",
-    "antiguedad_meses",
     "nro_trabajadores",
     "monto_por_trabajador",
 }
@@ -229,7 +228,6 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "pct_monto_en_entidad_principal",
         "pct_ordenes_anuladas",
         "antiguedad_contratacion_estado_dias",
-        "antiguedad_meses",
         "nro_trabajadores",
         "nrotrab_disponible",
         "sin_trabajadores",
