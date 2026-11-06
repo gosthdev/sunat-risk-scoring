@@ -215,7 +215,9 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Action = [
           "emr-serverless:StartJobRun",
           "emr-serverless:GetJobRun",
-          "emr-serverless:ListJobRuns"
+          "emr-serverless:ListJobRuns",
+          # 05_submit_spark_steps.sh cancela el intento colgado antes de reintentar.
+          "emr-serverless:CancelJobRun"
         ]
         Resource = [
           var.emr_application_arn,
