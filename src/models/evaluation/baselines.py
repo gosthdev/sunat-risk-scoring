@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.models.evaluation.metrics import export_metrics_flat
+from .metrics import export_metrics_flat
 
 
 def baseline_trivial(df: pd.DataFrame) -> pd.DataFrame:

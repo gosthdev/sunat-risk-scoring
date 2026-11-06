@@ -35,6 +35,7 @@ from sklearn.tree import DecisionTreeClassifier
 try:
     from src.models.explainability import (
         extraer_explicabilidad_lr,
+        extraer_importancias_dt,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
@@ -42,6 +43,7 @@ try:
 except ImportError:
     from explainability import (  # type: ignore[no-redef]
         extraer_explicabilidad_lr,
+        extraer_importancias_dt,
         extraer_reglas_dt,
         obtener_nombres_features,
     )
@@ -60,7 +62,6 @@ COLS_LOG1P = {
     "total_ordenes_validas",
     "n_entidades_distintas",
     "antiguedad_contratacion_estado_dias",
-    "antiguedad_meses",
     "nro_trabajadores",
     "monto_por_trabajador",
 }
@@ -229,7 +230,6 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "pct_monto_en_entidad_principal",
         "pct_ordenes_anuladas",
         "antiguedad_contratacion_estado_dias",
-        "antiguedad_meses",
         "nro_trabajadores",
         "nrotrab_disponible",
         "sin_trabajadores",
@@ -485,10 +485,16 @@ def main(args_list: list[str] | None = None) -> int:
         df_coefs = extraer_explicabilidad_lr(best_pipeline, feature_names)
         print("[INFO] Top 5 Features por Coeficiente Absoluto (LR):")
         print(df_coefs.head(5)[["feature", "coeficiente", "impacto"]].to_string())
+        tabla_explicabilidad = df_coefs
     else:
         rules_text = extraer_reglas_dt(best_pipeline, feature_names, max_depth=3)
         print("[INFO] Reglas principales de Decision Tree (profundidad <= 3):")
         print(rules_text[:500] + "...")
+        tabla_explicabilidad = extraer_importancias_dt(best_pipeline, feature_names)
+    # Tabla completa (el log solo muestra 5 filas): el orquestador la publica en S3.
+    tabla_explicabilidad.to_csv(
+        os.path.join(args.model_dir, "explicabilidad.csv"), index=False
+    )
 
     print("[INFO] Entrenamiento y exportacion finalizada exitosamente.")
     return 0
