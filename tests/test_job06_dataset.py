@@ -457,3 +457,57 @@ class TestJob06Dataset(unittest.TestCase):
         padron, ssco, pricos = self._crear_datos_sinteticos()
         with self.assertRaises(ValueError):
             job06.curar_dataset(padron, ssco, pricos, fecha_corte="2025-12-31")
+
+    def test_target_encoding_fuera_de_fold_no_usa_su_fold(self):
+        assert self.spark is not None
+        df = self.spark.createDataFrame(
+            [
+                ("1", "train", 0, 1, "A"),
+                ("2", "train", 0, 0, "A"),
+                ("3", "train", 1, 0, "A"),
+                ("4", "train", 1, 0, "A"),
+                ("5", "test", -1, 1, "A"),
+                ("6", "test", -1, 1, "B"),
+            ],
+            "ruc string, split string, fold int, label int, cat string",
+        )
+        exacto = {
+            r["ruc"]: r["te"]
+            for r in job06.codificar_fuera_de_fold(df, col("cat"), "te", m=0)
+            .filter(col("cat") == "A")
+            .collect()
+        }
+        # Fold 0 solo ve el fold 1 (0/2); fold 1 solo ve el fold 0 (1/2); test ve
+        # todo train (1/4) y nunca su propia etiqueta.
+        self.assertEqual(exacto, {"1": 0.0, "2": 0.0, "3": 0.5, "4": 0.5, "5": 0.25})
+
+        suave = {
+            r["ruc"]: r["te"]
+            for r in job06.codificar_fuera_de_fold(df, col("cat"), "te").collect()
+        }
+        # Categoría sin datos en train: prevalencia de train, nunca nulo.
+        self.assertAlmostEqual(suave["6"], 0.25)
+        self.assertEqual(df.count(), len(suave))
+
+    def test_verificar_features_nuevas(self):
+        assert self.spark is not None
+        esquema = "split string, label int, te double"
+        base = [("train", 1, 0.1), ("train", 0, 0.2), ("test", 0, 0.3)]
+        job06.verificar_features_nuevas(
+            self.spark.createDataFrame(base, esquema), ["te"]
+        )
+
+        casos = {
+            "toda_nula": [("train", 1, None), ("train", 0, None)],
+            "nula_en_positivos": [("train", 1, None), ("train", 0, 0.2)],
+            "constante": [("train", 1, 0.2), ("train", 0, 0.2)],
+        }
+        for nombre, filas in casos.items():
+            with self.subTest(nombre), self.assertRaises(ValueError):
+                job06.verificar_features_nuevas(
+                    self.spark.createDataFrame(filas, esquema), ["te"]
+                )
+        with self.assertRaises(ValueError):
+            job06.verificar_features_nuevas(
+                self.spark.createDataFrame(base, esquema), ["te", "no_existe"]
+            )
