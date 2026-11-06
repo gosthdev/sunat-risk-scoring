@@ -21,7 +21,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
@@ -370,25 +370,6 @@ def main(args_list: list[str] | None = None) -> int:
     print(f"[METRIC] n_train={n_train}")
     print(f"[METRIC] n_pos_train={n_pos_train}")
 
-    if args.neg_ratio > 0:
-        # Todos los positivos y neg_ratio negativos por cada uno, solo para ajustar: el
-        # PR-AUC de CV sale inflado frente a test (sirve para comparar, no para reportar).
-        rng = np.random.default_rng(args.seed)
-        idx_neg = np.flatnonzero(y_train == 0)
-        n_neg = min(len(idx_neg), args.neg_ratio * n_pos_train)
-        keep = np.sort(
-            np.concatenate(
-                [
-                    np.flatnonzero(y_train == 1),
-                    rng.choice(idx_neg, n_neg, replace=False),
-                ]
-            )
-        )
-        X_train = X_train.iloc[keep]
-        y_train = y_train[keep]
-        folds_train = folds_train[keep]
-        print(f"[METRIC] n_train_muestra={len(keep)}")
-
     # 2. Configurar Modelo y Pipeline
     es_lr = args.model_name == "LR"
     es_hgb = args.model_name == "HGB"
@@ -456,19 +437,43 @@ def main(args_list: list[str] | None = None) -> int:
     else:
         cv_splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)
 
+    rng = np.random.default_rng(args.seed)
+
+    def _muestra(idx: np.ndarray) -> np.ndarray:
+        """Todos los positivos de idx y neg_ratio negativos por cada uno."""
+        pos = idx[y_train[idx] == 1]
+        neg = idx[y_train[idx] == 0]
+        n_neg = min(len(neg), args.neg_ratio * len(pos))
+        return np.sort(np.concatenate([pos, rng.choice(neg, n_neg, replace=False)]))
+
+    cv_splits: Any = cv_splitter
+    idx_ajuste = None
+    if args.neg_ratio > 0:
+        # Solo se submuestrea lo que se ajusta: cada fold se valida completo, así el
+        # PR-AUC de CV mantiene la prevalencia real y es comparable con test.
+        cv_splits = [
+            (_muestra(tr), va) for tr, va in cv_splitter.split(X_train, y_train)
+        ]
+        idx_ajuste = _muestra(np.arange(n_train))
+        print(f"[METRIC] n_train_muestra={len(idx_ajuste)}")
+
     grid_search = GridSearchCV(
         estimator=full_pipeline,
         param_grid=param_grid,
         scoring="average_precision",
-        cv=cv_splitter,
-        refit=True,
+        cv=cv_splits,
+        refit=False,  # el modelo final se ajusta abajo, sobre la misma muestra que la CV
         n_jobs=args.n_jobs,
         verbose=2,
     )
 
     # 4. Ajuste del modelo sobre Train únicamente
     grid_search.fit(X_train, y_train)
-    best_pipeline = grid_search.best_estimator_
+    best_pipeline = clone(full_pipeline).set_params(**grid_search.best_params_)
+    if idx_ajuste is None:
+        best_pipeline.fit(X_train, y_train)
+    else:
+        best_pipeline.fit(X_train.iloc[idx_ajuste], y_train[idx_ajuste])
 
     # Extraer cantidad de variables transformadas
     X_train_trans = best_pipeline.named_steps["preprocessor"].transform(X_train)
@@ -522,12 +527,12 @@ def main(args_list: list[str] | None = None) -> int:
         best_params=grid_search.best_params_,
         grilla_probada=param_grid,
     )
+    tabla_explicabilidad: pd.DataFrame | None
 
     # 8. Extraer Explicabilidad preliminar (Tarea A6)
     feature_names = obtener_nombres_features(
         best_pipeline.named_steps["preprocessor"], num_cols, cat_cols
     )
-    tabla_explicabilidad: pd.DataFrame | None
     if es_lr:
         df_coefs = extraer_explicabilidad_lr(best_pipeline, feature_names)
         print("[INFO] Top 5 Features por Coeficiente Absoluto (LR):")
