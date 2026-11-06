@@ -32,9 +32,7 @@ SAGEMAKER_METRIC_DEFINITIONS = [
 ]
 
 # Imagen ECR oficial de Scikit-Learn 1.4-2-py312 en us-east-1
-DEFAULT_SKLEARN_IMAGE = (
-    "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.4-2-py312-cpu-py3"
-)
+DEFAULT_SKLEARN_IMAGE = "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.4-2-py312-cpu-py3"
 
 
 def lanzar_training_job_manual(
