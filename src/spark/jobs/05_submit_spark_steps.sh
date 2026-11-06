@@ -253,7 +253,9 @@ clear_staging() {
 sync_con_reintentos() {
   local origen="$1" destino="$2" intento
   for intento in 1 2 3; do
-    if aws s3 sync "${origen}/" "${destino}/" --delete --only-show-errors; then
+    # --copy-props none: los archivos >8 MB se copian por partes y, por defecto, la CLI
+    # pide sus tags (GetObjectTagging, que el rol no tiene); no usamos tags ni metadata.
+    if aws s3 sync "${origen}/" "${destino}/" --delete --copy-props none --only-show-errors; then
       return 0
     fi
     echo "WARN: falló el sync a ${destino} (intento ${intento}/3)." >&2

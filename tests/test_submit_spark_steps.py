@@ -56,7 +56,7 @@ def test_exito_publica_staging_a_la_ruta_viva(tmp_path):
     origen = "s3://sunat-risk-scoring-gold/_staging/ruc_features/"
     destino = "s3://sunat-risk-scoring-gold/ruc_features/"
     assert _syncs(llamadas) == [
-        f"s3 sync {origen} {destino} --delete --only-show-errors"
+        f"s3 sync {origen} {destino} --delete --copy-props none --only-show-errors"
     ]
 
 
