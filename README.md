@@ -44,7 +44,7 @@ Fuentes públicas
                                                                           │
                                        Glue crawlers + Athena ◄───────────┤
                                                                           ▼
-                                    Job 06 model_inputs ──► entrenamiento (EC2)
+                                    Job 06 model_inputs ──► entrenamiento (SageMaker)
 ```
 
 | Etapa | Qué hace | Cómputo |
@@ -178,7 +178,7 @@ de Python. Convención de commits: *conventional commits*.
 | Bronze → Silver → Gold, con cuarentena y reporte de calidad | Hecho |
 | CD idempotente con logs por etapa | Hecho (logs de la ingesta EC2 y de Analytics, pendientes) |
 | Analytics (Glue + Athena) | Hecho |
-| Entrenamiento de la matriz E1–E12 (E7 y E8 sin ejecutar) | Hecho en EC2 |
+| Entrenamiento de la matriz E1–E12 (E7 y E8 sin ejecutar) | Hecho en SageMaker |
 | Evaluación y modelo base (E9) | En curso |
 | Modelo definitivo y costo de falsos positivos/negativos | Pendiente |
 | Explicabilidad | En curso |
