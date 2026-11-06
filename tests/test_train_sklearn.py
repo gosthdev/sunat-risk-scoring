@@ -37,6 +37,7 @@ from src.models.train import (
     Log1pTransformer,
     WinsorizerSuperior,
     construir_pipeline_preprocesamiento,
+    seleccionar_columnas,
 )
 from src.models.train import (
     main as train_main,
@@ -437,3 +438,12 @@ def test_cargar_datos_deja_el_texto_repetitivo_como_categorico():
     assert str(df["departamento"].dtype) == "category"
     assert str(df["split"].dtype) == "category"
     assert set(df["split"].astype(str)) == {"train", "test"}
+
+
+def test_seleccionar_columnas_excluye_features_vacias(synthetic_dataframe, capsys):
+    df = synthetic_dataframe.copy()
+    df["te_ciiu"] = np.nan
+    num_cols, _ = seleccionar_columnas(df, "V2")
+    assert "te_ciiu" not in num_cols
+    assert "monto_total_soles" in num_cols
+    assert "te_ciiu llega 100% nula" in capsys.readouterr().out

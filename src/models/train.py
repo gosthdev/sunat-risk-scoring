@@ -245,6 +245,10 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "monto_por_trabajador",
         "informalidad_epen_departamento",
         "ruc_correlativo",
+        # Target encoding fuera de fold calculado en 06_dataset_curado.
+        "te_ciiu",
+        "te_ciiu_depto",
+        "te_cohorte_ruc",
         "meses_en_padron",
         "nuevo_en_periodo",
         "meses_hueco",
@@ -273,6 +277,13 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         candidatos_cat.extend(["Estado", "Condicion"])
 
     cat_cols = [c for c in candidatos_cat if c in df.columns]
+
+    # Una columna 100% nula no aporta nada: se excluye en vez de entrar en silencio.
+    vacias = [c for c in num_cols + cat_cols if not df[c].notna().any()]
+    for c in vacias:
+        print(f"[WARN] Feature {c} llega 100% nula: se excluye del modelo")
+    num_cols = [c for c in num_cols if c not in vacias]
+    cat_cols = [c for c in cat_cols if c not in vacias]
 
     return num_cols, cat_cols
 
