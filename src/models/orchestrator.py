@@ -258,6 +258,7 @@ def _claves_s3(run_id: str) -> dict[str, str]:
         "preds": f"model_outputs/predictions/predictions_{run_id}.parquet",
         "model": f"model_artifacts/{run_id}/output/model.tar.gz",
         "metrics": f"model_metrics/run_id={run_id}/metrics.json",
+        "explain": f"model_explainability/run_id={run_id}/explicabilidad.csv",
     }
 
 
@@ -289,6 +290,9 @@ def publicar_resultado_s3(
     modelo = os.path.join(model_dir, "model.tar.gz")
     if os.path.isfile(modelo):
         s3.upload_file(modelo, bucket, claves["model"])
+    explicabilidad = os.path.join(model_dir, "explicabilidad.csv")
+    if os.path.isfile(explicabilidad):
+        s3.upload_file(explicabilidad, bucket, claves["explain"])
     # Al final: si fallan las métricas, record, predicciones y modelo ya están en S3.
     if os.path.isfile(preds_file):
         publicar_metricas_s3(bucket, preds_file, claves["metrics"])
