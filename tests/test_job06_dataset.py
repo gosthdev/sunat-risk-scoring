@@ -369,6 +369,38 @@ class TestJob06Dataset(unittest.TestCase):
         hasta_train = stats["fecha_firme_positivos"]["train"][1]
         self.assertLess(hasta_train, desde_test)
 
+    def test_folds_de_positivos_en_bloques_por_fecha_de_emision(self):
+        from datetime import date, timedelta
+
+        assert self.spark is not None
+        padron, _ssco, pricos = self._crear_datos_sinteticos()
+        base = date(2026, 5, 1)
+        filas = [
+            (20100000000 + i, base + timedelta(days=i), base + timedelta(days=i))
+            for i in range(1, 31)
+        ]
+        esquema = StructType(
+            [
+                StructField("RUC", LongType(), False),
+                StructField("fecha_emision", DateType(), True),
+                StructField("fecha_firme", DateType(), True),
+            ]
+        )
+        ssco = self.spark.createDataFrame(filas, esquema)
+
+        curado = job06.curar_dataset(padron, ssco, pricos)
+        pos = sorted(
+            (int(r["ruc"]) - 20100000000, r["fold"])
+            for r in curado.filter((col("label") == 1) & (col("split") == "train"))
+            .select("ruc", "fold")
+            .collect()
+        )
+        folds = [f for _, f in pos]
+        self.assertEqual(folds, sorted(folds))  # más antiguo -> fold 0
+        tamanos = [folds.count(f) for f in range(5)]
+        self.assertLessEqual(max(tamanos) - min(tamanos), 1)
+        self.assertNotIn("_fecha_emision", curado.columns)
+
     def test_filtrar_poblacion(self):
         assert self.spark is not None
         df = self.spark.createDataFrame(

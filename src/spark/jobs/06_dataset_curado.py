@@ -178,7 +178,7 @@ def curar_dataset(
     dataset = dataset.withColumn(
         "label",
         when(col("_flag_ssco") == 1, 1).otherwise(0).cast("int"),
-    ).drop("_flag_ssco", "_fecha_emision")
+    ).drop("_flag_ssco")
 
     # 4. Asignar ruc oficial como string
     dataset = dataset.withColumn("ruc", col("ruc_norm")).drop("ruc_norm")
@@ -205,16 +205,31 @@ def curar_dataset(
         .drop("_rn", "_n_label")
     )
 
-    # 6. Asignar fold (0 a 4) estratificado cíclicamente exclusivamente para filas de train, y -1 para test
+    # 6. Folds (0 a 4) solo en train, -1 en test. Positivos: bloques por fecha de emisión,
+    # así un lote de designaciones del mismo día no cae en train y validación a la vez
+    # (con folds aleatorios la CV daba ~13x el PR-AUC de test). Negativos: cíclico por hash.
+    hash_fold = spark_abs(
+        spark_hash(concat(col("ruc"), lit(f"_salt_{semilla + 1}_fold")))
+    )
     w_fold = Window.partitionBy("label").orderBy(
-        spark_abs(spark_hash(concat(col("ruc"), lit(f"_salt_{semilla + 1}_fold")))),
+        when(col("label") == 1, col("_fecha_emision")).asc_nulls_last(),
+        hash_fold,
         col("ruc"),
     )
     train_part = (
         dataset.filter(col("split") == "train")
         .withColumn("_rn_fold", row_number().over(w_fold))
-        .withColumn("fold", ((col("_rn_fold") - 1) % 5).cast("int"))
-        .drop("_rn_fold")
+        .withColumn("_n_fold", spark_count("*").over(w_label_cnt))
+        .withColumn(
+            "fold",
+            when(
+                col("label") == 1,
+                ((col("_rn_fold") - 1) * 5 / col("_n_fold")).cast("int"),
+            )
+            .otherwise((col("_rn_fold") - 1) % 5)
+            .cast("int"),
+        )
+        .drop("_rn_fold", "_n_fold")
     )
     test_part = dataset.filter(col("split") == "test").withColumn(
         "fold", lit(-1).cast("int")
@@ -244,7 +259,7 @@ def curar_dataset(
             r["split"]: [str(r["desde"]), str(r["hasta"])] for r in rango
         }
 
-    dataset = dataset.drop("_fecha_firme")
+    dataset = dataset.drop("_fecha_firme", "_fecha_emision")
     if return_stats:
         return dataset, stats
     return dataset
