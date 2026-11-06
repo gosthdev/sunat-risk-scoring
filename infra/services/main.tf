@@ -111,6 +111,7 @@ module "glue_crawler_gold" {
     "model_outputs/**",
     "model_runs/**",
     "model_metrics/**",
+    "model_explainability/**",
     "model_reports/**",
     "model_logs/**",
     # Leaderboards (.json/.md/.png) y model.tar.gz no son tablas.
