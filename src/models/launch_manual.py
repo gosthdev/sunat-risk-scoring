@@ -31,9 +31,9 @@ SAGEMAKER_METRIC_DEFINITIONS = [
     {"Name": "train_seconds", "Regex": r"train_seconds=([0-9\.]+)"},
 ]
 
-# Imagen ECR oficial de Scikit-Learn 1.3-1 en us-east-1
+# Imagen ECR oficial de Scikit-Learn 1.2-1 en us-east-1
 DEFAULT_SKLEARN_IMAGE = (
-    "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.3-1-cpu-py3"
+    "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
 )
 
 
