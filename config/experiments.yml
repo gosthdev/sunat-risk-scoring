@@ -80,7 +80,7 @@ experiments:
     description: "Exploración LR V2: rango de regularización C ampliado"
     hyperparameters:
       param_grid:
-        model__C: [0.001, 0.003, 0.03, 0.3, 3.0, 30.0, 100.0]
+        model__C: [0.03, 0.3, 3.0, 30.0, 100.0, 300.0, 1000.0]
 
   - id: "E10"
     model_name: "DT"
@@ -118,3 +118,31 @@ experiments:
         model__max_depth: [4, 7]
         model__min_samples_split: [100, 500, 2000]
         model__min_samples_leaf: [50, 200]
+
+  - id: "E13"
+    model_name: "HGB"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "SHOULD"
+    neg_ratio: 200
+    description: "Gradient boosting (HistGradientBoosting) V2 con pesos balanceados"
+    hyperparameters:
+      param_grid:
+        model__learning_rate: [0.05, 0.1]
+        model__max_iter: [200, 400]
+        model__max_leaf_nodes: [15, 31]
+        model__min_samples_leaf: [20, 100]
+
+  - id: "E14"
+    model_name: "HGB"
+    variant: "V2"
+    usa_pesos: "no"
+    priority: "SHOULD"
+    neg_ratio: 200
+    description: "Control de ablación: HistGradientBoosting V2 sin reponderación de clases"
+    hyperparameters:
+      param_grid:
+        model__learning_rate: [0.05, 0.1]
+        model__max_iter: [200, 400]
+        model__max_leaf_nodes: [15, 31]
+        model__min_samples_leaf: [20, 100]

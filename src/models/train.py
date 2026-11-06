@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
@@ -134,7 +135,7 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--run_id", type=str, required=True, help="Identificador único de la corrida"
     )
-    parser.add_argument("--model_name", type=str, choices=["LR", "DT"], required=True)
+    parser.add_argument("--model_name", type=str, choices=["LR", "DT", "HGB"], required=True)
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
     parser.add_argument("--dataset_version", type=str, default="v1")
@@ -272,6 +273,7 @@ def construir_pipeline_preprocesamiento(
     num_cols: list[str],
     cat_cols: list[str],
     es_lr: bool = True,
+    denso: bool = False,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
 
@@ -317,7 +319,12 @@ def construir_pipeline_preprocesamiento(
         tope = MAX_CATEGORIAS.get(col, MAX_CATEGORIAS_DEFAULT)
         transformers.append((f"cat_{col}", _cat_pipeline(tope), [col]))
 
-    return ColumnTransformer(transformers=transformers, remainder="drop")
+    # HistGradientBoosting no acepta matrices dispersas.
+    return ColumnTransformer(
+        transformers=transformers,
+        remainder="drop",
+        **({"sparse_threshold": 0.0} if denso else {}),
+    )
 
 
 def empaquetar_modelo_sagemaker(model_dir: str) -> str:
@@ -359,7 +366,10 @@ def main(args_list: list[str] | None = None) -> int:
 
     # 2. Configurar Modelo y Pipeline
     es_lr = args.model_name == "LR"
-    preprocessor = construir_pipeline_preprocesamiento(num_cols, cat_cols, es_lr=es_lr)
+    es_hgb = args.model_name == "HGB"
+    preprocessor = construir_pipeline_preprocesamiento(
+        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb
+    )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 
     if es_lr:
@@ -367,6 +377,17 @@ def main(args_list: list[str] | None = None) -> int:
             class_weight=class_weight, random_state=args.seed, max_iter=1000
         )
         param_grid = {"model__C": [0.01, 0.1, 1.0, 10.0]}
+    elif es_hgb:
+        model = HistGradientBoostingClassifier(
+            class_weight=class_weight,
+            random_state=args.seed,
+            early_stopping=False,
+        )
+        param_grid = {
+            "model__learning_rate": [0.05, 0.1],
+            "model__max_iter": [200],
+            "model__max_leaf_nodes": [15, 31],
+        }
     else:
         model = DecisionTreeClassifier(
             class_weight=class_weight, random_state=args.seed
@@ -481,20 +502,24 @@ def main(args_list: list[str] | None = None) -> int:
     feature_names = obtener_nombres_features(
         best_pipeline.named_steps["preprocessor"], num_cols, cat_cols
     )
+    tabla_explicabilidad: pd.DataFrame | None
     if es_lr:
         df_coefs = extraer_explicabilidad_lr(best_pipeline, feature_names)
         print("[INFO] Top 5 Features por Coeficiente Absoluto (LR):")
         print(df_coefs.head(5)[["feature", "coeficiente", "impacto"]].to_string())
         tabla_explicabilidad = df_coefs
+    elif es_hgb:
+        tabla_explicabilidad = None  # sin coeficientes ni importancias nativas
     else:
         rules_text = extraer_reglas_dt(best_pipeline, feature_names, max_depth=3)
         print("[INFO] Reglas principales de Decision Tree (profundidad <= 3):")
         print(rules_text[:500] + "...")
         tabla_explicabilidad = extraer_importancias_dt(best_pipeline, feature_names)
     # Tabla completa (el log solo muestra 5 filas): el orquestador la publica en S3.
-    tabla_explicabilidad.to_csv(
-        os.path.join(args.model_dir, "explicabilidad.csv"), index=False
-    )
+    if tabla_explicabilidad is not None:
+        tabla_explicabilidad.to_csv(
+            os.path.join(args.model_dir, "explicabilidad.csv"), index=False
+        )
 
     print("[INFO] Entrenamiento y exportacion finalizada exitosamente.")
     return 0
