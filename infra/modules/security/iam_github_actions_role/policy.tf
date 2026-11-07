@@ -268,6 +268,20 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         ]
       },
       {
+        # 06_create_glue_crawler.sh quita tras cada crawl la columna run_id que el crawler
+        # duplica con la partición (si no, Athena rechaza model_metrics y model_runs).
+        Sid    = "GlueCatalogFixDuplicateColumns"
+        Effect = "Allow"
+        Action = [
+          "glue:UpdateTable"
+        ]
+        Resource = [
+          "arn:aws:glue:*:*:catalog",
+          "arn:aws:glue:*:*:database/sunat_ssco",
+          "arn:aws:glue:*:*:table/sunat_ssco/*"
+        ]
+      },
+      {
         # Terraform crea y configura los crawlers; CD solo los consulta y los ejecuta (06_create_glue_crawler.sh).
         Sid    = "GlueCrawlers"
         Effect = "Allow"
