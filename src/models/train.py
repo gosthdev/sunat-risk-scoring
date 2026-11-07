@@ -137,7 +137,9 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--run_id", type=str, required=True, help="Identificador único de la corrida"
     )
-    parser.add_argument("--model_name", type=str, choices=["LR", "DT", "RF", "HGB"], required=True)
+    parser.add_argument(
+        "--model_name", type=str, choices=["LR", "DT", "RF", "HGB"], required=True
+    )
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
     parser.add_argument("--dataset_version", type=str, default="v1")

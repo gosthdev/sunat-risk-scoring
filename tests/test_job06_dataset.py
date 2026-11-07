@@ -447,9 +447,7 @@ class TestJob06Dataset(unittest.TestCase):
             ],
             "RUC long, tipo_contribuyente string, Estado string, see_afiliado int",
         )
-        self.assertEqual(
-            [r["RUC"] for r in job06.filtrar_poblacion(df).collect()], [1]
-        )
+        self.assertEqual([r["RUC"] for r in job06.filtrar_poblacion(df).collect()], [1])
         with self.assertRaises(ValueError):
             job06.filtrar_poblacion(df.drop("see_afiliado"))
 
