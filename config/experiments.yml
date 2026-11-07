@@ -158,3 +158,31 @@ experiments:
         model__max_iter: [200, 400]
         model__max_leaf_nodes: [15, 31]
         model__min_samples_leaf: [20, 100]
+
+  # Random forest (bagging de árboles): grilla limitada a hiperparámetros con
+  # equivalente en Spark MLlib (numTrees, maxDepth, minInstancesPerNode).
+  - id: "E15"
+    model_name: "RF"
+    variant: "V2"
+    usa_pesos: "no"
+    priority: "SHOULD"
+    neg_ratio: 200
+    description: "Random forest V2 sin reponderación de clases"
+    hyperparameters:
+      param_grid:
+        model__n_estimators: [300]
+        model__max_depth: [8, 16]
+        model__min_samples_leaf: [50, 200]
+
+  - id: "E16"
+    model_name: "RF"
+    variant: "V2"
+    usa_pesos: "si"
+    priority: "SHOULD"
+    neg_ratio: 200
+    description: "Random forest V2 con pesos balanced_subsample por árbol"
+    hyperparameters:
+      param_grid:
+        model__n_estimators: [300]
+        model__max_depth: [8, 16]
+        model__min_samples_leaf: [50, 200]

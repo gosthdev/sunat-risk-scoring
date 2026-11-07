@@ -450,9 +450,9 @@ def seleccionar_modelo_campeon(
         ]
         return max(de_familia, key=lambda r: r.get("cv_pr_auc_mean", 0.0), default=None)
 
-    # LR contra el mejor modelo de árboles (DT o HGB), cada uno con su mejor configuración.
+    # LR contra el mejor modelo de árboles (DT, RF o HGB), cada uno con su mejor configuración.
     r_lr = _mejor_de("LR")
-    r_dt = _mejor_de("DT", "HGB")
+    r_dt = _mejor_de("DT", "RF", "HGB")
 
     if r_lr and r_dt:
         score_lr = r_lr.get("cv_pr_auc_mean", 0.0)

@@ -244,7 +244,7 @@ def parse_args():
         help="Identificador de la corrida (e.g. ssco-run-E1-lr-v2-w1)",
     )
     parser.add_argument(
-        "--model_name", type=str, choices=["LR", "DT", "HGB"], required=True
+        "--model_name", type=str, choices=["LR", "DT", "RF", "HGB"], required=True
     )
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")

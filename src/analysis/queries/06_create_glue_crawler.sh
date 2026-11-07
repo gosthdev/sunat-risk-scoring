@@ -4,7 +4,8 @@
 # no los crea ni los modifica. Si falta alguno, aplica infra/services primero.
 #
 # Uso:
-#   bash src/analysis/queries/06_create_glue_crawler.sh
+#   bash src/analysis/queries/06_create_glue_crawler.sh            # todos
+#   bash src/analysis/queries/06_create_glue_crawler.sh <crawler>... # solo esos
 #
 # Requisito: silver/ y gold/ ya deben tener datos (corre antes los jobs 02 a 05).
 set -euo pipefail
@@ -12,7 +13,8 @@ set -euo pipefail
 GLUE_DATABASE="${GLUE_DATABASE:-sunat_ssco}"
 
 # Nombres definidos en infra/services/main.tf.
-CRAWLERS=(
+CRAWLERS=("$@")
+[[ $# -gt 0 ]] || CRAWLERS=(
   "sunat-ssco-silver-crawler"
   "sunat-ssco-gold-crawler"
   "sunat-ssco-model-inputs-crawler"
@@ -55,6 +57,37 @@ run_crawler() {
 
 for name in "${CRAWLERS[@]}"; do
   run_crawler "$name"
+done
+
+# model_metrics y model_runs guardan run_id en el JSON y en la carpeta run_id=...: el
+# crawler lo cataloga dos veces y Athena rechaza la tabla ("duplicate columns"). Se
+# quita la columna de datos; el valor sigue disponible como partición.
+quitar_columnas_duplicadas() {
+  local tabla="$1" tmp
+  tmp=$(mktemp)
+  aws glue get-table --database-name "$GLUE_DATABASE" --name "$tabla" --output json |
+    python3 -c '
+import json, sys
+t = json.load(sys.stdin)["Table"]
+editables = {"Name", "Description", "Owner", "LastAccessTime", "LastAnalyzedTime",
+             "Retention", "StorageDescriptor", "PartitionKeys", "ViewOriginalText",
+             "ViewExpandedText", "TableType", "Parameters", "TargetTable"}
+entrada = {k: v for k, v in t.items() if k in editables}
+claves = {p["Name"].lower() for p in entrada.get("PartitionKeys", [])}
+cols = entrada["StorageDescriptor"]["Columns"]
+entrada["StorageDescriptor"]["Columns"] = [c for c in cols if c["Name"].lower() not in claves]
+if len(entrada["StorageDescriptor"]["Columns"]) < len(cols):
+    print(json.dumps(entrada))
+' >"$tmp"
+  if [[ -s "$tmp" ]]; then
+    aws glue update-table --database-name "$GLUE_DATABASE" --table-input "file://$tmp"
+    echo "Tabla $tabla: columna duplicada con la partición eliminada"
+  fi
+  rm -f "$tmp"
+}
+
+for tabla in $(aws glue get-tables --database-name "$GLUE_DATABASE" --query 'TableList[].Name' --output text); do
+  quitar_columnas_duplicadas "$tabla"
 done
 
 echo
