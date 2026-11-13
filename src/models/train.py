@@ -117,6 +117,116 @@ class WinsorizerSuperior(BaseEstimator, TransformerMixin):
         return np.asarray(input_features, dtype=object)
 
 
+# Entradas del target encoding: columnas crudas y fold. Las tasas se calculan dentro del
+# Pipeline para que cada ronda de la CV use solo su parte de entrenamiento.
+TE_M = 100
+TE_ENTRADAS = ["ciiu_principal", "departamento", "ruc_prefijo", "ruc_correlativo"]
+TE_CLAVES = {
+    "te_ciiu": ("ciiu_principal",),
+    "te_ciiu_depto": ("ciiu_principal", "departamento"),
+    "te_cohorte_ruc": ("ruc_prefijo", "cohorte"),
+}
+
+
+def _codigos(serie: pd.Series, universo: pd.Index) -> np.ndarray:
+    """Posición de cada valor en `universo`; -1 si es nulo o no existe."""
+    if isinstance(serie.dtype, pd.CategoricalDtype):
+        cod = serie.cat.codes.to_numpy()
+        remap = universo.get_indexer(serie.cat.categories)
+        return np.where(cod >= 0, remap[np.maximum(cod, 0)], -1)
+    return universo.get_indexer(serie)
+
+
+class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
+    """Tasa suavizada de SSCO por categoría (te_ciiu, te_ciiu_depto, te_cohorte_ruc).
+
+    En `fit_transform` cada fila usa los demás folds de lo recibido; en `transform`
+    usa todo lo recibido en `fit`. Así, en una ronda de CV el fold de validación no
+    entra en las tasas con las que se entrena. Mismo cálculo que
+    `codificar_fuera_de_fold` del job 06. Categoría nula o nueva: prevalencia.
+    """
+
+    def __init__(self, m: float = TE_M) -> None:
+        self.m = m
+
+    def _codigos_clave(self, X: pd.DataFrame) -> dict[str, np.ndarray]:
+        comp = {c: X[c] for c in ("ciiu_principal", "departamento", "ruc_prefijo")}
+        comp["cohorte"] = np.floor(pd.to_numeric(X["ruc_correlativo"]) / 1e5)
+        if not hasattr(self, "universos_"):
+            self.universos_ = {
+                c: pd.Index(np.asarray(pd.unique(s.dropna()))) for c, s in comp.items()
+            }
+        out = {}
+        for nombre, partes in TE_CLAVES.items():
+            cod = np.zeros(len(X), dtype=np.int64)
+            valido = np.ones(len(X), dtype=bool)
+            for c in partes:
+                u = self.universos_[c]
+                ci = _codigos(comp[c], u)
+                valido &= ci >= 0
+                cod = cod * len(u) + np.maximum(ci, 0)
+            out[nombre] = np.where(valido, cod, -1)
+        return out
+
+    def _ajustar(self, X: pd.DataFrame, y: Any) -> dict[str, np.ndarray]:
+        if hasattr(self, "universos_"):
+            del self.universos_
+        y = np.asarray(y, dtype=np.float64)
+        self.prev_ = float(y.mean())
+        self.folds_ = np.unique(X["fold"].to_numpy())
+        cods = self._codigos_clave(X)
+        self.totales_ = {}
+        for nombre, cod in cods.items():
+            ok = cod >= 0
+            tam = int(np.prod([len(self.universos_[c]) for c in TE_CLAVES[nombre]]))
+            self.totales_[nombre] = (
+                np.bincount(cod[ok], minlength=tam).astype(np.float64),
+                np.bincount(cod[ok], weights=y[ok], minlength=tam),
+            )
+        return cods
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> TargetEncoderFueraDeFold:
+        self._ajustar(X, y)
+        return self
+
+    def _tasas(self, cods, n_propio=None, p_propio=None) -> np.ndarray:
+        cols = []
+        for nombre, cod in cods.items():
+            n_tot, p_tot = self.totales_[nombre]
+            ok = cod >= 0
+            idx = np.maximum(cod, 0)
+            n = np.where(ok, n_tot[idx], 0.0)
+            p = np.where(ok, p_tot[idx], 0.0)
+            if n_propio is not None:
+                n = n - np.where(ok, n_propio[nombre], 0.0)
+                p = p - np.where(ok, p_propio[nombre], 0.0)
+            cols.append((p + self.m * self.prev_) / (n + self.m))
+        return np.column_stack(cols)
+
+    def fit_transform(self, X: pd.DataFrame, y: Any = None, **kw: Any) -> np.ndarray:
+        cods = self._ajustar(X, y)
+        y = np.asarray(y, dtype=np.float64)
+        f = np.searchsorted(self.folds_, X["fold"].to_numpy())
+        n_f: dict[str, np.ndarray] = {}
+        p_f: dict[str, np.ndarray] = {}
+        # Total por (categoría, fold) de la fila: se resta de su propio fold.
+        for nombre, cod in cods.items():
+            ok = cod >= 0
+            tam = len(self.totales_[nombre][0]) * len(self.folds_)
+            k = cod[ok] * len(self.folds_) + f[ok]
+            n_cf = np.bincount(k, minlength=tam).astype(np.float64)
+            p_cf = np.bincount(k, weights=y[ok], minlength=tam)
+            idx = np.maximum(cod, 0) * len(self.folds_) + f
+            n_f[nombre], p_f[nombre] = n_cf[idx], p_cf[idx]
+        return self._tasas(cods, n_f, p_f)
+
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
+        return self._tasas(self._codigos_clave(X))
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        return np.asarray(list(TE_CLAVES), dtype=object)
+
+
 def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     """Parsea argumentos de línea de comandos para el entrenamiento."""
     parser = argparse.ArgumentParser(
@@ -247,10 +357,6 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "monto_por_trabajador",
         "informalidad_epen_departamento",
         "ruc_correlativo",
-        # Target encoding fuera de fold calculado en 06_dataset_curado.
-        "te_ciiu",
-        "te_ciiu_depto",
-        "te_cohorte_ruc",
         "meses_en_padron",
         "nuevo_en_periodo",
         "meses_hueco",
@@ -295,6 +401,7 @@ def construir_pipeline_preprocesamiento(
     cat_cols: list[str],
     es_lr: bool = True,
     denso: bool = False,
+    con_te: bool = False,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
 
@@ -340,6 +447,12 @@ def construir_pipeline_preprocesamiento(
         tope = MAX_CATEGORIAS.get(col, MAX_CATEGORIAS_DEFAULT)
         transformers.append((f"cat_{col}", _cat_pipeline(tope), [col]))
 
+    if con_te:
+        pasos: list[tuple[str, Any]] = [("te", TargetEncoderFueraDeFold())]
+        if es_lr:
+            pasos.append(("scaler", StandardScaler()))
+        transformers.append(("te", Pipeline(pasos), TE_ENTRADAS + ["fold"]))
+
     # HistGradientBoosting no acepta matrices dispersas.
     return ColumnTransformer(
         transformers=transformers,
@@ -371,7 +484,10 @@ def main(args_list: list[str] | None = None) -> int:
     # 1. Cargar y particionar datos
     df = cargar_datos(args.train_dir)
     num_cols, cat_cols = seleccionar_columnas(df, args.variant)
-    features = num_cols + cat_cols
+    # Las tasas te_* se calculan dentro del Pipeline con las columnas crudas y el fold.
+    con_te = all(c in df.columns for c in TE_ENTRADAS + ["fold"])
+    extra = [c for c in TE_ENTRADAS + ["fold"] if con_te and c not in num_cols + cat_cols]
+    features = num_cols + cat_cols + extra
 
     # Sin copias intermedias del DataFrame: con ~10 millones de filas cada una pesa GB.
     es_train = (df["split"] == "train").to_numpy()
@@ -389,7 +505,7 @@ def main(args_list: list[str] | None = None) -> int:
     es_lr = args.model_name == "LR"
     es_hgb = args.model_name == "HGB"
     preprocessor = construir_pipeline_preprocesamiento(
-        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb
+        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb, con_te=con_te
     )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 
