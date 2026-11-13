@@ -134,7 +134,7 @@ def _codigos(serie: pd.Series, universo: pd.Index) -> np.ndarray:
         cod = serie.cat.codes.to_numpy()
         remap = universo.get_indexer(serie.cat.categories)
         return np.where(cod >= 0, remap[np.maximum(cod, 0)], -1)
-    return universo.get_indexer(serie)
+    return universo.get_indexer(pd.Index(serie))
 
 
 class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
