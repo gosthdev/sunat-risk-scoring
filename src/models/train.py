@@ -140,9 +140,10 @@ def _codigos(serie: pd.Series, universo: pd.Index) -> np.ndarray:
 class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
     """Tasa suavizada de SSCO por categoría (te_ciiu, te_ciiu_depto, te_cohorte_ruc).
 
-    En `fit_transform` cada fila usa los demás folds de lo recibido; en `transform`
-    usa todo lo recibido en `fit`. Así, en una ronda de CV el fold de validación no
-    entra en las tasas con las que se entrena. Mismo cálculo que
+    Una fila cuyo fold se vio en `fit` usa los demás folds (fuera de fold, también en
+    `transform`: así las predicciones sobre train no ven su propia etiqueta); una fila
+    de un fold no visto (validación de la CV, test con fold -1) usa todo lo ajustado.
+    Así, en una ronda de CV el fold de validación no entra en las tasas de train. Mismo cálculo que
     `codificar_fuera_de_fold` del job 06. Categoría nula o nueva: prevalencia.
     Si X trae `peso_te`, cada fila cuenta con ese peso: con negativos submuestreados
     (neg_ratio) devuelve las tasas de la población y no las de la muestra.
@@ -170,23 +171,29 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
             out[nombre] = np.where(valido, cod, -1)
         return out
 
-    def _ajustar(self, X: pd.DataFrame, y: Any) -> dict[str, np.ndarray]:
+    def _ajustar(self, X: pd.DataFrame, y: Any) -> None:
         if hasattr(self, "universos_"):
             del self.universos_
         y = np.asarray(y, dtype=np.float64)
         w = self._pesos(X)
         self.prev_ = float(np.average(y, weights=w))
         self.folds_ = np.unique(X["fold"].to_numpy())
-        cods = self._codigos_clave(X)
-        self.totales_ = {}
-        for nombre, cod in cods.items():
+        nf = len(self.folds_)
+        f = np.searchsorted(self.folds_, X["fold"].to_numpy())
+        self.totales_: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self.por_fold_: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for nombre, cod in self._codigos_clave(X).items():
             ok = cod >= 0
             tam = int(np.prod([len(self.universos_[c]) for c in TE_CLAVES[nombre]]))
             self.totales_[nombre] = (
                 np.bincount(cod[ok], weights=w[ok], minlength=tam),
                 np.bincount(cod[ok], weights=(y * w)[ok], minlength=tam),
             )
-        return cods
+            k = cod[ok] * nf + f[ok]
+            self.por_fold_[nombre] = (
+                np.bincount(k, weights=w[ok], minlength=tam * nf),
+                np.bincount(k, weights=(y * w)[ok], minlength=tam * nf),
+            )
 
     @staticmethod
     def _pesos(X: pd.DataFrame) -> np.ndarray:
@@ -198,40 +205,29 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
         self._ajustar(X, y)
         return self
 
-    def _tasas(self, cods, n_propio=None, p_propio=None) -> np.ndarray:
+    def fit_transform(self, X: pd.DataFrame, y: Any = None, **kw: Any) -> np.ndarray:
+        self._ajustar(X, y)
+        return self.transform(X)
+
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
+        """Filas de un fold visto en `fit` no cuentan su propio fold; el resto usa todo."""
+        fold = X["fold"].to_numpy()
+        nf = len(self.folds_)
+        f = np.minimum(np.searchsorted(self.folds_, fold), nf - 1)
+        visto = self.folds_[f] == fold
         cols = []
-        for nombre, cod in cods.items():
+        for nombre, cod in self._codigos_clave(X).items():
             n_tot, p_tot = self.totales_[nombre]
+            n_f, p_f = self.por_fold_[nombre]
             ok = cod >= 0
             idx = np.maximum(cod, 0)
             n = np.where(ok, n_tot[idx], 0.0)
             p = np.where(ok, p_tot[idx], 0.0)
-            if n_propio is not None:
-                n = n - np.where(ok, n_propio[nombre], 0.0)
-                p = p - np.where(ok, p_propio[nombre], 0.0)
+            propio = ok & visto
+            n = n - np.where(propio, n_f[idx * nf + f], 0.0)
+            p = p - np.where(propio, p_f[idx * nf + f], 0.0)
             cols.append((p + self.m * self.prev_) / (n + self.m))
         return np.column_stack(cols)
-
-    def fit_transform(self, X: pd.DataFrame, y: Any = None, **kw: Any) -> np.ndarray:
-        cods = self._ajustar(X, y)
-        y = np.asarray(y, dtype=np.float64)
-        w = self._pesos(X)
-        f = np.searchsorted(self.folds_, X["fold"].to_numpy())
-        n_f: dict[str, np.ndarray] = {}
-        p_f: dict[str, np.ndarray] = {}
-        # Total por (categoría, fold) de la fila: se resta de su propio fold.
-        for nombre, cod in cods.items():
-            ok = cod >= 0
-            tam = len(self.totales_[nombre][0]) * len(self.folds_)
-            k = cod[ok] * len(self.folds_) + f[ok]
-            n_cf = np.bincount(k, weights=w[ok], minlength=tam)
-            p_cf = np.bincount(k, weights=(y * w)[ok], minlength=tam)
-            idx = np.maximum(cod, 0) * len(self.folds_) + f
-            n_f[nombre], p_f[nombre] = n_cf[idx], p_cf[idx]
-        return self._tasas(cods, n_f, p_f)
-
-    def transform(self, X: pd.DataFrame) -> np.ndarray:
-        return self._tasas(self._codigos_clave(X))
 
     def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
         return np.asarray(list(TE_CLAVES), dtype=object)

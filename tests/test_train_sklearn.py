@@ -551,3 +551,10 @@ def test_target_encoder_con_pesos_cuenta_cada_fila_con_su_peso():
     df["peso_te"] = 3.0
     ponderado = TargetEncoderFueraDeFold(m=3.0).fit_transform(df, y)
     assert np.allclose(base, ponderado)
+
+
+def test_target_encoder_transform_sobre_train_es_fuera_de_fold():
+    """Predecir sobre las filas de train da lo mismo que fit_transform (sin su etiqueta)."""
+    df, y = _df_te()
+    te = TargetEncoderFueraDeFold(m=1.0)
+    assert np.allclose(te.fit_transform(df, y), te.transform(df))
