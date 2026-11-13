@@ -24,12 +24,14 @@ from pyspark.sql.functions import (
     abs as spark_abs,
 )
 from pyspark.sql.functions import (
+    add_months,
     avg,
     coalesce,
     col,
     concat,
     countDistinct,
     format_string,
+    last_day,
     lit,
     row_number,
     substring,
@@ -110,7 +112,10 @@ def curar_dataset(
     Esta función pura permite pruebas unitarias deterministas sin depender de S3.
     Con `fecha_corte` (yyyy-mm-dd) se descartan los SSCO cuya resolución se emitió
     en o antes del corte de las features: en ellos las features ya reflejan la
-    designación (p. ej. facturación bloqueada), no la anticipan.
+    designación (p. ej. facturación bloqueada), no la anticipan. También se descartan
+    los emitidos después del último mes completo de la lista (el anterior a su última
+    `fecha_publicacion`): positivo = SSCO emitido en (corte, fin], con el mismo fin
+    para todas las versiones.
     """
     # 1. Normalizar clave RUC en padron
     padron = padron_features_df.withColumn(
@@ -191,6 +196,26 @@ def curar_dataset(
         if return_stats:
             excluidos = dataset.filter(ya_ssco).count()
         dataset = dataset.filter(col("_fecha_emision").isNull() | ~ya_ssco)
+
+        # SUNAT publica cada mes solo las resoluciones ya firmes (~17 días tras la
+        # emisión): el mes de la última publicación viene incompleto.
+        fin = (
+            ssco_df.select(
+                last_day(
+                    add_months(spark_max(col("fecha_publicacion").cast("date")), -1)
+                )
+            ).first()[0]
+            if "fecha_publicacion" in ssco_df.columns
+            else None
+        )
+        if fin is None:
+            raise ValueError(
+                "silver/ssco sin fecha_publicacion: no se puede cerrar la etiqueta"
+            )
+        post_fin = col("_fecha_emision") > lit(fin)
+        if return_stats:
+            excluidos_post_fin = dataset.filter(post_fin).count()
+        dataset = dataset.filter(col("_fecha_emision").isNull() | ~post_fin)
 
     dataset = dataset.withColumn(
         "label",
@@ -286,6 +311,8 @@ def curar_dataset(
     if return_stats:
         if fecha_corte is not None:
             stats["ssco_excluidos_por_corte"] = excluidos
+            stats["ssco_excluidos_post_fin"] = excluidos_post_fin
+            stats["fecha_fin_etiqueta"] = str(fin)
         rango = (
             dataset.filter(col("label") == 1)
             .groupBy("split")
