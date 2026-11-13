@@ -249,8 +249,9 @@ class _SplitterTemporal:
 
     def split(self, X: Any = None, y: Any = None, groups: Any = None) -> Any:
         for k in sorted(set(self.folds[self.folds >= 0].tolist()))[1:]:
-            yield np.flatnonzero((self.folds >= 0) & (self.folds < k)), np.flatnonzero(
-                self.folds == k
+            yield (
+                np.flatnonzero((self.folds >= 0) & (self.folds < k)),
+                np.flatnonzero(self.folds == k),
             )
 
     def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
@@ -526,14 +527,20 @@ def main(args_list: list[str] | None = None) -> int:
     num_cols, cat_cols = seleccionar_columnas(df, args.variant)
     # Las tasas te_* se calculan dentro del Pipeline con las columnas crudas y el fold.
     con_te = all(c in df.columns for c in TE_ENTRADAS + ["fold"])
-    extra = [c for c in TE_ENTRADAS + ["fold"] if con_te and c not in num_cols + cat_cols]
+    extra = [
+        c for c in TE_ENTRADAS + ["fold"] if con_te and c not in num_cols + cat_cols
+    ]
     con_peso_te = con_te and args.neg_ratio > 0
     if con_peso_te:
         # Cada negativo muestreado representa a n_neg / (neg_ratio * n_pos) de train.
         lab = df["label"].to_numpy()
         tr = (df["split"] == "train").to_numpy()
         n_pos = int(lab[tr].sum())
-        w_neg = max(1.0, (int(tr.sum()) - n_pos) / (args.neg_ratio * n_pos)) if n_pos else 1.0
+        w_neg = (
+            max(1.0, (int(tr.sum()) - n_pos) / (args.neg_ratio * n_pos))
+            if n_pos
+            else 1.0
+        )
         df["peso_te"] = np.where(lab == 1, 1.0, w_neg)
         extra.append("peso_te")
     features = num_cols + cat_cols + extra
@@ -554,7 +561,12 @@ def main(args_list: list[str] | None = None) -> int:
     es_lr = args.model_name == "LR"
     es_hgb = args.model_name == "HGB"
     preprocessor = construir_pipeline_preprocesamiento(
-        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb, con_te=con_te, con_peso_te=con_peso_te
+        num_cols,
+        cat_cols,
+        es_lr=es_lr,
+        denso=es_hgb,
+        con_te=con_te,
+        con_peso_te=con_peso_te,
     )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 
