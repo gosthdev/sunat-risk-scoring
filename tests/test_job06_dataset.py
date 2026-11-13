@@ -337,7 +337,12 @@ class TestJob06Dataset(unittest.TestCase):
         # del anterior (fecha_firme = emisión + 15 días).
         base = date(2025, 12, 1)
         filas = [
-            (20100000000 + i, base + timedelta(days=i), base + timedelta(days=i + 15))
+            (
+                20100000000 + i,
+                base + timedelta(days=i),
+                base + timedelta(days=i + 15),
+                date(2026, 2, 28),
+            )
             for i in range(1, 31)
         ]
         esquema = StructType(
@@ -345,6 +350,7 @@ class TestJob06Dataset(unittest.TestCase):
                 StructField("RUC", LongType(), False),
                 StructField("fecha_emision", DateType(), True),
                 StructField("fecha_firme", DateType(), True),
+                StructField("fecha_publicacion", DateType(), True),
             ]
         )
         ssco = self.spark.createDataFrame(filas, esquema)
@@ -450,6 +456,63 @@ class TestJob06Dataset(unittest.TestCase):
         self.assertEqual([r["RUC"] for r in job06.filtrar_poblacion(df).collect()], [1])
         with self.assertRaises(ValueError):
             job06.filtrar_poblacion(df.drop("see_afiliado"))
+
+    def _ssco_con_fechas(self, filas):
+        assert self.spark is not None
+        esquema = StructType(
+            [
+                StructField("RUC", LongType(), False),
+                StructField("fecha_emision", DateType(), True),
+                StructField("fecha_firme", DateType(), True),
+                StructField("fecha_publicacion", DateType(), True),
+            ]
+        )
+        return self.spark.createDataFrame(filas, esquema)
+
+    def test_fin_de_etiqueta_excluye_ssco_del_mes_incompleto(self):
+        from datetime import date
+
+        padron, _ssco, pricos = self._crear_datos_sinteticos()
+        # Última publicación 31-10: el fin es el 30-09. El 3 (emitido 01-10) sale;
+        # el 2 (emitido 30-09) sigue siendo positivo.
+        ssco = self._ssco_con_fechas(
+            [
+                (20100000001, date(2026, 5, 10), date(2026, 5, 27), date(2026, 5, 31)),
+                (
+                    20100000002,
+                    date(2026, 9, 30),
+                    date(2026, 10, 16),
+                    date(2026, 10, 31),
+                ),
+                (
+                    20100000003,
+                    date(2026, 10, 1),
+                    date(2026, 10, 17),
+                    date(2026, 10, 31),
+                ),
+            ]
+        )
+        curado, stats = job06.curar_dataset(
+            padron, ssco, pricos, return_stats=True, fecha_corte="2026-03-31"
+        )
+        rucs = {r["ruc"]: r["label"] for r in curado.collect()}
+
+        self.assertEqual(stats["fecha_fin_etiqueta"], "2026-09-30")
+        self.assertEqual(stats["ssco_excluidos_post_fin"], 1)
+        self.assertNotIn("20100000003", rucs)
+        self.assertEqual(rucs["20100000001"], 1)
+        self.assertEqual(rucs["20100000002"], 1)
+        self.assertEqual(rucs["20100000004"], 0)
+
+    def test_corte_sin_fecha_publicacion_falla(self):
+        from datetime import date
+
+        padron, _ssco, pricos = self._crear_datos_sinteticos()
+        ssco = self._ssco_con_fechas(
+            [(20100000001, date(2026, 5, 10), date(2026, 5, 27), None)]
+        ).drop("fecha_publicacion")
+        with self.assertRaises(ValueError):
+            job06.curar_dataset(padron, ssco, pricos, fecha_corte="2026-03-31")
 
     def test_corte_sin_fechas_en_ssco_falla(self):
         padron, ssco, pricos = self._crear_datos_sinteticos()
