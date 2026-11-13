@@ -144,6 +144,8 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
     usa todo lo recibido en `fit`. Así, en una ronda de CV el fold de validación no
     entra en las tasas con las que se entrena. Mismo cálculo que
     `codificar_fuera_de_fold` del job 06. Categoría nula o nueva: prevalencia.
+    Si X trae `peso_te`, cada fila cuenta con ese peso: con negativos submuestreados
+    (neg_ratio) devuelve las tasas de la población y no las de la muestra.
     """
 
     def __init__(self, m: float = TE_M) -> None:
@@ -172,7 +174,8 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
         if hasattr(self, "universos_"):
             del self.universos_
         y = np.asarray(y, dtype=np.float64)
-        self.prev_ = float(y.mean())
+        w = self._pesos(X)
+        self.prev_ = float(np.average(y, weights=w))
         self.folds_ = np.unique(X["fold"].to_numpy())
         cods = self._codigos_clave(X)
         self.totales_ = {}
@@ -180,10 +183,16 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
             ok = cod >= 0
             tam = int(np.prod([len(self.universos_[c]) for c in TE_CLAVES[nombre]]))
             self.totales_[nombre] = (
-                np.bincount(cod[ok], minlength=tam).astype(np.float64),
-                np.bincount(cod[ok], weights=y[ok], minlength=tam),
+                np.bincount(cod[ok], weights=w[ok], minlength=tam),
+                np.bincount(cod[ok], weights=(y * w)[ok], minlength=tam),
             )
         return cods
+
+    @staticmethod
+    def _pesos(X: pd.DataFrame) -> np.ndarray:
+        if "peso_te" in X.columns:
+            return X["peso_te"].to_numpy(dtype=np.float64)
+        return np.ones(len(X))
 
     def fit(self, X: pd.DataFrame, y: Any = None) -> TargetEncoderFueraDeFold:
         self._ajustar(X, y)
@@ -206,6 +215,7 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
     def fit_transform(self, X: pd.DataFrame, y: Any = None, **kw: Any) -> np.ndarray:
         cods = self._ajustar(X, y)
         y = np.asarray(y, dtype=np.float64)
+        w = self._pesos(X)
         f = np.searchsorted(self.folds_, X["fold"].to_numpy())
         n_f: dict[str, np.ndarray] = {}
         p_f: dict[str, np.ndarray] = {}
@@ -214,8 +224,8 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
             ok = cod >= 0
             tam = len(self.totales_[nombre][0]) * len(self.folds_)
             k = cod[ok] * len(self.folds_) + f[ok]
-            n_cf = np.bincount(k, minlength=tam).astype(np.float64)
-            p_cf = np.bincount(k, weights=y[ok], minlength=tam)
+            n_cf = np.bincount(k, weights=w[ok], minlength=tam)
+            p_cf = np.bincount(k, weights=(y * w)[ok], minlength=tam)
             idx = np.maximum(cod, 0) * len(self.folds_) + f
             n_f[nombre], p_f[nombre] = n_cf[idx], p_cf[idx]
         return self._tasas(cods, n_f, p_f)
@@ -430,6 +440,7 @@ def construir_pipeline_preprocesamiento(
     es_lr: bool = True,
     denso: bool = False,
     con_te: bool = False,
+    con_peso_te: bool = False,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
 
@@ -479,7 +490,8 @@ def construir_pipeline_preprocesamiento(
         pasos: list[tuple[str, Any]] = [("te", TargetEncoderFueraDeFold())]
         if es_lr:
             pasos.append(("scaler", StandardScaler()))
-        transformers.append(("te", Pipeline(pasos), TE_ENTRADAS + ["fold"]))
+        cols_te = TE_ENTRADAS + ["fold"] + (["peso_te"] if con_peso_te else [])
+        transformers.append(("te", Pipeline(pasos), cols_te))
 
     # HistGradientBoosting no acepta matrices dispersas.
     return ColumnTransformer(
@@ -515,6 +527,15 @@ def main(args_list: list[str] | None = None) -> int:
     # Las tasas te_* se calculan dentro del Pipeline con las columnas crudas y el fold.
     con_te = all(c in df.columns for c in TE_ENTRADAS + ["fold"])
     extra = [c for c in TE_ENTRADAS + ["fold"] if con_te and c not in num_cols + cat_cols]
+    con_peso_te = con_te and args.neg_ratio > 0
+    if con_peso_te:
+        # Cada negativo muestreado representa a n_neg / (neg_ratio * n_pos) de train.
+        lab = df["label"].to_numpy()
+        tr = (df["split"] == "train").to_numpy()
+        n_pos = int(lab[tr].sum())
+        w_neg = max(1.0, (int(tr.sum()) - n_pos) / (args.neg_ratio * n_pos)) if n_pos else 1.0
+        df["peso_te"] = np.where(lab == 1, 1.0, w_neg)
+        extra.append("peso_te")
     features = num_cols + cat_cols + extra
 
     # Sin copias intermedias del DataFrame: con ~10 millones de filas cada una pesa GB.
@@ -533,7 +554,7 @@ def main(args_list: list[str] | None = None) -> int:
     es_lr = args.model_name == "LR"
     es_hgb = args.model_name == "HGB"
     preprocessor = construir_pipeline_preprocesamiento(
-        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb, con_te=con_te
+        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb, con_te=con_te, con_peso_te=con_peso_te
     )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 

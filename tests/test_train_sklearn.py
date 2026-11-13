@@ -442,8 +442,10 @@ def test_cargar_datos_deja_el_texto_repetitivo_como_categorico():
     assert set(df["split"].astype(str)) == {"train", "test"}
 
 
-@pytest.mark.parametrize("esquema", ["bloques", "temporal"])
-def test_rf_entrena_con_target_encoding(synthetic_dataframe, esquema):
+@pytest.mark.parametrize(
+    "esquema,neg_ratio", [("bloques", "0"), ("temporal", "0"), ("bloques", "3")]
+)
+def test_rf_entrena_con_target_encoding(synthetic_dataframe, esquema, neg_ratio):
     """RF entrena, calcula te_* dentro del Pipeline y deja importancias en explicabilidad.csv."""
     df = synthetic_dataframe.copy()
     df["ruc_prefijo"] = "20"
@@ -461,6 +463,7 @@ def test_rf_entrena_con_target_encoding(synthetic_dataframe, esquema):
                 "--output_dir", os.path.join(tmp_dir, "out"),
                 "--run_id", "ssco-run-test-rf",
                 "--cv_esquema", esquema,
+                "--neg_ratio", neg_ratio,
                 "--model_name", "RF",
                 "--param_grid_json", '{"model__n_estimators": [10], "model__max_depth": [3]}',
                 "--ruta_salida_predicciones", preds_path,
@@ -539,3 +542,12 @@ def test_splitter_temporal_solo_entrena_con_folds_anteriores():
     for k, (tr, va) in enumerate(cortes, start=1):
         assert set(folds[va]) == {k}
         assert folds[tr].max() < k
+
+
+def test_target_encoder_con_pesos_cuenta_cada_fila_con_su_peso():
+    """Pesar todas las filas por 3 con m=3 equivale a no pesar con m=1."""
+    df, y = _df_te()
+    base = TargetEncoderFueraDeFold(m=1.0).fit_transform(df, y)
+    df["peso_te"] = 3.0
+    ponderado = TargetEncoderFueraDeFold(m=3.0).fit_transform(df, y)
+    assert np.allclose(base, ponderado)
