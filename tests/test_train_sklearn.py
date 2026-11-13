@@ -558,3 +558,27 @@ def test_target_encoder_transform_sobre_train_es_fuera_de_fold():
     df, y = _df_te()
     te = TargetEncoderFueraDeFold(m=1.0)
     assert np.allclose(te.fit_transform(df, y), te.transform(df))
+
+
+def test_sin_folds_validos_entrena_sin_target_encoding(synthetic_dataframe, capsys):
+    df = synthetic_dataframe.copy()
+    df["ruc_prefijo"] = "20"
+    df["ruc_correlativo"] = np.arange(len(df)) * 5000
+    df["fold"] = np.where(df["split"] == "train", 0, -1)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_file = os.path.join(tmp_dir, "dataset.parquet")
+        df.to_parquet(input_file, index=False)
+        exit_code = train_main(
+            [
+                "--train_dir", input_file,
+                "--model_dir", os.path.join(tmp_dir, "model"),
+                "--output_dir", os.path.join(tmp_dir, "out"),
+                "--run_id", "ssco-run-test-sin-folds",
+                "--model_name", "LR",
+                "--param_grid_json", '{"model__C": [1.0]}',
+                "--ruta_salida_predicciones", os.path.join(tmp_dir, "p.parquet"),
+                "--ruta_salida_run_record", os.path.join(tmp_dir, "rr.json"),
+            ]
+        )  # fmt: skip
+    assert exit_code == 0
+    assert "se entrena sin target encoding" in capsys.readouterr().out

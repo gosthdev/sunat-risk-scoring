@@ -523,6 +523,10 @@ def main(args_list: list[str] | None = None) -> int:
     num_cols, cat_cols = seleccionar_columnas(df, args.variant)
     # Las tasas te_* se calculan dentro del Pipeline con las columnas crudas y el fold.
     con_te = all(c in df.columns for c in TE_ENTRADAS + ["fold"])
+    if con_te and df.loc[df["split"] == "train", "fold"].nunique() < 2:
+        # Sin folds, las tasas de train no se pueden calcular fuera de fold.
+        print("[WARN] Menos de 2 folds en train: se entrena sin target encoding")
+        con_te = False
     extra = [
         c for c in TE_ENTRADAS + ["fold"] if con_te and c not in num_cols + cat_cols
     ]
