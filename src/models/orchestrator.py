@@ -213,6 +213,9 @@ def ejecutar_experimento_runner(
     if exp.get("neg_ratio"):
         cli_args.extend(["--neg_ratio", str(int(exp["neg_ratio"]))])
 
+    if exp.get("cv_esquema"):
+        cli_args.extend(["--cv_esquema", str(exp["cv_esquema"])])
+
     t0 = time.time()
     try:
         ret = train_main(cli_args)
