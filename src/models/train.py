@@ -227,6 +227,26 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
         return np.asarray(list(TE_CLAVES), dtype=object)
 
 
+class _SplitterTemporal:
+    """Valida el fold k entrenando solo con los folds anteriores (fold 0 solo entrena).
+
+    Los folds de positivos van ordenados por fecha de emisión, así que esto simula
+    predecir designaciones posteriores a las que se vieron.
+    """
+
+    def __init__(self, folds: np.ndarray) -> None:
+        self.folds = np.asarray(folds)
+
+    def split(self, X: Any = None, y: Any = None, groups: Any = None) -> Any:
+        for k in sorted(set(self.folds[self.folds >= 0].tolist()))[1:]:
+            yield np.flatnonzero((self.folds >= 0) & (self.folds < k)), np.flatnonzero(
+                self.folds == k
+            )
+
+    def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
+        return len(set(self.folds[self.folds >= 0].tolist())) - 1
+
+
 def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     """Parsea argumentos de línea de comandos para el entrenamiento."""
     parser = argparse.ArgumentParser(
@@ -265,6 +285,14 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=0,
         help="Negativos por positivo que se muestrean en train (0 = todos)",
+    )
+    parser.add_argument(
+        "--cv_esquema",
+        type=str,
+        choices=["bloques", "temporal"],
+        default="bloques",
+        help="bloques: cada fold se valida con los otros cuatro; temporal: el fold k "
+        "se valida solo con los folds anteriores (el fold 0 solo entrena)",
     )
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
@@ -576,7 +604,9 @@ def main(args_list: list[str] | None = None) -> int:
         if (folds_train is not None and len(folds_train) > 0)
         else np.array([])
     )
-    if len(unique_folds) >= 2:
+    if len(unique_folds) >= 2 and args.cv_esquema == "temporal":
+        cv_splitter = _SplitterTemporal(folds_train)
+    elif len(unique_folds) >= 2:
         cv_splitter = PredefinedSplit(test_fold=folds_train)
     else:
         cv_splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)

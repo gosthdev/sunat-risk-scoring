@@ -36,6 +36,7 @@ from src.models.launch_manual import SAGEMAKER_METRIC_DEFINITIONS
 from src.models.train import (
     Log1pTransformer,
     TargetEncoderFueraDeFold,
+    _SplitterTemporal,
     WinsorizerSuperior,
     construir_pipeline_preprocesamiento,
     seleccionar_columnas,
@@ -441,7 +442,8 @@ def test_cargar_datos_deja_el_texto_repetitivo_como_categorico():
     assert set(df["split"].astype(str)) == {"train", "test"}
 
 
-def test_rf_entrena_con_target_encoding(synthetic_dataframe):
+@pytest.mark.parametrize("esquema", ["bloques", "temporal"])
+def test_rf_entrena_con_target_encoding(synthetic_dataframe, esquema):
     """RF entrena, calcula te_* dentro del Pipeline y deja importancias en explicabilidad.csv."""
     df = synthetic_dataframe.copy()
     df["ruc_prefijo"] = "20"
@@ -458,6 +460,7 @@ def test_rf_entrena_con_target_encoding(synthetic_dataframe):
                 "--model_dir", model_dir,
                 "--output_dir", os.path.join(tmp_dir, "out"),
                 "--run_id", "ssco-run-test-rf",
+                "--cv_esquema", esquema,
                 "--model_name", "RF",
                 "--param_grid_json", '{"model__n_estimators": [10], "model__max_depth": [3]}',
                 "--ruta_salida_predicciones", preds_path,
@@ -527,3 +530,12 @@ def test_target_encoder_train_usa_otros_folds_y_test_todo():
     t = te.transform(nuevo)
     assert t[0, 0] > prev
     assert t[1, 0] == pytest.approx(prev)
+
+
+def test_splitter_temporal_solo_entrena_con_folds_anteriores():
+    folds = np.array([0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
+    cortes = list(_SplitterTemporal(folds).split())
+    assert len(cortes) == 4 == _SplitterTemporal(folds).get_n_splits()
+    for k, (tr, va) in enumerate(cortes, start=1):
+        assert set(folds[va]) == {k}
+        assert folds[tr].max() < k
