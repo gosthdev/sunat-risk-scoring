@@ -35,7 +35,9 @@ from src.models.export_outputs import (
 from src.models.launch_manual import SAGEMAKER_METRIC_DEFINITIONS
 from src.models.train import (
     Log1pTransformer,
+    TargetEncoderFueraDeFold,
     WinsorizerSuperior,
+    _SplitterTemporal,
     construir_pipeline_preprocesamiento,
     seleccionar_columnas,
 )
@@ -440,10 +442,14 @@ def test_cargar_datos_deja_el_texto_repetitivo_como_categorico():
     assert set(df["split"].astype(str)) == {"train", "test"}
 
 
-def test_rf_entrena_con_target_encoding(synthetic_dataframe):
-    """RF entrena, usa las columnas te_* y deja importancias en explicabilidad.csv."""
+@pytest.mark.parametrize(
+    "esquema,neg_ratio", [("bloques", "0"), ("temporal", "0"), ("bloques", "3")]
+)
+def test_rf_entrena_con_target_encoding(synthetic_dataframe, esquema, neg_ratio):
+    """RF entrena, calcula te_* dentro del Pipeline y deja importancias en explicabilidad.csv."""
     df = synthetic_dataframe.copy()
-    df["te_ciiu"] = np.linspace(0.0, 0.01, len(df))
+    df["ruc_prefijo"] = "20"
+    df["ruc_correlativo"] = np.arange(len(df)) * 5000
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_file = os.path.join(tmp_dir, "dataset.parquet")
         df.to_parquet(input_file, index=False)
@@ -456,6 +462,8 @@ def test_rf_entrena_con_target_encoding(synthetic_dataframe):
                 "--model_dir", model_dir,
                 "--output_dir", os.path.join(tmp_dir, "out"),
                 "--run_id", "ssco-run-test-rf",
+                "--cv_esquema", esquema,
+                "--neg_ratio", neg_ratio,
                 "--model_name", "RF",
                 "--param_grid_json", '{"model__n_estimators": [10], "model__max_depth": [3]}',
                 "--ruta_salida_predicciones", preds_path,
@@ -470,8 +478,107 @@ def test_rf_entrena_con_target_encoding(synthetic_dataframe):
 
 def test_seleccionar_columnas_excluye_features_vacias(synthetic_dataframe, capsys):
     df = synthetic_dataframe.copy()
-    df["te_ciiu"] = np.nan
+    df["n_ordenes"] = np.nan
     num_cols, _ = seleccionar_columnas(df, "V2")
-    assert "te_ciiu" not in num_cols
+    assert "n_ordenes" not in num_cols
     assert "monto_total_soles" in num_cols
-    assert "te_ciiu llega 100% nula" in capsys.readouterr().out
+    assert "n_ordenes llega 100% nula" in capsys.readouterr().out
+
+
+def _df_te():
+    """Dos categorías CIIU en 4 folds; la 'A' es 100% positiva solo en el fold 3."""
+    n = 400
+    fold = np.arange(n) % 4
+    ciiu = np.where((np.arange(n) // 4) % 2 == 0, "A", "B")
+    y = ((ciiu == "A") & (fold == 3)).astype(int)
+    df = pd.DataFrame(
+        {
+            "ciiu_principal": ciiu,
+            "departamento": "LIMA",
+            "ruc_prefijo": "20",
+            "ruc_correlativo": np.arange(n) * 1000,
+            "fold": fold,
+        }
+    )
+    return df, y
+
+
+def test_target_encoder_no_ve_el_fold_de_validacion():
+    """Ajustar sin el fold 3 da las mismas tasas de entrenamiento que ajustar sin él."""
+    df, y = _df_te()
+    sin3 = df["fold"] != 3
+    te = TargetEncoderFueraDeFold().fit(df[sin3], y[sin3])
+    tasa_val = te.transform(df[~sin3])[:, 0]
+    # Sin positivos en train, la tasa de 'A' queda en la prevalencia (0).
+    assert np.allclose(tasa_val, 0.0)
+    out = TargetEncoderFueraDeFold().fit_transform(df[sin3], y[sin3])
+    assert np.allclose(out[:, 0], 0.0)
+
+
+def test_target_encoder_train_usa_otros_folds_y_test_todo():
+    df, y = _df_te()
+    te = TargetEncoderFueraDeFold(m=1.0)
+    out = te.fit_transform(df, y)
+    prev = y.mean()
+    # 'A' en fold 3: ve los folds 0..2 de 'A' (sin positivos) -> menor que prevalencia.
+    fila_a3 = int(np.flatnonzero((df["ciiu_principal"] == "A") & (df["fold"] == 3))[0])
+    assert out[fila_a3, 0] < prev
+    # 'A' en fold 0: ve el fold 3 (positivos) -> mayor que prevalencia.
+    fila_a0 = int(np.flatnonzero((df["ciiu_principal"] == "A") & (df["fold"] == 0))[0])
+    assert out[fila_a0, 0] > prev
+    # Fila nueva (test) usa todo train; categoría desconocida -> prevalencia.
+    nuevo = df.iloc[:2].copy()
+    nuevo["fold"] = -1
+    nuevo.loc[nuevo.index[1], "ciiu_principal"] = "ZZZ"
+    t = te.transform(nuevo)
+    assert t[0, 0] > prev
+    assert t[1, 0] == pytest.approx(prev)
+
+
+def test_splitter_temporal_solo_entrena_con_folds_anteriores():
+    folds = np.array([0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
+    cortes = list(_SplitterTemporal(folds).split())
+    assert len(cortes) == 4 == _SplitterTemporal(folds).get_n_splits()
+    for k, (tr, va) in enumerate(cortes, start=1):
+        assert set(folds[va]) == {k}
+        assert folds[tr].max() < k
+
+
+def test_target_encoder_con_pesos_cuenta_cada_fila_con_su_peso():
+    """Pesar todas las filas por 3 con m=3 equivale a no pesar con m=1."""
+    df, y = _df_te()
+    base = TargetEncoderFueraDeFold(m=1.0).fit_transform(df, y)
+    df["peso_te"] = 3.0
+    ponderado = TargetEncoderFueraDeFold(m=3.0).fit_transform(df, y)
+    assert np.allclose(base, ponderado)
+
+
+def test_target_encoder_transform_sobre_train_es_fuera_de_fold():
+    """Predecir sobre las filas de train da lo mismo que fit_transform (sin su etiqueta)."""
+    df, y = _df_te()
+    te = TargetEncoderFueraDeFold(m=1.0)
+    assert np.allclose(te.fit_transform(df, y), te.transform(df))
+
+
+def test_sin_folds_validos_entrena_sin_target_encoding(synthetic_dataframe, capsys):
+    df = synthetic_dataframe.copy()
+    df["ruc_prefijo"] = "20"
+    df["ruc_correlativo"] = np.arange(len(df)) * 5000
+    df["fold"] = np.where(df["split"] == "train", 0, -1)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_file = os.path.join(tmp_dir, "dataset.parquet")
+        df.to_parquet(input_file, index=False)
+        exit_code = train_main(
+            [
+                "--train_dir", input_file,
+                "--model_dir", os.path.join(tmp_dir, "model"),
+                "--output_dir", os.path.join(tmp_dir, "out"),
+                "--run_id", "ssco-run-test-sin-folds",
+                "--model_name", "LR",
+                "--param_grid_json", '{"model__C": [1.0]}',
+                "--ruta_salida_predicciones", os.path.join(tmp_dir, "p.parquet"),
+                "--ruta_salida_run_record", os.path.join(tmp_dir, "rr.json"),
+            ]
+        )  # fmt: skip
+    assert exit_code == 0
+    assert "se entrena sin target encoding" in capsys.readouterr().out

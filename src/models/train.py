@@ -117,6 +117,143 @@ class WinsorizerSuperior(BaseEstimator, TransformerMixin):
         return np.asarray(input_features, dtype=object)
 
 
+# Entradas del target encoding: columnas crudas y fold. Las tasas se calculan dentro del
+# Pipeline para que cada ronda de la CV use solo su parte de entrenamiento.
+TE_M = 100
+TE_ENTRADAS = ["ciiu_principal", "departamento", "ruc_prefijo", "ruc_correlativo"]
+TE_CLAVES = {
+    "te_ciiu": ("ciiu_principal",),
+    "te_ciiu_depto": ("ciiu_principal", "departamento"),
+    "te_cohorte_ruc": ("ruc_prefijo", "cohorte"),
+}
+
+
+def _codigos(serie: pd.Series, universo: pd.Index) -> np.ndarray:
+    """Posición de cada valor en `universo`; -1 si es nulo o no existe."""
+    if isinstance(serie.dtype, pd.CategoricalDtype):
+        cod = serie.cat.codes.to_numpy()
+        remap = universo.get_indexer(serie.cat.categories)
+        return np.where(cod >= 0, remap[np.maximum(cod, 0)], -1)
+    return universo.get_indexer(pd.Index(serie))
+
+
+class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
+    """Tasa suavizada de SSCO por categoría (te_ciiu, te_ciiu_depto, te_cohorte_ruc).
+
+    Una fila cuyo fold se vio en `fit` usa los demás folds (fuera de fold, también en
+    `transform`: así las predicciones sobre train no ven su propia etiqueta); una fila
+    de un fold no visto (validación de la CV, test con fold -1) usa todo lo ajustado.
+    Así, en una ronda de CV el fold de validación no entra en las tasas de train. Mismo cálculo que
+    `codificar_fuera_de_fold` del job 06. Categoría nula o nueva: prevalencia.
+    Si X trae `peso_te`, cada fila cuenta con ese peso: con negativos submuestreados
+    (neg_ratio) devuelve las tasas de la población y no las de la muestra.
+    """
+
+    def __init__(self, m: float = TE_M) -> None:
+        self.m = m
+
+    def _codigos_clave(self, X: pd.DataFrame) -> dict[str, np.ndarray]:
+        comp = {c: X[c] for c in ("ciiu_principal", "departamento", "ruc_prefijo")}
+        comp["cohorte"] = np.floor(pd.to_numeric(X["ruc_correlativo"]) / 1e5)
+        if not hasattr(self, "universos_"):
+            self.universos_ = {
+                c: pd.Index(np.asarray(pd.unique(s.dropna()))) for c, s in comp.items()
+            }
+        out = {}
+        for nombre, partes in TE_CLAVES.items():
+            cod = np.zeros(len(X), dtype=np.int64)
+            valido = np.ones(len(X), dtype=bool)
+            for c in partes:
+                u = self.universos_[c]
+                ci = _codigos(comp[c], u)
+                valido &= ci >= 0
+                cod = cod * len(u) + np.maximum(ci, 0)
+            out[nombre] = np.where(valido, cod, -1)
+        return out
+
+    def _ajustar(self, X: pd.DataFrame, y: Any) -> None:
+        if hasattr(self, "universos_"):
+            del self.universos_
+        y = np.asarray(y, dtype=np.float64)
+        w = self._pesos(X)
+        self.prev_ = float(np.average(y, weights=w))
+        self.folds_ = np.unique(X["fold"].to_numpy())
+        nf = len(self.folds_)
+        f = np.searchsorted(self.folds_, X["fold"].to_numpy())
+        self.totales_: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self.por_fold_: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for nombre, cod in self._codigos_clave(X).items():
+            ok = cod >= 0
+            tam = int(np.prod([len(self.universos_[c]) for c in TE_CLAVES[nombre]]))
+            self.totales_[nombre] = (
+                np.bincount(cod[ok], weights=w[ok], minlength=tam),
+                np.bincount(cod[ok], weights=(y * w)[ok], minlength=tam),
+            )
+            k = cod[ok] * nf + f[ok]
+            self.por_fold_[nombre] = (
+                np.bincount(k, weights=w[ok], minlength=tam * nf),
+                np.bincount(k, weights=(y * w)[ok], minlength=tam * nf),
+            )
+
+    @staticmethod
+    def _pesos(X: pd.DataFrame) -> np.ndarray:
+        if "peso_te" in X.columns:
+            return X["peso_te"].to_numpy(dtype=np.float64)
+        return np.ones(len(X))
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> TargetEncoderFueraDeFold:
+        self._ajustar(X, y)
+        return self
+
+    def fit_transform(self, X: pd.DataFrame, y: Any = None, **kw: Any) -> np.ndarray:
+        self._ajustar(X, y)
+        return self.transform(X)
+
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
+        """Filas de un fold visto en `fit` no cuentan su propio fold; el resto usa todo."""
+        fold = X["fold"].to_numpy()
+        nf = len(self.folds_)
+        f = np.minimum(np.searchsorted(self.folds_, fold), nf - 1)
+        visto = self.folds_[f] == fold
+        cols = []
+        for nombre, cod in self._codigos_clave(X).items():
+            n_tot, p_tot = self.totales_[nombre]
+            n_f, p_f = self.por_fold_[nombre]
+            ok = cod >= 0
+            idx = np.maximum(cod, 0)
+            n = np.where(ok, n_tot[idx], 0.0)
+            p = np.where(ok, p_tot[idx], 0.0)
+            propio = ok & visto
+            n = n - np.where(propio, n_f[idx * nf + f], 0.0)
+            p = p - np.where(propio, p_f[idx * nf + f], 0.0)
+            cols.append((p + self.m * self.prev_) / (n + self.m))
+        return np.column_stack(cols)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        return np.asarray(list(TE_CLAVES), dtype=object)
+
+
+class _SplitterTemporal:
+    """Valida el fold k entrenando solo con los folds anteriores (fold 0 solo entrena).
+
+    Los folds de positivos van ordenados por fecha de emisión, así que esto simula
+    predecir designaciones posteriores a las que se vieron.
+    """
+
+    def __init__(self, folds: np.ndarray) -> None:
+        self.folds = np.asarray(folds)
+
+    def split(self, X: Any = None, y: Any = None, groups: Any = None) -> Any:
+        for k in sorted(set(self.folds[self.folds >= 0].tolist()))[1:]:
+            yield (
+                np.flatnonzero((self.folds >= 0) & (self.folds < k)),
+                np.flatnonzero(self.folds == k),
+            )
+
+    def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
+        return len(set(self.folds[self.folds >= 0].tolist())) - 1
+
+
 def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     """Parsea argumentos de línea de comandos para el entrenamiento."""
     parser = argparse.ArgumentParser(
@@ -155,6 +292,14 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=0,
         help="Negativos por positivo que se muestrean en train (0 = todos)",
+    )
+    parser.add_argument(
+        "--cv_esquema",
+        type=str,
+        choices=["bloques", "temporal"],
+        default="bloques",
+        help="bloques: cada fold se valida con los otros cuatro; temporal: el fold k "
+        "se valida solo con los folds anteriores (el fold 0 solo entrena)",
     )
     parser.add_argument("--ruta_salida_predicciones", type=str, default="")
     parser.add_argument("--ruta_salida_run_record", type=str, default="")
@@ -247,10 +392,6 @@ def seleccionar_columnas(df: pd.DataFrame, variant: str) -> tuple[list[str], lis
         "monto_por_trabajador",
         "informalidad_epen_departamento",
         "ruc_correlativo",
-        # Target encoding fuera de fold calculado en 06_dataset_curado.
-        "te_ciiu",
-        "te_ciiu_depto",
-        "te_cohorte_ruc",
         "meses_en_padron",
         "nuevo_en_periodo",
         "meses_hueco",
@@ -295,6 +436,8 @@ def construir_pipeline_preprocesamiento(
     cat_cols: list[str],
     es_lr: bool = True,
     denso: bool = False,
+    con_te: bool = False,
+    con_peso_te: bool = False,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
 
@@ -340,6 +483,13 @@ def construir_pipeline_preprocesamiento(
         tope = MAX_CATEGORIAS.get(col, MAX_CATEGORIAS_DEFAULT)
         transformers.append((f"cat_{col}", _cat_pipeline(tope), [col]))
 
+    if con_te:
+        pasos: list[tuple[str, Any]] = [("te", TargetEncoderFueraDeFold())]
+        if es_lr:
+            pasos.append(("scaler", StandardScaler()))
+        cols_te = TE_ENTRADAS + ["fold"] + (["peso_te"] if con_peso_te else [])
+        transformers.append(("te", Pipeline(pasos), cols_te))
+
     # HistGradientBoosting no acepta matrices dispersas.
     return ColumnTransformer(
         transformers=transformers,
@@ -371,7 +521,29 @@ def main(args_list: list[str] | None = None) -> int:
     # 1. Cargar y particionar datos
     df = cargar_datos(args.train_dir)
     num_cols, cat_cols = seleccionar_columnas(df, args.variant)
-    features = num_cols + cat_cols
+    # Las tasas te_* se calculan dentro del Pipeline con las columnas crudas y el fold.
+    con_te = all(c in df.columns for c in TE_ENTRADAS + ["fold"])
+    if con_te and df.loc[df["split"] == "train", "fold"].nunique() < 2:
+        # Sin folds, las tasas de train no se pueden calcular fuera de fold.
+        print("[WARN] Menos de 2 folds en train: se entrena sin target encoding")
+        con_te = False
+    extra = [
+        c for c in TE_ENTRADAS + ["fold"] if con_te and c not in num_cols + cat_cols
+    ]
+    con_peso_te = con_te and args.neg_ratio > 0
+    if con_peso_te:
+        # Cada negativo muestreado representa a n_neg / (neg_ratio * n_pos) de train.
+        lab = df["label"].to_numpy()
+        tr = (df["split"] == "train").to_numpy()
+        n_pos = int(lab[tr].sum())
+        w_neg = (
+            max(1.0, (int(tr.sum()) - n_pos) / (args.neg_ratio * n_pos))
+            if n_pos
+            else 1.0
+        )
+        df["peso_te"] = np.where(lab == 1, 1.0, w_neg)
+        extra.append("peso_te")
+    features = num_cols + cat_cols + extra
 
     # Sin copias intermedias del DataFrame: con ~10 millones de filas cada una pesa GB.
     es_train = (df["split"] == "train").to_numpy()
@@ -389,7 +561,12 @@ def main(args_list: list[str] | None = None) -> int:
     es_lr = args.model_name == "LR"
     es_hgb = args.model_name == "HGB"
     preprocessor = construir_pipeline_preprocesamiento(
-        num_cols, cat_cols, es_lr=es_lr, denso=es_hgb
+        num_cols,
+        cat_cols,
+        es_lr=es_lr,
+        denso=es_hgb,
+        con_te=con_te,
+        con_peso_te=con_peso_te,
     )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 
@@ -460,7 +637,9 @@ def main(args_list: list[str] | None = None) -> int:
         if (folds_train is not None and len(folds_train) > 0)
         else np.array([])
     )
-    if len(unique_folds) >= 2:
+    if len(unique_folds) >= 2 and args.cv_esquema == "temporal":
+        cv_splitter = _SplitterTemporal(folds_train)
+    elif len(unique_folds) >= 2:
         cv_splitter = PredefinedSplit(test_fold=folds_train)
     else:
         cv_splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)
