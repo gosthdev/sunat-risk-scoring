@@ -130,7 +130,8 @@ def test_seleccionar_modelo_campeon_regla_oficial():
     campeon_1 = seleccionar_modelo_campeon(resultados_1)
     assert campeon_1["campeon_id"] == "E1"
     assert campeon_1["campeon_model"] == "LR"
-    assert "parsimonia" in campeon_1["justificacion"].lower()
+    assert campeon_1["retador_id"] == "E2"
+    assert "E1" in campeon_1["justificacion"] and "E2" in campeon_1["justificacion"]
 
     # Caso 2: DT > LR -> Campeón DT por no-linealidad
     resultados_2 = [
@@ -154,7 +155,7 @@ def test_seleccionar_modelo_campeon_regla_oficial():
     campeon_2 = seleccionar_modelo_campeon(resultados_2)
     assert campeon_2["campeon_id"] == "E2"
     assert campeon_2["campeon_model"] == "DT"
-    assert "no lineal" in campeon_2["justificacion"].lower()
+    assert campeon_2["retador_id"] == "E1"
 
 
 def test_generar_leaderboard_markdown():
@@ -182,6 +183,7 @@ def test_generar_leaderboard_markdown():
     assert "# Leaderboard Oficial" in md
     assert "| `E1` | **LR** |" in md
     assert "🏆 **CHAMPION**" in md
+    assert "CV Recall@1 %" in md and "Recall@1 % (CV)" in md
     assert "Justificación de Selección de Modelo" in md
 
 
@@ -388,8 +390,8 @@ def test_resultado_desde_record_usa_el_tiempo_del_run_record_al_consolidar():
     assert medido["train_seconds"] == 9.0
 
 
-def _resultado(id_, modelo, variante, pesos, auc, status="SUCCESS"):
-    return {
+def _resultado(id_, modelo, variante, pesos, auc, status="SUCCESS", recall=None):
+    res = {
         "id": id_,
         "model_name": modelo,
         "variant": variante,
@@ -397,32 +399,138 @@ def _resultado(id_, modelo, variante, pesos, auc, status="SUCCESS"):
         "status": status,
         "cv_pr_auc_mean": auc,
     }
+    if recall is not None:
+        res["cv_recall_1pct_mean"] = recall
+    return res
 
 
-def test_campeon_nunca_es_un_benchmark_con_fuga_ni_una_ablacion():
-    # Las regresiones logísticas oficiales fallaron: el V1 y el V2 sin pesos puntúan más alto,
-    # pero no pueden ser campeones. Gana el árbol oficial.
+def test_campeon_nunca_es_un_benchmark_con_fuga():
+    # El V1 (con fuga) puntúa más alto en todo, pero no es candidato. El V2 sin pesos sí lo es.
     resultados = [
         _resultado("E1", "LR", "V2", "si", 0.0, status="FAILED"),
-        _resultado("E9", "LR", "V2", "si", 0.0, status="FAILED"),
-        _resultado("E3", "LR", "V1", "si", 0.9),
-        _resultado("E5", "LR", "V2", "no", 0.8),
-        _resultado("E2", "DT", "V2", "si", 0.4),
-        _resultado("E10", "DT", "V2", "si", 0.45),
+        _resultado("E3", "LR", "V1", "si", 0.9, recall=0.9),
+        _resultado("E5", "LR", "V2", "no", 0.5, recall=0.3),
+        _resultado("E10", "DT", "V2", "si", 0.45, recall=0.2),
     ]
     campeon = seleccionar_modelo_campeon(resultados)
-    assert campeon["campeon_id"] == "E10"
+    assert campeon["campeon_id"] == "E5"
+    assert campeon["retador_id"] == "E10"
+
+
+def test_cb_sin_pesos_gana_por_recall_aunque_tenga_menor_pr_auc():
+    resultados = [
+        _resultado("E1", "LR", "V2", "si", 0.50, recall=0.20),
+        _resultado("E12", "CB", "V2", "no", 0.40, recall=0.25),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "E12"
+    assert campeon["campeon_model"] == "CB"
+    assert campeon["campeon_recall_1pct"] == 0.25
+    assert campeon["campeon_pr_auc"] == 0.40
+    assert campeon["retador_id"] == "E1"
+    assert campeon["retador_recall_1pct"] == 0.20
+    for texto in ("E12", "E1 ", "0.2500", "0.2000", "0.4000", "0.5000"):
+        assert texto.strip() in campeon["justificacion"]
+
+
+def test_records_sin_recall_se_deciden_por_pr_auc():
+    from src.models.orchestrator import resultado_desde_record
+
+    def _fila(id_, modelo, auc, metricas_extra):
+        record = {"metricas_cv": {"cv_pr_auc_mean": auc, **metricas_extra}}
+        exp = {"id": id_, "model_name": modelo}
+        return resultado_desde_record(exp, "run", record, 1.0, "r", "p")
+
+    viejo = _fila("E1", "LR", 0.30, {})
+    nulo = _fila(
+        "E2", "DT", 0.35, {"cv_recall_1pct_mean": None, "cv_recall_1pct_std": None}
+    )
+    assert viejo["cv_recall_1pct_mean"] is None and viejo["cv_recall_1pct_std"] == 0.0
+    assert nulo["cv_recall_1pct_mean"] is None and nulo["cv_recall_1pct_std"] == 0.0
+
+    campeon = seleccionar_modelo_campeon([viejo, nulo])
+    assert campeon["campeon_id"] == "E2"
+    assert campeon["campeon_recall_1pct"] == 0.0
+    generar_leaderboard_markdown([viejo, nulo], campeon, "v1")
+
+
+def test_resultado_desde_record_lee_el_recall_al_1pct():
+    from src.models.orchestrator import resultado_desde_record
+
+    record = {
+        "metricas_cv": {
+            "cv_pr_auc_mean": 0.3,
+            "cv_recall_1pct_mean": 0.21,
+            "cv_recall_1pct_std": 0.02,
+        }
+    }
+    out = resultado_desde_record(
+        {"id": "E12", "model_name": "CB"}, "run", record, 1.0, "r", "p"
+    )
+    assert out["cv_recall_1pct_mean"] == 0.21
+    assert out["cv_recall_1pct_std"] == 0.02
+
+
+def test_empate_total_gana_lr():
+    resultados = [
+        _resultado("E12", "CB", "V2", "no", 0.40, recall=0.25),
+        _resultado("E1", "LR", "V2", "si", 0.40, recall=0.25),
+        _resultado("E2", "DT", "V2", "si", 0.40, recall=0.25),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "E1"
+    assert campeon["retador_id"] == "E12"
+
+
+def test_un_solo_candidato_gana_sin_retador():
+    campeon = seleccionar_modelo_campeon(
+        [_resultado("E2", "DT", "V2", "si", 0.4, recall=0.1)]
+    )
+    assert campeon["campeon_id"] == "E2"
+    assert campeon["retador_id"] == "N/A" and campeon["retador_model"] == "N/A"
+    assert campeon["retador_pr_auc"] == 0.0 and campeon["retador_recall_1pct"] == 0.0
     assert "no hubo comparación" in campeon["justificacion"].lower()
 
 
-def test_sin_candidatos_oficiales_no_hay_campeon():
+def test_sin_candidatos_v2_no_hay_campeon():
     resultados = [
-        _resultado("E3", "LR", "V1", "si", 0.9),
-        _resultado("E5", "LR", "V2", "no", 0.8),
+        _resultado("E3", "LR", "V1", "si", 0.9, recall=0.9),
         _resultado("E1", "LR", "V2", "si", 0.0, status="FAILED"),
     ]
     campeon = seleccionar_modelo_campeon(resultados)
-    assert campeon["campeon_id"] == "N/A"
+    assert set(campeon) == {
+        "campeon_id",
+        "campeon_model",
+        "campeon_pr_auc",
+        "campeon_recall_1pct",
+        "retador_id",
+        "retador_model",
+        "retador_pr_auc",
+        "retador_recall_1pct",
+        "justificacion",
+    }
+    assert campeon["campeon_id"] == "N/A" and campeon["campeon_model"] == "N/A"
+    assert campeon["retador_id"] == "N/A"
+    assert campeon["campeon_pr_auc"] == 0.0 and campeon["campeon_recall_1pct"] == 0.0
+
+
+def test_leaderboard_ordena_por_recall_y_las_filas_cuadran_con_la_cabecera():
+    resultados = [
+        _resultado("E1", "LR", "V2", "si", 0.50, recall=0.20),
+        _resultado("E12", "CB", "V2", "no", 0.40, recall=0.25),
+        _resultado("E3", "LR", "V1", "si", 0.90, recall=0.10),
+        _resultado("E7", "RF", "V2", "si", 0.0, status="FAILED"),
+        _resultado("E8", "HGB", "V2", "si", 0.0, status="DISPATCHED"),
+    ]
+    md = generar_leaderboard_markdown(
+        resultados, seleccionar_modelo_campeon(resultados), "v1"
+    )
+    filas = [linea for linea in md.splitlines() if linea.startswith("|")]
+    assert len({linea.count("|") for linea in filas}) == 1
+    assert filas[0].index("CV Recall@1 %") < filas[0].index("CV PR-AUC")
+    assert "`E12`" in filas[2] and "CHAMPION" in filas[2]
+    assert "`E1`" in filas[3] and "Candidato Oficial" in filas[3]
+    assert "`E3`" in filas[4] and "Benchmark Techo" in filas[4]
 
 
 def test_publicar_resultado_escribe_metricas_de_test_al_final(monkeypatch, tmp_path):
@@ -459,3 +567,23 @@ def test_publicar_resultado_escribe_metricas_de_test_al_final(monkeypatch, tmp_p
     orq.publicar_resultado_s3("b", "r1", str(record), str(preds), str(tmp_path))
 
     assert eventos[-1] == "s3://b/model_metrics/run_id=r1/metrics.json"
+
+
+def test_record_viejo_con_mejor_pr_auc_no_pierde_por_no_traer_recall():
+    # Corrida reanudada: E1 viene de un record sin recall. Se decide todo por PR-AUC.
+    resultados = [
+        _resultado("E1", "LR", "V2", "si", 0.6),
+        _resultado("E17", "CB", "V2", "no", 0.2, recall=0.4),
+    ]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "E1"
+    assert "solo por PR-AUC" in campeon["justificacion"]
+
+
+def test_cv_temporal_no_compite_por_el_campeonato():
+    temporal = _resultado("E5T", "LR", "V2", "no", 0.9, recall=0.9)
+    temporal["cv_esquema"] = "temporal"
+    resultados = [temporal, _resultado("E5", "LR", "V2", "no", 0.5, recall=0.3)]
+    campeon = seleccionar_modelo_campeon(resultados)
+    assert campeon["campeon_id"] == "E5"
+    assert campeon["retador_id"] == "N/A"

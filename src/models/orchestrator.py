@@ -101,6 +101,11 @@ def resultado_desde_record(
     metricas_cv = record_data.get("metricas_cv", {})
     cv_mean = float(metricas_cv.get("cv_pr_auc_mean", 0.0) or 0.0)
     train_pr_auc = float(metricas_cv.get("train_pr_auc", 0.0) or 0.0)
+    # Los run_record anteriores a la métrica no la traen: queda None y el selector
+    # decide entonces por PR-AUC, en vez de tratarlos como recall 0.
+    recall_mean = metricas_cv.get("cv_recall_1pct_mean")
+    recall_mean = None if recall_mean is None else float(recall_mean)
+    recall_std = float(metricas_cv.get("cv_recall_1pct_std") or 0.0)
     raw_folds = metricas_cv.get("cv_pr_auc_folds", metricas_cv.get("cv_pr_auc_fold"))
     if isinstance(raw_folds, list):
         fold_scores = [float(x) for x in raw_folds if x is not None]
@@ -131,6 +136,9 @@ def resultado_desde_record(
         "status": "SUCCESS",
         "cv_pr_auc_mean": cv_mean,
         "cv_pr_auc_std": cv_std,
+        "cv_recall_1pct_mean": recall_mean,
+        "cv_recall_1pct_std": recall_std,
+        "cv_esquema": exp.get("cv_esquema") or "bloques",
         "cv_folds": fold_scores,
         "train_pr_auc": train_pr_auc,
         "overfit_gap": round(train_pr_auc - cv_mean, 4),
@@ -430,91 +438,74 @@ def publicar_leaderboard_s3(
 def seleccionar_modelo_campeon(
     resultados: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Selecciona el modelo campeón conforme a la Regla de Decisión del proyecto.
+    """Selecciona el modelo campeón y su retador.
 
-    Regla Oficial (informe_modelado_ssco.md Sección 4.2.3.F):
-    1. Se comparan exclusivamente los candidatos V2 con pesos balanceados: la mejor
-       configuración de LR (E1 y variantes) contra la mejor de DT (E2 y variantes).
-    2. Si cv_pr_auc_mean(LR) >= cv_pr_auc_mean(DT): Campeón es LR por parsimonia y estabilidad.
-    3. Si cv_pr_auc_mean(DT) > cv_pr_auc_mean(LR): Campeón es DT.
-    4. En empate estadístico, rige el principio de la Navaja de Ockham (LR).
+    Regla de decisión:
+    1. Son candidatos los experimentos V2 que terminaron con éxito, con o sin pesos.
+       Un V1 (benchmark con fuga) nunca es candidato.
+    2. Gana el mayor recall al 1 % en validación cruzada (cv_recall_1pct_mean).
+    3. Si empatan, decide el mayor PR-AUC en validación cruzada (cv_pr_auc_mean).
+    4. Si siguen empatados, gana LR por parsimonia.
+    El retador es el segundo de ese orden.
     """
-    candidatos_oficiales = [
+    # La CV temporal valida otros folds: sus métricas no son comparables con las demás.
+    candidatos = [
         r
         for r in resultados
         if r.get("status") == "SUCCESS"
         and r.get("variant") == "V2"
-        and r.get("usa_pesos") == "si"
+        and r.get("cv_esquema", "bloques") != "temporal"
     ]
+    # Si algún candidato viene de un run_record sin recall (corrida reanudada), se
+    # ordena a todos por PR-AUC: un recall ausente no es un recall 0.
+    con_recall = all(r.get("cv_recall_1pct_mean") is not None for r in candidatos)
+    candidatos = sorted(
+        candidatos,
+        key=lambda r: (
+            (r.get("cv_recall_1pct_mean") or 0.0) if con_recall else 0.0,
+            r.get("cv_pr_auc_mean") or 0.0,
+            r.get("model_name") == "LR",
+        ),
+        reverse=True,
+    )
+    campeon = candidatos[0] if candidatos else {}
+    retador = candidatos[1] if len(candidatos) > 1 else {}
 
-    def _mejor_de(*familias: str) -> dict[str, Any] | None:
-        de_familia = [
-            r for r in candidatos_oficiales if r.get("model_name") in familias
-        ]
-        return max(de_familia, key=lambda r: r.get("cv_pr_auc_mean", 0.0), default=None)
+    def _ficha(r: dict[str, Any]) -> str:
+        return (
+            f"{r.get('model_name')} ({r.get('id')}) con recall al 1 % de "
+            f"{r.get('cv_recall_1pct_mean') or 0.0:.4f} y PR-AUC de "
+            f"{r.get('cv_pr_auc_mean') or 0.0:.4f}"
+        )
 
-    # LR contra el mejor modelo de árboles (DT, RF o HGB), cada uno con su mejor configuración.
-    r_lr = _mejor_de("LR")
-    r_dt = _mejor_de("DT", "RF", "HGB")
-
-    if r_lr and r_dt:
-        score_lr = r_lr.get("cv_pr_auc_mean", 0.0)
-        score_dt = r_dt.get("cv_pr_auc_mean", 0.0)
-        diff = round(score_lr - score_dt, 4)
-
-        if score_lr >= score_dt:
-            campeon = r_lr
-            retador = r_dt
-            motivo = (
-                f"Regresión Logística ({r_lr.get('id')}) supera o iguala a {r_dt.get('model_name')} ({r_dt.get('id')}) en PR-AUC "
-                f"({score_lr:.4f} vs {score_dt:.4f}, diff = +{diff:.4f}). "
-                f"Se selecciona LR como Modelo Oficial por estabilidad asintótica, menor sobreajuste "
-                f"y el principio de parsimonia (Navaja de Ockham)."
-            )
-        else:
-            campeon = r_dt
-            retador = r_lr
-            motivo = (
-                f"{r_dt.get('model_name')} ({r_dt.get('id')}) supera a Regresión Logística ({r_lr.get('id')}) en PR-AUC "
-                f"({score_dt:.4f} vs {score_lr:.4f}, diff = +{abs(diff):.4f}). "
-                f"Se selecciona {r_dt.get('model_name')} por mayor capacidad no lineal en la captura de no-linealidades tributarias."
-            )
-        return {
-            "campeon_id": campeon.get("id"),
-            "campeon_model": campeon.get("model_name"),
-            "campeon_pr_auc": campeon.get("cv_pr_auc_mean"),
-            "retador_id": retador.get("id"),
-            "retador_model": retador.get("model_name"),
-            "retador_pr_auc": retador.get("cv_pr_auc_mean"),
-            "justificacion": motivo,
-        }
-
-    # Solo una familia tiene resultado válido: gana por falta de rival, pero siempre entre los
-    # candidatos oficiales. Nunca un V1 (con fuga) ni una ablación sin pesos.
-    unico = r_lr or r_dt
-    if unico:
-        return {
-            "campeon_id": unico.get("id"),
-            "campeon_model": unico.get("model_name"),
-            "campeon_pr_auc": unico.get("cv_pr_auc_mean"),
-            "retador_id": "N/A",
-            "retador_model": "N/A",
-            "retador_pr_auc": 0.0,
-            "justificacion": (
-                f"Solo {unico.get('model_name')} ({unico.get('id')}) tiene un resultado válido entre "
-                f"los candidatos oficiales (V2 con pesos), con PR-AUC {unico.get('cv_pr_auc_mean', 0.0):.4f}. "
-                "No hubo comparación entre familias: repetir los experimentos que fallaron."
-            ),
-        }
+    if retador:
+        motivo = (
+            f"Gana {_ficha(campeon)}, frente a {_ficha(retador)}; el orden es por recall "
+            "al 1 % en validación cruzada, luego PR-AUC y, en empate, LR por parsimonia."
+        )
+    elif campeon:
+        motivo = (
+            f"Solo {_ficha(campeon)} tiene un resultado válido entre los candidatos V2. "
+            "No hubo comparación: repetir los experimentos que fallaron."
+        )
+    else:
+        motivo = "Ningún candidato V2 terminó con éxito: no hay campeón."
+    if candidatos and not con_recall:
+        motivo += (
+            " Hay candidatos sin recall al 1 % registrado (corridas anteriores): "
+            "se decidió solo por PR-AUC."
+        )
 
     return {
-        "campeon_id": "N/A",
-        "campeon_model": "N/A",
-        "campeon_pr_auc": 0.0,
-        "retador_id": "N/A",
-        "retador_model": "N/A",
-        "retador_pr_auc": 0.0,
-        "justificacion": "Ningún candidato oficial (V2 con pesos) terminó con éxito: no hay campeón.",
+        "campeon_id": campeon.get("id", "N/A"),
+        "campeon_model": campeon.get("model_name", "N/A"),
+        "campeon_pr_auc": campeon.get("cv_pr_auc_mean") or 0.0,
+        "campeon_recall_1pct": campeon.get("cv_recall_1pct_mean") or 0.0,
+        "retador_id": retador.get("id", "N/A"),
+        "retador_model": retador.get("model_name", "N/A"),
+        "retador_pr_auc": retador.get("cv_pr_auc_mean") or 0.0,
+        "retador_recall_1pct": retador.get("cv_recall_1pct_mean") or 0.0,
+        "justificacion": motivo,
     }
 
 
@@ -524,20 +515,23 @@ def generar_leaderboard_markdown(
     dataset_version: str,
 ) -> str:
     """Genera una tabla comparativa formal en Markdown para GitHub Step Summary y reportes."""
-    # Ordenar por PR-AUC descendente
     ordenados = sorted(
         resultados,
-        key=lambda x: (x.get("status") == "SUCCESS", x.get("cv_pr_auc_mean", 0.0)),
+        key=lambda x: (
+            x.get("status") == "SUCCESS",
+            x.get("cv_recall_1pct_mean") or 0.0,
+            x.get("cv_pr_auc_mean") or 0.0,
+        ),
         reverse=True,
     )
 
     lines = [
         "# Leaderboard Oficial de Experimentos SSCO — SUNAT Risk Scoring",
         "",
-        f"**Versión de Dataset:** `{dataset_version}` | **Métrica Primaria:** `PR-AUC (5-Fold CV)`",
+        f"**Versión de Dataset:** `{dataset_version}` | **Métrica Primaria:** `Recall@1 % (CV)`",
         "",
-        "| Rank | ID | Algoritmo | Variante | Pesos | CV PR-AUC (Media ± Desv) | Train PR-AUC | Overfit Gap | Tiempo (s) | Rol / Propósito |",
-        "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |",
+        "| Rank | ID | Algoritmo | Variante | Pesos | CV Recall@1 % (Media ± Desv) | CV PR-AUC (Media ± Desv) | Train PR-AUC | Overfit Gap | Tiempo (s) | Rol / Propósito |",
+        "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |",
     ]
 
     for rank, r in enumerate(ordenados, 1):
@@ -550,6 +544,8 @@ def generar_leaderboard_markdown(
         if status == "SUCCESS":
             cv_mean = r.get("cv_pr_auc_mean", 0.0)
             cv_std = r.get("cv_pr_auc_std", 0.0)
+            rec_mean = r.get("cv_recall_1pct_mean") or 0.0
+            rec_std = r.get("cv_recall_1pct_std") or 0.0
             train_auc = r.get("train_pr_auc", 0.0)
             gap = r.get("overfit_gap", 0.0)
             t_sec = r.get("train_seconds", 0.0)
@@ -558,23 +554,19 @@ def generar_leaderboard_markdown(
             badge = (
                 "🏆 **CHAMPION**"
                 if es_campeon
-                else (
-                    "Candidato Oficial"
-                    if variant == "V2" and pesos == "si"
-                    else ("Benchmark Techo" if variant == "V1" else "Ablación")
-                )
+                else ("Candidato Oficial" if variant == "V2" else "Benchmark Techo")
             )
 
             lines.append(
-                f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | **{cv_mean:.4f}** (±{cv_std:.3f}) | {train_auc:.4f} | {gap:+.4f} | {t_sec:.1f}s | {badge} |"
+                f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | **{rec_mean:.4f}** (±{rec_std:.3f}) | {cv_mean:.4f} (±{cv_std:.3f}) | {train_auc:.4f} | {gap:+.4f} | {t_sec:.1f}s | {badge} |"
             )
         elif status == "DISPATCHED":
             lines.append(
-                f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | *En ejecución (SageMaker)* | - | - | - | AWS Job Despachado |"
+                f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | *En ejecución (SageMaker)* | - | - | - | - | AWS Job Despachado |"
             )
         else:
             lines.append(
-                f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | *FALLÓ* | - | - | - | Error: {r.get('error', 'Desconocido')} |"
+                f"| {rank} | `{r_id}` | **{model}** | `{variant}` | `{pesos}` | *FALLÓ* | - | - | - | - | Error: {r.get('error', 'Desconocido')} |"
             )
 
     lines.extend(

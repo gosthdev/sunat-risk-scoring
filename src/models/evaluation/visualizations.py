@@ -430,7 +430,11 @@ def plot_leaderboard(
     """
     exitosos = sorted(
         (r for r in resultados if r.get("status") == "SUCCESS"),
-        key=lambda r: r.get("cv_pr_auc_mean", 0.0),
+        # Mismo orden que el leaderboard: recall al 1 % y luego PR-AUC.
+        key=lambda r: (
+            r.get("cv_recall_1pct_mean") or 0.0,
+            r.get("cv_pr_auc_mean", 0.0),
+        ),
     )
     fallidos = [r["id"] for r in resultados if r.get("status") != "SUCCESS"]
 
