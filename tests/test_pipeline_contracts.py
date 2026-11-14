@@ -55,7 +55,7 @@ def test_regex_c5_fold_unico():
     )
     log = "[METRIC] cv_pr_auc_fold=0.3410\n[METRIC] cv_pr_auc_fold=0.3490"
     assert re.findall(regex, log) == ["0.3410", "0.3490"]
-    assert len(SAGEMAKER_METRIC_DEFINITIONS) == 7
+    assert len(SAGEMAKER_METRIC_DEFINITIONS) == 8
 
 
 def test_git_commit_real_o_unknown(monkeypatch):

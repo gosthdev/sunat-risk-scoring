@@ -188,6 +188,18 @@ experiments:
         model__max_depth: [8, 16]
         model__min_samples_leaf: [50, 200]
 
+  - id: "E17"
+    model_name: "CB"
+    variant: "V2"
+    usa_pesos: "no"
+    priority: "SHOULD"
+    neg_ratio: 200
+    description: "CatBoost V2 con categorías nativas, sin reponderación de clases"
+    hyperparameters:
+      param_grid:
+        model__depth: [4, 6]
+        model__l2_leaf_reg: [10, 30]
+
   # Mismas configuraciones que E5 y E15 con la CV temporal, para comparar la elección.
   - id: "E5T"
     model_name: "LR"

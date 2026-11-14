@@ -20,6 +20,7 @@ import boto3
 # Métrica regex oficial del Contrato C5
 SAGEMAKER_METRIC_DEFINITIONS = [
     {"Name": "cv_pr_auc_mean", "Regex": r"cv_pr_auc_mean=([0-9\.]+)"},
+    {"Name": "cv_recall_1pct_mean", "Regex": r"cv_recall_1pct_mean=([0-9\.]+)"},
     {"Name": "cv_pr_auc_fold", "Regex": r"cv_pr_auc_fold=([0-9\.]+)"},
     {"Name": "train_pr_auc", "Regex": r"train_pr_auc=([0-9\.]+)"},
     {"Name": "n_train", "Regex": r"n_train=([0-9]+)"},
@@ -244,7 +245,7 @@ def parse_args():
         help="Identificador de la corrida (e.g. ssco-run-E1-lr-v2-w1)",
     )
     parser.add_argument(
-        "--model_name", type=str, choices=["LR", "DT", "RF", "HGB"], required=True
+        "--model_name", type=str, choices=["LR", "DT", "RF", "HGB", "CB"], required=True
     )
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")

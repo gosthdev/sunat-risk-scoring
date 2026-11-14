@@ -11,6 +11,8 @@ module = [
     "openpyxl",
     "smart_open",
     "smart_open.*",
+    "catboost",
+    "catboost.*",
     "joblib",
     "joblib.*",
     "sklearn",

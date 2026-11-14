@@ -139,8 +139,8 @@ def main():
 
 ## 2. Criterio de Selección del Modelo Oficial
 
-1. Se comparan las corridas de la **Variante V2 con pesos de clase (E1 vs. E2)** sobre la media de PR-AUC obtenida en CV ($\\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}$).
-2. Si $\\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}(\\text{{LR}}) \\ge \\overline{{\\text{{PR-AUC}}}}_{{\\text{{CV}}}}(\\text{{DT}})$, se selecciona **Regresión Logística (E1)** debido a su parsimonia y estabilidad.
+1. Son candidatas las corridas de la **Variante V2** con validación cruzada por bloques, con o sin pesos de clase.
+2. Gana el mayor **recall en el 1 % de mayor score** en CV; en empate decide la media de PR-AUC en CV y, si persiste, **Regresión Logística** por parsimonia.
 3. El subconjunto de prueba (`test`) se evalúa con la librería de métricas C4 y permanece sin intervenir en la selección de hiperparámetros.
 """
 

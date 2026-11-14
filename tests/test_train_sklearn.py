@@ -39,6 +39,7 @@ from src.models.train import (
     WinsorizerSuperior,
     _SplitterTemporal,
     construir_pipeline_preprocesamiento,
+    scorer_ap_recall_1pct,
     seleccionar_columnas,
 )
 from src.models.train import (
@@ -331,6 +332,57 @@ def test_hgb_con_submuestreo_de_negativos(synthetic_dataframe, capsys):
         assert {"feature", "importancia"} <= set(imp.columns)
 
 
+def test_cb_entrena_y_reporta_recall_1pct(synthetic_dataframe):
+    """CatBoost con categorías nativas entrena y el run record trae el recall al 1 %."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_file = os.path.join(tmp_dir, "dataset.parquet")
+        synthetic_dataframe.to_parquet(input_file, index=False)
+        preds_path = os.path.join(tmp_dir, "out", "predictions.parquet")
+        rr_path = os.path.join(tmp_dir, "out", "rr.json")
+        model_dir = os.path.join(tmp_dir, "model")
+
+        exit_code = train_main(
+            [
+                "--train_dir", input_file,
+                "--model_dir", model_dir,
+                "--output_dir", os.path.join(tmp_dir, "out"),
+                "--run_id", "ssco-run-test-cb",
+                "--model_name", "CB",
+                "--neg_ratio", "2",
+                "--n_jobs", "1",
+                "--param_grid_json", '{"model__iterations": [10]}',
+                "--ruta_salida_predicciones", preds_path,
+                "--ruta_salida_run_record", rr_path,
+            ]
+        )  # fmt: skip
+        assert exit_code == 0
+
+        assert len(pd.read_parquet(preds_path)) == len(synthetic_dataframe)
+        with open(rr_path, encoding="utf-8") as f:
+            metricas = json.loads(f.read())["metricas_cv"]
+        assert 0.0 <= metricas["cv_recall_1pct_mean"] <= 1.0
+        assert "cv_recall_1pct_std" in metricas
+        imp = pd.read_csv(os.path.join(model_dir, "explicabilidad.csv"))
+        assert {"feature", "importancia"} <= set(imp.columns)
+
+
+def test_scorer_ap_recall_1pct_caso_a_mano():
+    """200 filas: top 1 % = 2 filas; una de ellas es 1 de los 4 positivos -> 0.25."""
+
+    class _Fijo:
+        def predict_proba(self, X):
+            return np.column_stack([1 - X, X])
+
+    score = np.linspace(0.0, 0.5, 200)
+    score[[0, 1]] = [0.9, 0.8]  # las dos filas del top
+    y = np.zeros(200, dtype=int)
+    y[[0, 50, 100, 150]] = 1
+    res = scorer_ap_recall_1pct(_Fijo(), score, y)
+    assert res["recall_1pct"] == pytest.approx(0.25)
+    assert 0.0 < res["ap"] <= 1.0
+    assert scorer_ap_recall_1pct(_Fijo(), score, np.zeros(200))["recall_1pct"] == 0.0
+
+
 def test_explainability(synthetic_dataframe):
     """Verifica la extracción de explicabilidad para LR y DT."""
     from sklearn.linear_model import LogisticRegression
@@ -582,3 +634,18 @@ def test_sin_folds_validos_entrena_sin_target_encoding(synthetic_dataframe, caps
         )  # fmt: skip
     assert exit_code == 0
     assert "se entrena sin target encoding" in capsys.readouterr().out
+
+
+def test_scorer_recall_1pct_no_depende_del_orden_en_empates():
+    from src.models.train import scorer_ap_recall_1pct
+
+    class _Constante:
+        def predict_proba(self, X):
+            return np.column_stack([np.full(len(X), 0.5), np.full(len(X), 0.5)])
+
+    # 200 filas con el mismo score y 4 positivos: top 1 % = 2 plazas → recall esperado 2/200.
+    X = np.zeros((200, 1))
+    y_primero = np.array([1] * 4 + [0] * 196)
+    r1 = scorer_ap_recall_1pct(_Constante(), X, y_primero)["recall_1pct"]
+    r2 = scorer_ap_recall_1pct(_Constante(), X, y_primero[::-1])["recall_1pct"]
+    assert r1 == r2 == pytest.approx(0.01)

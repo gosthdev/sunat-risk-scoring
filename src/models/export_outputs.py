@@ -59,6 +59,8 @@ def exportar_predicciones_y_run_record(
     grilla_probada: dict[str, Any] | None = None,
     git_commit: str | None = None,
     version_sklearn: str | None = None,
+    cv_recall_1pct_mean: float | None = None,
+    cv_recall_1pct_std: float | None = None,
 ) -> dict[str, Any]:
     """Genera y exporta el Parquet de predicciones (C2) y el archivo run_record.json (C3)."""
     git_commit = git_commit or _resolver_git_commit()
@@ -170,6 +172,15 @@ def exportar_predicciones_y_run_record(
             "train_pr_auc": _clean_float(train_pr_auc, 4),
         },
     }
+
+    if cv_recall_1pct_mean is not None:
+        run_record["metricas_cv"]["cv_recall_1pct_mean"] = _clean_float(
+            cv_recall_1pct_mean, 4
+        )
+    if cv_recall_1pct_std is not None:
+        run_record["metricas_cv"]["cv_recall_1pct_std"] = _clean_float(
+            cv_recall_1pct_std, 4
+        )
 
     # Ruta de salida para C3
     out_record_path = getattr(args, "ruta_salida_run_record", "")
