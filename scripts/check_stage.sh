@@ -205,6 +205,13 @@ if [[ "${CHECK_RAW_DATA}" == "true" || "${STAGE}" == "raw" ]]; then
     emit_result "true" "No se detectaron archivos crudos en s3://${RAW_BUCKET}/ordenes_compra/"
   fi
 
+  # Small datasets: borrar uno en raw es la forma de pedir que se vuelva a descargar.
+  for tbl in pricos ssco ingresos_tributarios epen see; do
+    if ! check_s3_prefix_has_data "$RAW_BUCKET" "${tbl}/"; then
+      emit_result "true" "No se detectaron archivos crudos en s3://${RAW_BUCKET}/${tbl}/"
+    fi
+  done
+
   # Si los datos crudos existen físicamente pero no había marcador registrado,
   # registrarlo automáticamente y omitir la EC2 (los datos ya están en Raw).
   if ! aws s3 ls "${MARKER_URI}" >/dev/null 2>&1; then
