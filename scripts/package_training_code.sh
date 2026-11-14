@@ -15,6 +15,7 @@ cp -r src/models/evaluation "${STAGE}/evaluation"
 find "${STAGE}/evaluation" -name __pycache__ -prune -exec rm -rf {} +
 cp config/experiments.yml "${STAGE}/experiments.yml"
 cat > "${STAGE}/requirements.txt" <<'REQ'
+catboost>=1.2,<1.3
 pyarrow>=14.0.0
 pyyaml>=6.0
 s3fs>=2023.12.0

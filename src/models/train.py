@@ -233,6 +233,30 @@ class TargetEncoderFueraDeFold(BaseEstimator, TransformerMixin):
         return np.asarray(list(TE_CLAVES), dtype=object)
 
 
+def scorer_ap_recall_1pct(est: Any, X: Any, y: Any) -> dict[str, float]:
+    """AP y recall en el 1 % de filas con mayor score (un solo predict_proba)."""
+    # Mismo score que usaba scoring="average_precision": decision_function si existe.
+    p = (
+        est.decision_function(X)
+        if hasattr(est, "decision_function")
+        else est.predict_proba(X)[:, 1]
+    )
+    y = np.asarray(y)
+    pos = y == 1
+    n_pos = int(pos.sum())
+    k = int(np.ceil(0.01 * len(y)))
+    corte = np.partition(p, -k)[-k]
+    arriba = p > corte
+    empate = p == corte
+    # Los empatados en el corte (hojas de un árbol) se reparten las plazas restantes:
+    # recall esperado, que no depende del orden de las filas.
+    tp = pos[arriba].sum() + pos[empate].sum() * (k - arriba.sum()) / empate.sum()
+    return {
+        "ap": float(average_precision_score(y, p)),
+        "recall_1pct": float(tp / n_pos) if n_pos else 0.0,
+    }
+
+
 class _SplitterTemporal:
     """Valida el fold k entrenando solo con los folds anteriores (fold 0 solo entrena).
 
@@ -275,7 +299,7 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
         "--run_id", type=str, required=True, help="Identificador único de la corrida"
     )
     parser.add_argument(
-        "--model_name", type=str, choices=["LR", "DT", "RF", "HGB"], required=True
+        "--model_name", type=str, choices=["LR", "DT", "RF", "HGB", "CB"], required=True
     )
     parser.add_argument("--variant", type=str, choices=["V1", "V2"], default="V2")
     parser.add_argument("--usa_pesos", type=str, choices=["si", "no"], default="si")
@@ -438,6 +462,7 @@ def construir_pipeline_preprocesamiento(
     denso: bool = False,
     con_te: bool = False,
     con_peso_te: bool = False,
+    nativo: bool = False,
 ) -> ColumnTransformer:
     """Construye el ColumnTransformer para preprocesamiento sin fuga de datos."""
 
@@ -473,17 +498,22 @@ def construir_pipeline_preprocesamiento(
         )
 
     transformers: list[tuple[str, Any, list[str]]] = []
+    if nativo:
+        # Categorías crudas y primero: sus posiciones son 0..len(cat_cols)-1 (cat_features).
+        for col in cat_cols:
+            imputador = SimpleImputer(strategy="constant", fill_value="DESCONOCIDO")
+            transformers.append((f"cat_{col}", imputador, [col]))
     num_log = [c for c in num_cols if c in COLS_LOG1P]
     num_lin = [c for c in num_cols if c not in COLS_LOG1P]
     if num_log:
         transformers.append(("num_log", _num_pipeline(True), num_log))
     if num_lin:
         transformers.append(("num_lin", _num_pipeline(False), num_lin))
-    for col in cat_cols:
+    for col in [] if nativo else cat_cols:
         tope = MAX_CATEGORIAS.get(col, MAX_CATEGORIAS_DEFAULT)
         transformers.append((f"cat_{col}", _cat_pipeline(tope), [col]))
 
-    if con_te:
+    if con_te and not nativo:
         pasos: list[tuple[str, Any]] = [("te", TargetEncoderFueraDeFold())]
         if es_lr:
             pasos.append(("scaler", StandardScaler()))
@@ -494,7 +524,7 @@ def construir_pipeline_preprocesamiento(
     return ColumnTransformer(
         transformers=transformers,
         remainder="drop",
-        **({"sparse_threshold": 0.0} if denso else {}),
+        **({"sparse_threshold": 0.0} if denso or nativo else {}),
     )
 
 
@@ -522,7 +552,8 @@ def main(args_list: list[str] | None = None) -> int:
     df = cargar_datos(args.train_dir)
     num_cols, cat_cols = seleccionar_columnas(df, args.variant)
     # Las tasas te_* se calculan dentro del Pipeline con las columnas crudas y el fold.
-    con_te = all(c in df.columns for c in TE_ENTRADAS + ["fold"])
+    es_cb = args.model_name == "CB"
+    con_te = not es_cb and all(c in df.columns for c in TE_ENTRADAS + ["fold"])
     if con_te and df.loc[df["split"] == "train", "fold"].nunique() < 2:
         # Sin folds, las tasas de train no se pueden calcular fuera de fold.
         print("[WARN] Menos de 2 folds en train: se entrena sin target encoding")
@@ -567,6 +598,7 @@ def main(args_list: list[str] | None = None) -> int:
         denso=es_hgb,
         con_te=con_te,
         con_peso_te=con_peso_te,
+        nativo=es_cb,
     )
     class_weight = "balanced" if args.usa_pesos == "si" else None
 
@@ -586,6 +618,22 @@ def main(args_list: list[str] | None = None) -> int:
             "model__max_iter": [200],
             "model__max_leaf_nodes": [15, 31],
         }
+    elif es_cb:
+        from catboost import CatBoostClassifier
+
+        # shortcut: iteraciones fijas sin parada temprana (GridSearchCV no pasa eval_set), subir si la curva no satura
+        model = CatBoostClassifier(
+            loss_function="Logloss",
+            boosting_type="Ordered",
+            iterations=500,
+            learning_rate=0.05,
+            random_seed=args.seed,
+            thread_count=1,
+            verbose=0,
+            allow_writing_files=False,
+            **({"auto_class_weights": "Balanced"} if args.usa_pesos == "si" else {}),
+        )
+        param_grid = {"model__depth": [4, 6], "model__l2_leaf_reg": [10, 30]}
     elif args.model_name == "RF":
         # Solo hiperparámetros con equivalente en MLlib (numTrees, maxDepth,
         # minInstancesPerNode), para migrar sin cambiar la grilla.
@@ -667,7 +715,7 @@ def main(args_list: list[str] | None = None) -> int:
     grid_search = GridSearchCV(
         estimator=full_pipeline,
         param_grid=param_grid,
-        scoring="average_precision",
+        scoring=scorer_ap_recall_1pct,
         cv=cv_splits,
         refit=False,  # el modelo final se ajusta abajo, sobre la misma muestra que la CV
         n_jobs=args.n_jobs,
@@ -675,12 +723,21 @@ def main(args_list: list[str] | None = None) -> int:
     )
 
     # 4. Ajuste del modelo sobre Train únicamente
-    grid_search.fit(X_train, y_train)
-    best_pipeline = clone(full_pipeline).set_params(**grid_search.best_params_)
+    # cat_features va en fit y no en el constructor: CatBoost copia el parámetro en
+    # get_params y sklearn.clone (GridSearchCV) lo rechaza.
+    fit_params: dict[str, Any] = (
+        {"model__cat_features": list(range(len(cat_cols)))} if es_cb else {}
+    )
+    grid_search.fit(X_train, y_train, **fit_params)
+    # Con varias métricas no hay best_*: los hiperparámetros se eligen por AP.
+    cv_res = grid_search.cv_results_
+    best_index = int(np.argmin(cv_res["rank_test_ap"]))
+    best_params = cv_res["params"][best_index]
+    best_pipeline = clone(full_pipeline).set_params(**best_params)
     if idx_ajuste is None:
-        best_pipeline.fit(X_train, y_train)
+        best_pipeline.fit(X_train, y_train, **fit_params)
     else:
-        best_pipeline.fit(X_train.iloc[idx_ajuste], y_train[idx_ajuste])
+        best_pipeline.fit(X_train.iloc[idx_ajuste], y_train[idx_ajuste], **fit_params)
 
     # Extraer cantidad de variables transformadas
     X_train_trans = best_pipeline.named_steps["preprocessor"].transform(X_train)
@@ -688,23 +745,21 @@ def main(args_list: list[str] | None = None) -> int:
     print(f"[METRIC] n_features_transformadas={n_features_trans}")
 
     # 5. Métricas de CV y Entrenamiento
-    cv_mean = float(grid_search.best_score_)
-    best_index = grid_search.best_index_
+    cv_mean = float(cv_res["mean_test_ap"][best_index])
     cv_folds_scores = []
 
     # Extraer score individual de cada fold evaluado
-    fold_keys = [
-        k
-        for k in grid_search.cv_results_
-        if k.startswith("split") and k.endswith("_test_score")
-    ]
+    fold_keys = [k for k in cv_res if k.startswith("split") and k.endswith("_test_ap")]
     fold_keys = sorted(fold_keys)
     for idx, f_key in enumerate(fold_keys):
-        f_score = float(grid_search.cv_results_[f_key][best_index])
+        f_score = float(cv_res[f_key][best_index])
         cv_folds_scores.append(f_score)
         print(f"[METRIC] cv_pr_auc_fold={f_score:.4f}")
 
     print(f"[METRIC] cv_pr_auc_mean={cv_mean:.4f}")
+    cv_recall_1pct_mean = float(cv_res["mean_test_recall_1pct"][best_index])
+    cv_recall_1pct_std = float(cv_res["std_test_recall_1pct"][best_index])
+    print(f"[METRIC] cv_recall_1pct_mean={cv_recall_1pct_mean:.4f}")
 
     y_train_pred_prob = best_pipeline.predict_proba(X_train)[:, 1]
     train_pr_auc = float(average_precision_score(y_train, y_train_pred_prob))
@@ -712,7 +767,7 @@ def main(args_list: list[str] | None = None) -> int:
 
     elapsed_time = round(time.time() - start_time, 2)
     print(f"[METRIC] train_seconds={elapsed_time:.2f}")
-    print(f"[INFO] Hiperparametros ganadores: {grid_search.best_params_}")
+    print(f"[INFO] Hiperparametros ganadores: {best_params}")
 
     # 6. Serialización de Artefactos de Modelo
     os.makedirs(args.model_dir, exist_ok=True)
@@ -731,8 +786,10 @@ def main(args_list: list[str] | None = None) -> int:
         train_pr_auc=train_pr_auc,
         n_features_trans=n_features_trans,
         elapsed_time=elapsed_time,
-        best_params=grid_search.best_params_,
+        best_params=best_params,
         grilla_probada=param_grid,
+        cv_recall_1pct_mean=cv_recall_1pct_mean,
+        cv_recall_1pct_std=cv_recall_1pct_std,
     )
 
     # 8. Extraer Explicabilidad preliminar (Tarea A6)
@@ -744,10 +801,10 @@ def main(args_list: list[str] | None = None) -> int:
         print("[INFO] Top 5 Features por Coeficiente Absoluto (LR):")
         print(df_coefs.head(5)[["feature", "coeficiente", "impacto"]].to_string())
         tabla_explicabilidad = df_coefs
-    elif args.model_name == "RF":
+    elif args.model_name in ("RF", "CB"):
         # Un bosque no tiene reglas legibles: solo importancias promedio de sus árboles.
         tabla_explicabilidad = extraer_importancias_dt(best_pipeline, feature_names)
-        print("[INFO] Top 5 Features por importancia (RF):")
+        print(f"[INFO] Top 5 Features por importancia ({args.model_name}):")
         print(tabla_explicabilidad.head(5).to_string())
     elif es_hgb:
         # Sin coeficientes ni importancias nativas: permutación sobre la muestra de ajuste.
