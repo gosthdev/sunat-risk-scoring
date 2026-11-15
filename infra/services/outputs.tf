@@ -42,3 +42,8 @@ output "sagemaker_execution_role_arn" {
   value       = module.iam_sagemaker_execution_role.role_arn
   description = "ARN del rol de ejecución IAM para SageMaker Training Jobs."
 }
+
+output "quicksight_role_arn" {
+  value       = module.iam_quicksight_role.role_arn
+  description = "ARN del rol IAM que usa QuickSight para leer Athena, Glue y S3."
+}
