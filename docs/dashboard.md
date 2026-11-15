@@ -178,6 +178,10 @@ Fuentes: `ds_ranking` y `ds_score_distribucion`.
     referencia, ver 7.6), que no son resultados válidos. Comparar otros
     experimentos o variantes se hace solo en un análisis aparte de su autor, sin
     compartir.
+  - `variant = 'V2'`: **fijo** igual que `experimento`, sin control visible. Las
+    vistas exponen `variant` y fijarlo garantiza que los lectores nunca vean
+    corridas V1, que incluyen `Estado`/`Condicion` y son solo un techo de
+    referencia (ver 7.6).
   - `es_ultima_corrida = 1`: control con valor por defecto 1.
 - Con esto el dashboard sigue automáticamente la última corrida de E5 del
   `dataset_version` elegido, sin depender de un `run_id` ni de un tag.
@@ -213,7 +217,7 @@ eso no conviene fijar un `run_id` en el dashboard.
   `experimento` y `dataset_version`.
 - Sirve para comparar corridas concretas de E5: quitar el filtro
   `es_ultima_corrida` (o dejarlo en todas las corridas) y elegir el `run_id`. El
-  filtro `experimento = 'E5'` se mantiene fijo (ver 7.1).
+  filtros `experimento = 'E5'` y `variant = 'V2'` se mantienen fijos (ver 7.1).
 
 ### 7.4 Filtros de actividad (hoja de ranking)
 
@@ -300,5 +304,5 @@ que exista una corrida de E5 para el `dataset_version` elegido en `model_runs`.
 - [ ] Vistas creadas (`SHOW VIEWS`) y `DESCRIBE` validado.
 - [ ] Data source Athena con workgroup `sunat-ssco` y rol `sunat-ssco-quicksight-role`.
 - [ ] Tres datasets SPICE con refresco diario y solo sobre las vistas `dash_*`.
-- [ ] Filtro `experimento = 'E5'` fijo (sin control para lectores), control `es_ultima_corrida = 1`, filtro `dataset_version` fijado en un único valor y filtro `split = 'test'`.
+- [ ] Filtros `experimento = 'E5'` y `variant = 'V2'` fijos (sin control para lectores), control `es_ultima_corrida = 1`, filtro `dataset_version` fijado en un único valor y filtro `split = 'test'`.
 - [ ] Compartición en modo Reader y exportación deshabilitada.
