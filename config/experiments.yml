@@ -194,11 +194,16 @@ experiments:
     usa_pesos: "no"
     priority: "SHOULD"
     neg_ratio: 200
-    description: "CatBoost V2 con categorías nativas, sin reponderación de clases"
+    description: "CatBoost V2 con categorías nativas, sin reponderación de clases; la grilla compara Logloss y Focal"
     hyperparameters:
       param_grid:
-        model__depth: [4, 6]
-        model__l2_leaf_reg: [10, 30]
+        model__depth: [3, 4, 5]
+        model__l2_leaf_reg: [3, 10]
+        # Sin parada temprana (GridSearchCV no pasa eval_set): las iteraciones se eligen en la grilla.
+        model__iterations: [500, 1000]
+        # Focal con alpha 0.5 no repondera clases (ya lo hace neg_ratio): solo enfoca los casos difíciles.
+        # Focal exige usa_pesos "no": CatBoost rechaza auto_class_weights con esa pérdida.
+        model__loss_function: ["Logloss", "Focal:focal_alpha=0.5;focal_gamma=2"]
 
   # Mismas configuraciones que E5 y E15 con la CV temporal, para comparar la elección.
   - id: "E5T"

@@ -257,6 +257,17 @@ def scorer_ap_recall_1pct(est: Any, X: Any, y: Any) -> dict[str, float]:
     }
 
 
+def indice_mejor(cv_res: dict[str, Any]) -> int:
+    """Combinación con mayor recall al 1 % medio en CV; en empate, mayor PR-AUC medio."""
+    orden = np.lexsort(
+        (
+            -np.asarray(cv_res["mean_test_ap"]),
+            -np.asarray(cv_res["mean_test_recall_1pct"]),
+        )
+    )
+    return int(orden[0])
+
+
 class _SplitterTemporal:
     """Valida el fold k entrenando solo con los folds anteriores (fold 0 solo entrena).
 
@@ -621,10 +632,11 @@ def main(args_list: list[str] | None = None) -> int:
     elif es_cb:
         from catboost import CatBoostClassifier
 
-        # shortcut: iteraciones fijas sin parada temprana (GridSearchCV no pasa eval_set), subir si la curva no satura
+        # shortcut: sin parada temprana (GridSearchCV no pasa eval_set); iterations va en la grilla, usar eval_set si deja de saturar
+        # Plain y no Ordered: con ~10^5 filas muestreadas rinde parecido y entrena 2-3 veces más rápido.
         model = CatBoostClassifier(
             loss_function="Logloss",
-            boosting_type="Ordered",
+            boosting_type="Plain",
             iterations=500,
             learning_rate=0.05,
             random_seed=args.seed,
@@ -729,9 +741,9 @@ def main(args_list: list[str] | None = None) -> int:
         {"model__cat_features": list(range(len(cat_cols)))} if es_cb else {}
     )
     grid_search.fit(X_train, y_train, **fit_params)
-    # Con varias métricas no hay best_*: los hiperparámetros se eligen por AP.
+    # Con varias métricas no hay best_*: se elige con el mismo criterio que el campeón.
     cv_res = grid_search.cv_results_
-    best_index = int(np.argmin(cv_res["rank_test_ap"]))
+    best_index = indice_mejor(cv_res)
     best_params = cv_res["params"][best_index]
     best_pipeline = clone(full_pipeline).set_params(**best_params)
     if idx_ajuste is None:
