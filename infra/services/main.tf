@@ -52,6 +52,16 @@ module "iam_glue_crawler_role" {
   gold_bucket_arn   = data.aws_s3_bucket.gold.arn
 }
 
+module "iam_quicksight_role" {
+  source               = "../modules/security/iam_quicksight_role"
+  role_name            = "sunat-ssco-quicksight-role"
+  aws_region           = var.aws_region
+  workgroup_name       = module.athena_workgroup.workgroup_name
+  glue_database_name   = module.glue_database.database_name
+  gold_bucket_arn      = data.aws_s3_bucket.gold.arn
+  artifacts_bucket_arn = data.aws_s3_bucket.artifacts.arn
+}
+
 module "iam_github_actions_role" {
   source                       = "../modules/security/iam_github_actions_role"
   role_name                    = "sunat-ssco-github-actions-role"
