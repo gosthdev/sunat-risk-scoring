@@ -39,6 +39,7 @@ from src.models.train import (
     WinsorizerSuperior,
     _SplitterTemporal,
     construir_pipeline_preprocesamiento,
+    indice_mejor,
     scorer_ap_recall_1pct,
     seleccionar_columnas,
 )
@@ -332,6 +333,9 @@ def test_hgb_con_submuestreo_de_negativos(synthetic_dataframe, capsys):
         assert {"feature", "importancia"} <= set(imp.columns)
 
 
+FOCAL = "Focal:focal_alpha=0.5;focal_gamma=2"
+
+
 def test_cb_entrena_y_reporta_recall_1pct(synthetic_dataframe):
     """CatBoost con categorías nativas entrena y el run record trae el recall al 1 %."""
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -348,22 +352,37 @@ def test_cb_entrena_y_reporta_recall_1pct(synthetic_dataframe):
                 "--output_dir", os.path.join(tmp_dir, "out"),
                 "--run_id", "ssco-run-test-cb",
                 "--model_name", "CB",
+                "--usa_pesos", "no",  # como E17: CatBoost no acepta pesos de clase con Focal
                 "--neg_ratio", "2",
                 "--n_jobs", "1",
-                "--param_grid_json", '{"model__iterations": [10]}',
+                # Solo Focal: así el modelo final que exporta las predicciones también lo es.
+                "--param_grid_json", json.dumps(
+                    {"model__iterations": [10], "model__loss_function": [FOCAL]}
+                ),
                 "--ruta_salida_predicciones", preds_path,
                 "--ruta_salida_run_record", rr_path,
             ]
         )  # fmt: skip
         assert exit_code == 0
 
-        assert len(pd.read_parquet(preds_path)) == len(synthetic_dataframe)
+        preds = pd.read_parquet(preds_path)
+        assert len(preds) == len(synthetic_dataframe)
+        assert preds["score"].between(0.0, 1.0).all()
         with open(rr_path, encoding="utf-8") as f:
             metricas = json.loads(f.read())["metricas_cv"]
         assert 0.0 <= metricas["cv_recall_1pct_mean"] <= 1.0
         assert "cv_recall_1pct_std" in metricas
         imp = pd.read_csv(os.path.join(model_dir, "explicabilidad.csv"))
         assert {"feature", "importancia"} <= set(imp.columns)
+
+
+def test_indice_mejor_prioriza_recall_y_desempata_por_ap():
+    """El recall al 1 % manda; con el recall empatado gana el mayor PR-AUC."""
+    cv_res = {
+        "mean_test_recall_1pct": np.array([0.50, 0.60, 0.60, 0.40]),
+        "mean_test_ap": np.array([0.90, 0.10, 0.20, 0.95]),
+    }
+    assert indice_mejor(cv_res) == 2
 
 
 def test_scorer_ap_recall_1pct_caso_a_mano():

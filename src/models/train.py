@@ -257,6 +257,17 @@ def scorer_ap_recall_1pct(est: Any, X: Any, y: Any) -> dict[str, float]:
     }
 
 
+def indice_mejor(cv_res: dict[str, Any]) -> int:
+    """Combinación con mayor recall al 1 % medio en CV; en empate, mayor PR-AUC medio."""
+    orden = np.lexsort(
+        (
+            -np.asarray(cv_res["mean_test_ap"]),
+            -np.asarray(cv_res["mean_test_recall_1pct"]),
+        )
+    )
+    return int(orden[0])
+
+
 class _SplitterTemporal:
     """Valida el fold k entrenando solo con los folds anteriores (fold 0 solo entrena).
 
@@ -730,9 +741,9 @@ def main(args_list: list[str] | None = None) -> int:
         {"model__cat_features": list(range(len(cat_cols)))} if es_cb else {}
     )
     grid_search.fit(X_train, y_train, **fit_params)
-    # Con varias métricas no hay best_*: los hiperparámetros se eligen por AP.
+    # Con varias métricas no hay best_*: se elige con el mismo criterio que el campeón.
     cv_res = grid_search.cv_results_
-    best_index = int(np.argmin(cv_res["rank_test_ap"]))
+    best_index = indice_mejor(cv_res)
     best_params = cv_res["params"][best_index]
     best_pipeline = clone(full_pipeline).set_params(**best_params)
     if idx_ajuste is None:
