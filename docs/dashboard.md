@@ -92,9 +92,12 @@ AWS_PROFILE=bigdata ATHENA_WORKGROUP=sunat-ssco GLUE_DATABASE=sunat_ssco \
   src/analysis/queries/dash_score_distribucion.sql
 ```
 
-Aviso: el script descarga el CSV del resultado al terminar. En un `CREATE VIEW`
-ese CSV no tiene datos y la descarga puede fallar aunque la vista ya exista.
-Si falla, comprobar la creación directamente:
+Aviso: el script descarga el resultado como CSV local en `data/results/`. Por
+eso solo se usa para `CREATE VIEW` o consultas de verificación como `COUNT(*)` y
+`SHOW VIEWS`. No ejecutarlo con `SELECT` sobre `dash_ranking` ni sobre tablas
+con RUC, porque el CSV quedaría en la máquina local. En un `CREATE VIEW` ese CSV
+no tiene datos y la descarga puede fallar aunque la vista ya exista. Si falla,
+comprobar la creación directamente:
 
 ```sql
 SHOW VIEWS IN sunat_ssco;
@@ -126,6 +129,10 @@ Reglas de agregación:
 - `dash_regional` es un snapshot que se repite por `run_id` y `split`. Agregar
   con `MAX` o `AVG`, nunca con `SUM`, o las cifras se multiplican.
 - `pr_auc` y `roc_auc` solo vienen informadas en `split = 'test'`.
+- Los datasets SPICE se crean **únicamente** sobre las vistas `dash_regional`,
+  `dash_ranking` y `dash_score_distribucion`. Nunca sobre tablas base `gold_*`:
+  el rol IAM podría leerlas y `gold_ruc_features` contiene columnas que las vistas
+  excluyen a propósito (por ejemplo `ruc_correlativo`).
 
 Refresco: programar el refresco diario de los tres datasets en SPICE.
 
