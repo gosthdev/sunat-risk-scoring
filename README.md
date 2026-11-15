@@ -103,6 +103,7 @@ Modelo base declarado hasta ahora: **E9** (LR V2 con pesos), a mejorar.
 config/              matriz de experimentos
 contracts/           contratos de esquema (Padrón, Órdenes de Compra)
 docs/model/          contratos del dataset, features, auditoría de fuga, informe
+docs/dashboard.md    guía del dashboard de QuickSight (vistas Athena, datasets, hojas)
 infra/               Terraform: storage, services, ingestion, módulos
 notebooks/           EDA (calidad, Padrón, target, regional)
 scripts/             orquestación (marcadores, limpieza, verificación)
