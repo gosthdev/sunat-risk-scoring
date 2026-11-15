@@ -11,7 +11,7 @@ El dashboard tiene dos hojas:
 | Hoja | Fuente | Para qué sirve |
 |---|---|---|
 | **Panorama regional** | `dash_regional` | Vista por departamento: informalidad, recaudación, concentración PRICOS y score del modelo. |
-| **Ranking de fiscalización** | `dash_ranking`, `dash_score_distribucion` | Top 1000 RUC por score en el split elegido y distribución de scores por clase. |
+| **Ranking de fiscalización** | `dash_ranking`, `dash_score_distribucion` | Top 1000 RUC por score en el split elegido, filtros de actividad y distribución de scores por clase. |
 
 ## 2. Arquitectura
 
@@ -118,21 +118,24 @@ el script es seguro.
 
 ### 5.2 Datasets (3, SPICE, refresco diario)
 
-| Dataset | Vista | Columnas principales |
-|---|---|---|
-| `ds_regional` | `dash_regional` | departamento, ruc_activos, pct_informalidad, recaudacion_soles, concentracion_pricos, pct_pricos_sobre_activos, run_id, model_name, variant, dataset_version, split, n_ruc_scoreados, n_ssco_reales, score_promedio, n_en_top_1pct, pct_top_1pct_del_depto |
-| `ds_ranking` | `dash_ranking` | run_id, model_name, variant, dataset_version, split, ruc, score, label, rank_en_split, percentil_rank, departamento, contrata_con_estado, tipo_contribuyente, ciiu_principal, nro_trabajadores, n_ordenes, monto_total_soles, n_entidades_distintas, es_prico, see_afiliado, antiguedad_contratacion_estado_dias |
-| `ds_score_distribucion` | `dash_score_distribucion` | run_id, model_name, variant, dataset_version, split, label, bin_idx, bin_inicio, bin_fin, n_ruc, score_promedio, pct_en_bin, pr_auc, roc_auc |
+Los datasets SPICE se crean **únicamente** sobre las vistas `dash_regional`,
+`dash_ranking` y `dash_score_distribucion`. Nunca sobre tablas base `gold_*`:
+el rol IAM podría leerlas y `gold_ruc_features` contiene columnas que las vistas
+excluyen a propósito (por ejemplo `ruc_correlativo`).
 
-Reglas de agregación:
+| Dataset | Vista | Columnas (lista exacta de la vista) |
+|---|---|---|
+| `ds_regional` | `dash_regional` | departamento, ruc_activos, pct_informalidad, recaudacion_soles, concentracion_pricos, pct_pricos_sobre_activos, run_id, model_name, variant, dataset_version, experimento, es_ultima_corrida, split, n_ruc_scoreados, n_ssco_reales, score_promedio, n_en_top_1pct, pct_top_1pct_del_depto |
+| `ds_ranking` | `dash_ranking` | run_id, model_name, variant, dataset_version, experimento, es_ultima_corrida, split, ruc, score, label, rank_en_split, percentil_rank, departamento, contrata_con_estado, tipo_contribuyente, ciiu_principal, nro_trabajadores, n_ordenes, monto_total_soles, n_entidades_distintas, es_prico, see_afiliado, antiguedad_contratacion_estado_dias, see_antiguedad_dias, see_n_tipos, cambio_estado, cambio_tipo_facturacion, meses_hueco, nuevo_en_periodo, meses_en_padron |
+| `ds_score_distribucion` | `dash_score_distribucion` | run_id, model_name, variant, dataset_version, experimento, es_ultima_corrida, split, label, bin_idx, bin_inicio, bin_fin, n_ruc, score_promedio, pct_en_bin, pr_auc, roc_auc |
+
+Reglas de agregación y nulos:
 
 - `dash_regional` es un snapshot que se repite por `run_id` y `split`. Agregar
   con `MAX` o `AVG`, nunca con `SUM`, o las cifras se multiplican.
+- En `dash_regional`, `experimento` y `es_ultima_corrida` son `NULL` para los
+  departamentos sin predicciones.
 - `pr_auc` y `roc_auc` solo vienen informadas en `split = 'test'`.
-- Los datasets SPICE se crean **únicamente** sobre las vistas `dash_regional`,
-  `dash_ranking` y `dash_score_distribucion`. Nunca sobre tablas base `gold_*`:
-  el rol IAM podría leerlas y `gold_ruc_features` contiene columnas que las vistas
-  excluyen a propósito (por ejemplo `ruc_correlativo`).
 
 Refresco: programar el refresco diario de los tres datasets en SPICE.
 
@@ -147,23 +150,77 @@ informalidad y concentración PRICOS. Tabla con el detalle por departamento.
 
 Fuentes: `ds_ranking` y `ds_score_distribucion`.
 
-- Tabla de los top 1000 RUC por `rank_en_split`, con las columnas de contexto.
+- Tabla de los top 1000 RUC por `rank_en_split`, con `ruc` completo y las
+  columnas de contexto.
 - Histograma de `pct_en_bin` por `label` a partir de `ds_score_distribucion`.
 - Métricas `pr_auc` y `roc_auc` del run seleccionado.
+- Filtros y orden por señales de actividad (ver 7.4). Cambian la vista de la
+  tabla, no el score del modelo.
 
 ## 7. Controles
 
-### 7.1 `run_id` (parámetro)
+### 7.1 Modelo por defecto: E5 (`experimento` y `es_ultima_corrida`)
 
-- Es un control de tipo lista desplegable sobre los `run_id` de `model_runs`.
-- Valor por defecto: el `run_id` del modelo **E9** (modelo base declarado en
-  `README.md`). Buscarlo en `model_runs` y no escribirlo a mano.
-- No filtrar por patrón de texto: el formato de `run_id` es
-  `ssco-run-<ID>-<modelo>-<variante>-w1|w0[-<tag>]`.
-- Nota: `CLAUDE.md` indica E5 como base actual de trabajo. E9 es la base
-  declarada del entregable; el valor por defecto sigue la declaración.
+- El modelo por defecto es **E5** (LR V2 sin reponderación), el modelo base de
+  trabajo actual.
+- Mecanismo: dos filtros fijos sobre `ds_regional`, `ds_ranking` y
+  `ds_score_distribucion`:
+  - `experimento = 'E5'`
+  - `es_ultima_corrida = 1`
+- Con esto el dashboard sigue automáticamente la última corrida de E5 de cada
+  `dataset_version`, sin depender de un `run_id` ni de un tag.
+- Filtrar por la columna `experimento`, no por texto del `run_id`.
+- `es_ultima_corrida` se define en la vista: vale 1 para la corrida con la
+  `fecha` más reciente dentro de cada par (`experimento`, `dataset_version`).
 
-### 7.2 `split` (filtro, crítico)
+Por qué existe `es_ultima_corrida`: el `run_id` tiene el formato
+`ssco-run-<ID>-<modelo>-<variante>-w1|w0[-<tag>]`. El workflow de entrenamiento
+usa como ID el `github.run_id` cuando no se pasa `run_tag`, así que cada
+ejecución crea un `run_id` nuevo. Si se repite el mismo tag, la corrida se
+sobrescribe. Por eso no conviene fijar un `run_id` en el dashboard.
+
+### 7.2 `dataset_version` (control)
+
+- `dataset_version` es el corte temporal. E5 tiene corridas en `v2` y en `v3`,
+  que son corridas distintas. Por eso hay un control de `dataset_version` que
+  el usuario elige al abrir el dashboard.
+- Valores: `v1` = snapshot 202506, `v2` = 202512, `v3` = 202603.
+- No hay un valor por defecto fijado en esta guía: el corte a mostrar se elige
+  según la comparación que se quiera hacer.
+
+### 7.3 `run_id` (selector opcional)
+
+- Control de lista desplegable sobre los `run_id` de `model_runs` filtrados por
+  `experimento` y `dataset_version`.
+- Sirve para comparar corridas concretas. Si no se elige ninguno, el dashboard
+  usa `es_ultima_corrida = 1`.
+
+### 7.4 Filtros de actividad (hoja de ranking)
+
+Todos los RUC puntuados ya son afiliados SEE y activos, porque así lo filtra el
+job 06. Por eso `see_afiliado` es casi siempre 1 y **no sirve para priorizar**.
+La actividad se mide con las siguientes columnas:
+
+- `n_ordenes`, `monto_total_soles`, `contrata_con_estado`: actividad con el
+  Estado (órdenes de compra).
+- `see_antiguedad_dias`, `see_n_tipos`: antigüedad y variedad de comprobantes
+  en SEE.
+- `cambio_estado`, `cambio_tipo_facturacion`, `meses_hueco`,
+  `nuevo_en_periodo`, `meses_en_padron`: movimientos del padrón mensual
+  (ene-2025 a mar-2026) ya resumidos. Son flags y contadores acumulados al
+  corte, no series mensuales.
+
+Controles propuestos para ordenar y filtrar la tabla de ranking, sin cambiar el
+score:
+
+- Orden secundario por `monto_total_soles` o `n_ordenes`.
+- Filtro `contrata_con_estado >= 1` y filtro de `monto_total_soles` mínimo.
+- Filtro `cambio_estado = 1` o `meses_hueco > 0` para ver RUC con movimientos
+  en el padrón.
+- Filtro `nuevo_en_periodo = 1`.
+- Filtro sobre `see_antiguedad_dias` (menor antigüedad primero).
+
+### 7.5 `split` (filtro, crítico)
 
 - Valor por defecto: `split = 'test'` en todas las hojas y datasets.
 - `train` tiene scores inflados porque el modelo se ajustó sobre esos datos.
@@ -171,14 +228,12 @@ Fuentes: `ds_ranking` y `ds_score_distribucion`.
 - No mezclar `train` en rankings ni métricas. Si se muestra, rotularlo como
   "ajuste (inflado)".
 
-### 7.3 `dataset_version` y `variant`
+### 7.6 `variant`
 
-- `dataset_version` es el corte temporal: `v1` = snapshot 202506, `v2` = 202512,
-  `v3` = 202603.
 - `variant` es el conjunto de features: `V1` o `V2`. `V1` incluye `Estado` y
   `Condicion` solo como referencia de techo; `V2` no tiene fuga y es el oficial.
-- No confundir ambos campos: uno cambia la fecha de datos y el otro cambia las
-  features.
+- No confundir `variant` con `dataset_version`: uno cambia las features, el otro
+  cambia la fecha de corte de los datos.
 
 ## 8. Notas de interpretación
 
@@ -191,10 +246,10 @@ Fuentes: `ds_ranking` y `ds_score_distribucion`.
 
 - Compartir el dashboard con el rol **Reader** (solo lectura).
 - Deshabilitar la exportación de datos (CSV y Excel) desde QuickSight.
-- **Pendiente de decisión:** el `ruc` con prefijo 10 corresponde al DNI de
-  personas naturales. `dash_ranking` expone `ruc` a los lectores. Opciones:
-  publicar todos los RUC, publicar solo los de prefijo 20, o enmascarar.
-  Hasta decidir, no compartir el dashboard fuera del equipo.
+- Hasta que se decida, no compartir el dashboard fuera del equipo.
+- **Decisión tomada por el usuario:** la hoja de ranking muestra el `ruc`
+  completo. Riesgo aceptado: el `ruc` con prefijo 10 corresponde al DNI de
+  personas naturales, y se expone a los lectores del dashboard.
 - `doc_representante` no se expone en ninguna vista.
 
 ## 10. Actualización después de cada corrida
@@ -210,15 +265,20 @@ El dashboard no ve corridas nuevas hasta completar estos pasos:
 3. Refrescar los datasets SPICE en QuickSight.
 
 Si una hoja aparece vacía, revisar primero que los crawlers hayan terminado y
-que el `run_id` seleccionado exista en `model_runs`.
+que exista una corrida de E5 para el `dataset_version` elegido en `model_runs`.
 
-## 11. Lista de verificación
+## 11. Trabajo futuro
+
+- Features nuevas de movimientos (conteos y fechas de cambios por mes, de
+  ene-2025 a mar-2026) requieren cambios en el job 03 y reentrenamiento.
+- Quedan fuera del alcance de este dashboard, que no cambia el score del modelo.
+
+## 12. Lista de verificación
 
 - [ ] Suscripción Enterprise en us-east-1 y costo revisado frente a `sunat-ssco-monthly`.
 - [ ] `terraform apply` en `infra/services` con `AWS_PROFILE=bigdata` y rol creado.
 - [ ] Vistas creadas (`SHOW VIEWS`) y `DESCRIBE` validado.
 - [ ] Data source Athena con workgroup `sunat-ssco` y rol `sunat-ssco-quicksight-role`.
-- [ ] Tres datasets SPICE con refresco diario.
-- [ ] Control `run_id` con valor por defecto E9 y filtro `split = 'test'`.
+- [ ] Tres datasets SPICE con refresco diario y solo sobre las vistas `dash_*`.
+- [ ] Filtros `experimento = 'E5'`, `es_ultima_corrida = 1`, control `dataset_version` y filtro `split = 'test'`.
 - [ ] Compartición en modo Reader y exportación deshabilitada.
-- [ ] Decisión de gobernanza sobre `ruc` tomada.
