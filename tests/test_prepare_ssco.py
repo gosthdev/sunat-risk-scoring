@@ -1,4 +1,4 @@
-"""Normalización de la lista SSCO y del Padrón SEE de SUNAT."""
+"""Capas bronze y silver de los datasets pequeños (SSCO, SEE, PRICOS, Ingresos, EPEN)."""
 
 import importlib
 from datetime import date
@@ -43,7 +43,7 @@ def test_conserva_fechas_y_representante():
         ]
         * 20
     )
-    salida = job00.normalizar_ssco(df)
+    salida = job00.silver_ssco(job00.bronze_ssco(df))
 
     assert list(salida.columns) == [
         "RUC",
@@ -66,7 +66,7 @@ def test_ruc_repetido_conserva_la_resolucion_mas_antigua():
         [["20100000001", "X", "L", "R-2", 46260, 46275, "1", "Y", 46295]] * 10
         + [["20100000001", "X", "L", "R-1", 45595, 45611, "1", "Y", 45657]] * 10
     )
-    salida = job00.normalizar_ssco(df)
+    salida = job00.silver_ssco(job00.bronze_ssco(df))
     assert len(salida) == 1
     assert salida.iloc[0]["fecha_emision"] == date(2024, 10, 30)
 
@@ -76,7 +76,7 @@ def test_fechas_ya_parseadas_por_read_excel():
     df = _excel([["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 10)
     for c in ENCABEZADOS[4:6] + ENCABEZADOS[8:]:
         df[c] = pd.to_datetime("2026-09-28")
-    salida = job00.normalizar_ssco(df)
+    salida = job00.silver_ssco(job00.bronze_ssco(df))
     assert salida.iloc[0]["fecha_emision"] == date(2026, 9, 28)
     assert salida.iloc[0]["fecha_publicacion"] == date(2026, 9, 28)
 
@@ -85,10 +85,10 @@ def test_falla_sin_fecha_de_emision():
     df = _excel([["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 10)
     df = df.drop(columns=["Fecha de emisión de la resolución de atribución"])
     with pytest.raises(ValueError, match="Fecha de emisión"):
-        job00.normalizar_ssco(df)
+        job00.silver_ssco(job00.bronze_ssco(df))
 
 
-def test_normalizar_see():
+def test_see():
     df = pd.DataFrame(
         {
             "fecha_corte": ["2026-06-30"] * 20,
@@ -98,7 +98,7 @@ def test_normalizar_see():
             "fecha_inicio": ["2025-08-19"] * 10 + ["no-es-fecha"] * 10,
         }
     )
-    salida = job00.normalizar_see(df).set_index("RUC")
+    salida = job00.silver_see(job00.bronze_see(df)).set_index("RUC")
 
     assert list(salida.columns) == ["tipo_see", "fecha_inicio"]
     assert len(salida) == 2  # filas repetidas se colapsan
@@ -107,6 +107,94 @@ def test_normalizar_see():
     assert pd.isna(salida.loc[10460556584, "fecha_inicio"])
 
 
-def test_normalizar_see_falla_sin_columnas():
+def test_see_falla_sin_columnas():
     with pytest.raises(ValueError, match="tipo_SEE"):
-        job00.normalizar_see(pd.DataFrame({"RUC": ["20100000001"]}))
+        job00.bronze_see(pd.DataFrame({"RUC": ["20100000001"]}))
+
+
+def test_ssco_bronze_conserva_notas_al_pie_y_silver_las_quita():
+    df = _excel(
+        [["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 20
+        + [["(1) Nota al pie de SUNAT", None, None, None, None, None, None, None, None]]
+    )
+    bronze = job00.bronze_ssco(df)
+    assert len(bronze) == 21
+    # La nota al pie no impide leer las demás fechas como serial de Excel.
+    assert bronze.iloc[0]["fecha_emision"] == date(2026, 8, 26)
+    assert len(job00.silver_ssco(bronze)) == 1
+
+
+def test_pricos_bronze_tipa_y_silver_filtra_y_deduplica():
+    df = pd.DataFrame(
+        {
+            "RUC": [20100000001] * 2 + [20100000002] * 18 + ["Fuente: SUNAT"],
+            "Nombre o Razón Social": ["A"] * 20 + [None],
+        }
+    )
+    bronze = job00.bronze_pricos(df)
+    assert len(bronze) == 21
+    assert bronze["RUC"].dtype == "string"
+    assert "nombre_razon_social" in bronze.columns
+    assert sorted(job00.silver_pricos(bronze)["RUC"]) == [20100000001, 20100000002]
+
+
+def test_pricos_bronze_falla_sin_ruc():
+    with pytest.raises(ValueError, match="RUC"):
+        job00.bronze_pricos(pd.DataFrame({"Nombre o Razón Social": ["A"]}))
+
+
+def test_ingresos_bronze_tipa_y_silver_descarta_montos_ilegibles():
+    df = pd.DataFrame(
+        {
+            "Departamento": ["LIMA", "CUSCO"],
+            "Periodo": ["2025-01", "2025-01"],
+            "Anio": ["2025", "2025"],
+            "Mes": ["01", "01"],
+            "Monto_Recaudado": ["1500.5", "n.d."],
+        }
+    )
+    bronze = job00.bronze_ingresos(df)
+    assert len(bronze) == 2
+    assert bronze["Anio"].dtype == "int64"
+    assert job00.silver_ingresos(bronze)["Departamento"].tolist() == ["LIMA"]
+
+
+def test_ingresos_bronze_falla_sin_columnas():
+    with pytest.raises(ValueError, match="Monto_Recaudado"):
+        job00.bronze_ingresos(pd.DataFrame({"Departamento": ["LIMA"]}))
+
+
+def test_epen_bronze_quita_particion_y_silver_descarta_nulos():
+    df = pd.DataFrame(
+        {
+            "CCDD": pd.array([15, None], dtype="Int64"),
+            "OCUP300": [1.0, 2.0],
+            "Informal_P": [0.5, 0.6],
+            "FAC300_ANUAL": [10.0, 20.0],
+            "anio": ["2025", "2025"],
+        }
+    )
+    bronze = job00.bronze_epen(df)
+    assert list(bronze.columns) == list(job00.EPEN_DTYPES)
+    assert len(bronze) == 2
+    silver = job00.silver_epen(bronze)
+    assert silver["CCDD"].tolist() == [15]
+    assert silver["CCDD"].dtype == "int64"
+
+
+def test_publicar_lee_silver_desde_bronze(monkeypatch):
+    escritos = {}
+    monkeypatch.setattr(
+        job00.wr.s3, "to_parquet", lambda df, path, **_: escritos.__setitem__(path, df)
+    )
+    monkeypatch.setattr(job00.wr.s3, "read_parquet", lambda path, **_: escritos[path])
+    job00._publicar(
+        "x",
+        pd.DataFrame({"v": [1, 2]}),
+        lambda df: df.assign(v=df["v"] * 10),
+        lambda df: df[df["v"] > 10],
+        "s3://b/x",
+        "s3://s/x",
+    )
+    assert escritos["s3://b/x"]["v"].tolist() == [10, 20]
+    assert escritos["s3://s/x"]["v"].tolist() == [20]
