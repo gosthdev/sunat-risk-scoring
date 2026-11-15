@@ -163,37 +163,42 @@ Fuentes: `ds_ranking` y `ds_score_distribucion`.
 
 - El modelo por defecto es **E5** (LR V2 sin reponderación), el modelo base de
   trabajo actual.
-- Mecanismo: dos filtros fijos sobre `ds_regional`, `ds_ranking` y
-  `ds_score_distribucion`:
-  - `experimento = 'E5'`
-  - `es_ultima_corrida = 1`
-- Con esto el dashboard sigue automáticamente la última corrida de E5 de cada
-  `dataset_version`, sin depender de un `run_id` ni de un tag.
+- Filtros sobre `ds_regional`, `ds_ranking` y `ds_score_distribucion`:
+  - `experimento = 'E5'` (filtro por defecto).
+  - `es_ultima_corrida = 1` (control, valor por defecto 1).
+- Con esto el dashboard sigue automáticamente la última corrida de E5 del
+  `dataset_version` elegido, sin depender de un `run_id` ni de un tag.
 - Filtrar por la columna `experimento`, no por texto del `run_id`.
 - `es_ultima_corrida` se define en la vista: vale 1 para la corrida con la
   `fecha` más reciente dentro de cada par (`experimento`, `dataset_version`).
+- Para comparar corridas concretas se quita el filtro `es_ultima_corrida` (o se
+  deja en todas las corridas) y se usa el selector `run_id` (ver 7.3).
 
 Por qué existe `es_ultima_corrida`: el `run_id` tiene el formato
-`ssco-run-<ID>-<modelo>-<variante>-w1|w0[-<tag>]`. El workflow de entrenamiento
-usa como ID el `github.run_id` cuando no se pasa `run_tag`, así que cada
-ejecución crea un `run_id` nuevo. Si se repite el mismo tag, la corrida se
-sobrescribe. Por eso no conviene fijar un `run_id` en el dashboard.
+`ssco-run-<ID>-<modelo>-<variante>-w1|w0[-<tag>]`, donde `<ID>` es el id del
+experimento (E5). Cuando no se pasa `run_tag`, el workflow usa `github.run_id`
+como tag (el sufijo del `run_id`), así que cada ejecución crea un `run_id`
+nuevo. Repetir el mismo tag sobrescribe `predictions`, `model_runs` y
+`model_metrics`, salvo que se use `--reanudar si`, que omite lo ya hecho. Por
+eso no conviene fijar un `run_id` en el dashboard.
 
-### 7.2 `dataset_version` (control)
+### 7.2 `dataset_version` (filtro obligatorio)
 
 - `dataset_version` es el corte temporal. E5 tiene corridas en `v2` y en `v3`,
-  que son corridas distintas. Por eso hay un control de `dataset_version` que
-  el usuario elige al abrir el dashboard.
+  que son corridas distintas.
+- Es un filtro obligatorio de **un solo valor** (sin opción "todos"), porque
+  `es_ultima_corrida` se calcula por (`experimento`, `dataset_version`) y mezclar
+  cortes confundiría el ranking.
 - Valores: `v1` = snapshot 202506, `v2` = 202512, `v3` = 202603.
-- No hay un valor por defecto fijado en esta guía: el corte a mostrar se elige
-  según la comparación que se quiera hacer.
+- No hay un valor por defecto fijado en esta guía: el corte se elige según la
+  comparación que se quiera hacer, y debe quedar fijado antes de compartir.
 
-### 7.3 `run_id` (selector opcional)
+### 7.3 `run_id` (selector)
 
 - Control de lista desplegable sobre los `run_id` de `model_runs` filtrados por
   `experimento` y `dataset_version`.
-- Sirve para comparar corridas concretas. Si no se elige ninguno, el dashboard
-  usa `es_ultima_corrida = 1`.
+- Sirve para comparar corridas concretas: quitar el filtro `es_ultima_corrida`
+  (o dejarlo en todas las corridas) y elegir el `run_id`.
 
 ### 7.4 Filtros de actividad (hoja de ranking)
 
@@ -246,7 +251,7 @@ score:
 
 - Compartir el dashboard con el rol **Reader** (solo lectura).
 - Deshabilitar la exportación de datos (CSV y Excel) desde QuickSight.
-- Hasta que se decida, no compartir el dashboard fuera del equipo.
+- No compartir el dashboard fuera del equipo.
 - **Decisión tomada por el usuario:** la hoja de ranking muestra el `ruc`
   completo. Riesgo aceptado: el `ruc` con prefijo 10 corresponde al DNI de
   personas naturales, y se expone a los lectores del dashboard.
@@ -280,5 +285,5 @@ que exista una corrida de E5 para el `dataset_version` elegido en `model_runs`.
 - [ ] Vistas creadas (`SHOW VIEWS`) y `DESCRIBE` validado.
 - [ ] Data source Athena con workgroup `sunat-ssco` y rol `sunat-ssco-quicksight-role`.
 - [ ] Tres datasets SPICE con refresco diario y solo sobre las vistas `dash_*`.
-- [ ] Filtros `experimento = 'E5'`, `es_ultima_corrida = 1`, control `dataset_version` y filtro `split = 'test'`.
+- [ ] Filtros `experimento = 'E5'`, control `es_ultima_corrida = 1`, filtro `dataset_version` de un solo valor (fijado antes de compartir) y filtro `split = 'test'`.
 - [ ] Compartición en modo Reader y exportación deshabilitada.
