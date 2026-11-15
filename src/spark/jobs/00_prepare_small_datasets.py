@@ -34,16 +34,16 @@ import pandas as pd
 from botocore.exceptions import ClientError
 from ruc_pandas import filtrar_ruc_validos
 from s3_paths import (
-    RAW_EPEN,
-    RAW_INGRESOS_TRIBUTARIOS,
-    RAW_PRICOS,
-    RAW_SEE,
-    RAW_SSCO,
     BRONZE_EPEN,
     BRONZE_INGRESOS_TRIBUTARIOS,
     BRONZE_PRICOS,
     BRONZE_SEE,
     BRONZE_SSCO,
+    RAW_EPEN,
+    RAW_INGRESOS_TRIBUTARIOS,
+    RAW_PRICOS,
+    RAW_SEE,
+    RAW_SSCO,
     SILVER_EPEN,
     SILVER_INGRESOS_TRIBUTARIOS,
     SILVER_PRICOS,
