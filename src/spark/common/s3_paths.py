@@ -62,13 +62,6 @@ RAW_SEE = _build_path(RAW_BUCKET, "raw", "see")
 # -------------------------------------------------------------- BRONZE ----
 BRONZE_PADRON_RUC = _build_path(BRONZE_BUCKET, "bronze", "padron_ruc")
 BRONZE_ORDENES_COMPRA = _build_path(BRONZE_BUCKET, "bronze", "ordenes_compra")
-BRONZE_PRICOS = _build_path(BRONZE_BUCKET, "bronze", "pricos")
-BRONZE_INGRESOS_TRIBUTARIOS = _build_path(
-    BRONZE_BUCKET, "bronze", "ingresos_tributarios"
-)
-BRONZE_EPEN = _build_path(BRONZE_BUCKET, "bronze", "epen")
-BRONZE_SSCO = _build_path(BRONZE_BUCKET, "bronze", "ssco")
-BRONZE_SEE = _build_path(BRONZE_BUCKET, "bronze", "see")
 BRONZE_PADRON_RUC_QUARANTINE = _build_path(
     BRONZE_BUCKET, "bronze", "quarantine/padron_ruc"
 )
