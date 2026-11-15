@@ -146,6 +146,13 @@ Refresco: programar el refresco diario de los tres datasets en SPICE.
 Fuente: `ds_regional`. Mapa o barras por departamento con score promedio,
 informalidad y concentración PRICOS. Tabla con el detalle por departamento.
 
+Los departamentos sin predicciones tienen `experimento`, `es_ultima_corrida` y
+`dataset_version` en `NULL`. Por eso los filtros de `experimento`,
+`dataset_version`, `es_ultima_corrida` y `split` deben aplicarse solo a los
+visuales de modelo (`n_ruc_scoreados`, `score_promedio`, `n_en_top_1pct`), no a
+los de contexto regional (`ruc_activos`, `pct_informalidad`,
+`recaudacion_soles`, `concentracion_pricos`). Así se ven todos los departamentos.
+
 ### 6.2 Ranking de fiscalización
 
 Fuentes: `ds_ranking` y `ds_score_distribucion`.
@@ -164,8 +171,14 @@ Fuentes: `ds_ranking` y `ds_score_distribucion`.
 - El modelo por defecto es **E5** (LR V2 sin reponderación), el modelo base de
   trabajo actual.
 - Filtros sobre `ds_regional`, `ds_ranking` y `ds_score_distribucion`:
-  - `experimento = 'E5'` (filtro por defecto).
-  - `es_ultima_corrida = 1` (control, valor por defecto 1).
+  - `experimento = 'E5'`: **fijo** en el análisis compartido. Los lectores no
+    pueden quitarlo ni cambiarlo: en QuickSight es un filtro con valor fijo y sin
+    control visible. Motivo: quitarlo permitiría ver otros modelos, en particular
+    las corridas V1 (que incluyen `Estado`/`Condicion` y son solo un techo de
+    referencia, ver 7.6), que no son resultados válidos. Comparar otros
+    experimentos o variantes se hace solo en un análisis aparte de su autor, sin
+    compartir.
+  - `es_ultima_corrida = 1`: control con valor por defecto 1.
 - Con esto el dashboard sigue automáticamente la última corrida de E5 del
   `dataset_version` elegido, sin depender de un `run_id` ni de un tag.
 - Filtrar por la columna `experimento`, no por texto del `run_id`.
@@ -191,14 +204,16 @@ eso no conviene fijar un `run_id` en el dashboard.
   cortes confundiría el ranking.
 - Valores: `v1` = snapshot 202506, `v2` = 202512, `v3` = 202603.
 - No hay un valor por defecto fijado en esta guía: el corte se elige según la
-  comparación que se quiera hacer, y debe quedar fijado antes de compartir.
+  comparación que se quiera hacer. `dataset_version` debe quedar fijado en un
+  único valor.
 
 ### 7.3 `run_id` (selector)
 
 - Control de lista desplegable sobre los `run_id` de `model_runs` filtrados por
   `experimento` y `dataset_version`.
-- Sirve para comparar corridas concretas: quitar el filtro `es_ultima_corrida`
-  (o dejarlo en todas las corridas) y elegir el `run_id`.
+- Sirve para comparar corridas concretas de E5: quitar el filtro
+  `es_ultima_corrida` (o dejarlo en todas las corridas) y elegir el `run_id`. El
+  filtro `experimento = 'E5'` se mantiene fijo (ver 7.1).
 
 ### 7.4 Filtros de actividad (hoja de ranking)
 
@@ -285,5 +300,5 @@ que exista una corrida de E5 para el `dataset_version` elegido en `model_runs`.
 - [ ] Vistas creadas (`SHOW VIEWS`) y `DESCRIBE` validado.
 - [ ] Data source Athena con workgroup `sunat-ssco` y rol `sunat-ssco-quicksight-role`.
 - [ ] Tres datasets SPICE con refresco diario y solo sobre las vistas `dash_*`.
-- [ ] Filtros `experimento = 'E5'`, control `es_ultima_corrida = 1`, filtro `dataset_version` de un solo valor (fijado antes de compartir) y filtro `split = 'test'`.
+- [ ] Filtro `experimento = 'E5'` fijo (sin control para lectores), control `es_ultima_corrida = 1`, filtro `dataset_version` fijado en un único valor y filtro `split = 'test'`.
 - [ ] Compartición en modo Reader y exportación deshabilitada.
