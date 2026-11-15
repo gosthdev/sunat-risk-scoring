@@ -621,10 +621,11 @@ def main(args_list: list[str] | None = None) -> int:
     elif es_cb:
         from catboost import CatBoostClassifier
 
-        # shortcut: iteraciones fijas sin parada temprana (GridSearchCV no pasa eval_set), subir si la curva no satura
+        # shortcut: sin parada temprana (GridSearchCV no pasa eval_set); iterations va en la grilla, usar eval_set si deja de saturar
+        # Plain y no Ordered: con ~10^5 filas muestreadas rinde parecido y entrena 2-3 veces más rápido.
         model = CatBoostClassifier(
             loss_function="Logloss",
-            boosting_type="Ordered",
+            boosting_type="Plain",
             iterations=500,
             learning_rate=0.05,
             random_seed=args.seed,
