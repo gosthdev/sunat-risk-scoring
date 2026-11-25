@@ -23,7 +23,8 @@ class TestCabeceraCsvDeBronze(unittest.TestCase):
         cls.spark = (
             SparkSession.builder.master("local[1]").appName("test-hdr").getOrCreate()
         )
-        cls.bronze = importlib.import_module("01_ingest_bronze")
+        cls.inc = importlib.import_module("bronze_io")
+        cls.ordenes = importlib.import_module("fuentes.bronze.ordenes_compra")
 
     @classmethod
     def tearDownClass(cls):
@@ -44,23 +45,70 @@ class TestCabeceraCsvDeBronze(unittest.TestCase):
             ok = self._csv(Path(tmp), "RUC,Estado")
             malo = self._csv(Path(tmp), "RUC,Estado_nuevo")
 
-            filas = self.bronze._read_raw(self.spark, ok, esquema).collect()
+            filas = self.inc.leer_raw(self.spark, ok, esquema, None).collect()
             self.assertEqual(filas[0]["RUC"], 20100000001)
             with self.assertRaises(Py4JJavaError):
-                self.bronze._read_raw(self.spark, malo, esquema).collect()
+                self.inc.leer_raw(self.spark, malo, esquema, None).collect()
 
-        # _read_raw no debe mutar el esquema que recibe (StructType.add muta).
+        # leer_raw no debe mutar el esquema que recibe (StructType.add muta).
         self.assertEqual(esquema.fieldNames(), ["RUC", "Estado"])
 
-    def test_cuarentena_vacia_reemplaza_la_de_la_corrida_anterior(self):
-        con_filas = self.spark.createDataFrame([(1, "malo")], "id int, motivo string")
-        with tempfile.TemporaryDirectory() as tmp:
-            ruta = str(Path(tmp) / "cuarentena")
-            self.bronze._write_quarantine(con_filas, ruta)
-            self.assertEqual(self.spark.read.parquet(ruta).count(), 1)
+    def _particion(self, base, anio, mes, filas):
+        carpeta = Path(base) / f"anio={anio}" / f"mes={mes:02d}"
+        carpeta.mkdir(parents=True)
+        cuerpo = "".join(f"{r},{e}\n" for r, e in filas)
+        (carpeta / "datos.csv").write_text(f"RUC,Estado\n{cuerpo}")
 
-            self.bronze._write_quarantine(con_filas.filter("id < 0"), ruta)
-            self.assertEqual(self.spark.read.parquet(ruta).count(), 0)
+    def test_reingerir_un_periodo_limpia_su_cuarentena_y_conserva_la_otra(self):
+        esquema = StructType(
+            [StructField("RUC", LongType()), StructField("Estado", StringType())]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, clean, cuar = (f"{tmp}/{n}" for n in ("raw", "clean", "cuar"))
+            self._particion(raw, 2025, 1, [("20100000001", "ok"), ("xx", "malo")])
+            self._particion(raw, 2025, 2, [("20100000002", "ok"), ("yy", "malo")])
+
+            def ingerir(periodos):
+                df = self.inc.leer_raw(self.spark, raw, esquema, periodos)
+                c, q = self.inc.separar_esquema(df)
+                self.inc.escribir_bronze(self.spark, "x", c, q, clean, cuar, periodos)
+
+            ingerir(None)
+            self.assertTrue((Path(cuar) / "anio=2025" / "mes=1").exists())
+            self.assertTrue((Path(cuar) / "anio=2025" / "mes=2").exists())
+            mtime_feb = (Path(cuar) / "anio=2025" / "mes=2").stat().st_mtime_ns
+
+            # Enero se corrige en raw: ya no hay filas malas.
+            self._particion(raw + "_nuevo", 2025, 1, [("20100000001", "ok")])
+            shutil.rmtree(f"{raw}/anio=2025/mes=01")
+            shutil.copytree(f"{raw}_nuevo/anio=2025/mes=01", f"{raw}/anio=2025/mes=01")
+            ingerir([(2025, 1)])
+
+            self.assertFalse((Path(cuar) / "anio=2025" / "mes=1").exists())
+            self.assertEqual(
+                (Path(cuar) / "anio=2025" / "mes=2").stat().st_mtime_ns, mtime_feb
+            )
+            q = self.spark.read.parquet(cuar)
+            self.assertEqual([(r["anio"], r["mes"]) for r in q.collect()], [(2025, 2)])
+            c = self.spark.read.parquet(clean)
+            self.assertEqual(
+                sorted((r["anio"], r["mes"], r["RUC"]) for r in c.collect()),
+                [(2025, 1, 20100000001), (2025, 2, 20100000002)],
+            )
+
+    def test_cuarentena_vieja_sin_particionar_se_migra_en_full(self):
+        esquema = StructType(
+            [StructField("RUC", LongType()), StructField("Estado", StringType())]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, clean, cuar = (f"{tmp}/{n}" for n in ("raw", "clean", "cuar"))
+            self._particion(raw, 2025, 1, [("20100000001", "ok")])
+            Path(cuar).mkdir()
+            (Path(cuar) / "part-0000.parquet").write_text("layout viejo")
+            df = self.inc.leer_raw(self.spark, raw, esquema, None)
+            c, q = self.inc.separar_esquema(df)
+            self.inc.escribir_bronze(self.spark, "x", c, q, clean, cuar, None)
+            self.assertFalse((Path(cuar) / "part-0000.parquet").exists())
 
     def test_fecha_nula_no_se_pierde_y_anio_fuera_de_rango_va_a_cuarentena(self):
         df = self.spark.createDataFrame(
@@ -72,7 +120,7 @@ class TestCabeceraCsvDeBronze(unittest.TestCase):
             "id string, f1 string, f2 string",
         ).selectExpr("id", "to_date(f1) f1", "to_date(f2) f2")
 
-        clean, cuarentena = self.bronze._split_date_range_quarantine(df, ["f1", "f2"])
+        clean, cuarentena = self.ordenes.separar_rango_fechas(df, ["f1", "f2"])
 
         self.assertEqual(sorted(r["id"] for r in clean.collect()), ["fecha_nula", "ok"])
         self.assertEqual([r["id"] for r in cuarentena.collect()], ["anio_malo"])

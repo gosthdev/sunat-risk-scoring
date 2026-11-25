@@ -5,6 +5,7 @@ from datetime import date
 
 import pandas as pd
 import pytest
+from fuentes.small import epen, ingresos_tributarios, pricos, see, ssco
 
 job00 = importlib.import_module("00_prepare_small_datasets")
 
@@ -43,7 +44,7 @@ def test_conserva_fechas_y_representante():
         ]
         * 20
     )
-    salida = job00.silver_ssco(job00.bronze_ssco(df))
+    salida = ssco.silver_ssco(ssco.bronze_ssco(df))
 
     assert list(salida.columns) == [
         "RUC",
@@ -66,7 +67,7 @@ def test_ruc_repetido_conserva_la_resolucion_mas_antigua():
         [["20100000001", "X", "L", "R-2", 46260, 46275, "1", "Y", 46295]] * 10
         + [["20100000001", "X", "L", "R-1", 45595, 45611, "1", "Y", 45657]] * 10
     )
-    salida = job00.silver_ssco(job00.bronze_ssco(df))
+    salida = ssco.silver_ssco(ssco.bronze_ssco(df))
     assert len(salida) == 1
     assert salida.iloc[0]["fecha_emision"] == date(2024, 10, 30)
 
@@ -76,7 +77,7 @@ def test_fechas_ya_parseadas_por_read_excel():
     df = _excel([["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 10)
     for c in ENCABEZADOS[4:6] + ENCABEZADOS[8:]:
         df[c] = pd.to_datetime("2026-09-28")
-    salida = job00.silver_ssco(job00.bronze_ssco(df))
+    salida = ssco.silver_ssco(ssco.bronze_ssco(df))
     assert salida.iloc[0]["fecha_emision"] == date(2026, 9, 28)
     assert salida.iloc[0]["fecha_publicacion"] == date(2026, 9, 28)
 
@@ -85,7 +86,7 @@ def test_falla_sin_fecha_de_emision():
     df = _excel([["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 10)
     df = df.drop(columns=["Fecha de emisión de la resolución de atribución"])
     with pytest.raises(ValueError, match="Fecha de emisión"):
-        job00.silver_ssco(job00.bronze_ssco(df))
+        ssco.silver_ssco(ssco.bronze_ssco(df))
 
 
 def test_see():
@@ -98,7 +99,7 @@ def test_see():
             "fecha_inicio": ["2025-08-19"] * 10 + ["no-es-fecha"] * 10,
         }
     )
-    salida = job00.silver_see(job00.bronze_see(df)).set_index("RUC")
+    salida = see.silver_see(see.bronze_see(df)).set_index("RUC")
 
     assert list(salida.columns) == ["tipo_see", "fecha_inicio"]
     assert len(salida) == 2  # filas repetidas se colapsan
@@ -109,7 +110,7 @@ def test_see():
 
 def test_see_falla_sin_columnas():
     with pytest.raises(ValueError, match="tipo_SEE"):
-        job00.bronze_see(pd.DataFrame({"RUC": ["20100000001"]}))
+        see.bronze_see(pd.DataFrame({"RUC": ["20100000001"]}))
 
 
 def test_ssco_bronze_conserva_notas_al_pie_y_silver_las_quita():
@@ -117,11 +118,11 @@ def test_ssco_bronze_conserva_notas_al_pie_y_silver_las_quita():
         [["20100000001", "X", "L", "R", 46260, 46275, "1", "Y", 46295]] * 20
         + [["(1) Nota al pie de SUNAT", None, None, None, None, None, None, None, None]]
     )
-    bronze = job00.bronze_ssco(df)
+    bronze = ssco.bronze_ssco(df)
     assert len(bronze) == 21
     # La nota al pie no impide leer las demás fechas como serial de Excel.
     assert bronze.iloc[0]["fecha_emision"] == date(2026, 8, 26)
-    assert len(job00.silver_ssco(bronze)) == 1
+    assert len(ssco.silver_ssco(bronze)) == 1
 
 
 def test_pricos_bronze_tipa_y_silver_filtra_y_deduplica():
@@ -131,16 +132,16 @@ def test_pricos_bronze_tipa_y_silver_filtra_y_deduplica():
             "Nombre o Razón Social": ["A"] * 20 + [None],
         }
     )
-    bronze = job00.bronze_pricos(df)
+    bronze = pricos.bronze_pricos(df)
     assert len(bronze) == 21
     assert bronze["RUC"].dtype == "string"
     assert "nombre_razon_social" in bronze.columns
-    assert sorted(job00.silver_pricos(bronze)["RUC"]) == [20100000001, 20100000002]
+    assert sorted(pricos.silver_pricos(bronze)["RUC"]) == [20100000001, 20100000002]
 
 
 def test_pricos_bronze_falla_sin_ruc():
     with pytest.raises(ValueError, match="RUC"):
-        job00.bronze_pricos(pd.DataFrame({"Nombre o Razón Social": ["A"]}))
+        pricos.bronze_pricos(pd.DataFrame({"Nombre o Razón Social": ["A"]}))
 
 
 def test_ingresos_bronze_tipa_y_silver_descarta_montos_ilegibles():
@@ -153,15 +154,17 @@ def test_ingresos_bronze_tipa_y_silver_descarta_montos_ilegibles():
             "Monto_Recaudado": ["1500.5", "n.d."],
         }
     )
-    bronze = job00.bronze_ingresos(df)
+    bronze = ingresos_tributarios.bronze_ingresos(df)
     assert len(bronze) == 2
     assert bronze["Anio"].dtype == "int64"
-    assert job00.silver_ingresos(bronze)["Departamento"].tolist() == ["LIMA"]
+    assert ingresos_tributarios.silver_ingresos(bronze)["Departamento"].tolist() == [
+        "LIMA"
+    ]
 
 
 def test_ingresos_bronze_falla_sin_columnas():
     with pytest.raises(ValueError, match="Monto_Recaudado"):
-        job00.bronze_ingresos(pd.DataFrame({"Departamento": ["LIMA"]}))
+        ingresos_tributarios.bronze_ingresos(pd.DataFrame({"Departamento": ["LIMA"]}))
 
 
 def test_epen_bronze_quita_particion_y_silver_descarta_nulos():
@@ -174,10 +177,10 @@ def test_epen_bronze_quita_particion_y_silver_descarta_nulos():
             "anio": ["2025", "2025"],
         }
     )
-    bronze = job00.bronze_epen(df)
-    assert list(bronze.columns) == list(job00.EPEN_DTYPES)
+    bronze = epen.bronze_epen(df)
+    assert list(bronze.columns) == list(epen.EPEN_DTYPES)
     assert len(bronze) == 2
-    silver = job00.silver_epen(bronze)
+    silver = epen.silver_epen(bronze)
     assert silver["CCDD"].tolist() == [15]
     assert silver["CCDD"].dtype == "int64"
 

@@ -9,6 +9,7 @@
     "bronze": [
       "src/spark/jobs/01_ingest_bronze.py",
       "src/spark/common/schema_definitions.py",
+      "src/spark/common/bronze_io.py",
       "src/spark/common/s3_paths.py",
       "src/spark/common/spark_session_factory.py",
       "src/spark/common/incremental.py"

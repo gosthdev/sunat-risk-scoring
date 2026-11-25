@@ -37,3 +37,10 @@ def filtrar_ruc_validos(df: pd.DataFrame, columna: str, nombre: str) -> pd.DataF
     salida = df.loc[valido].copy()
     salida[columna] = numerico[valido].astype("int64")
     return salida
+
+
+def exigir_columnas(df: pd.DataFrame, requeridas, nombre: str) -> None:
+    """Falla si la fuente perdió o renombró una columna requerida."""
+    faltan = set(requeridas) - set(df.columns)
+    if faltan:
+        raise ValueError(f"{nombre} sin columnas {sorted(faltan)}: {list(df.columns)}")

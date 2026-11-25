@@ -38,6 +38,10 @@ def test_import_desde_zip_sin_el_arbol_local():
         "for m in ('fuentes', 'fuentes.small', 'fuentes.bronze', 'fuentes.silver'):\n"
         "    mod = importlib.import_module(m)\n"
         "    assert mod.__file__.startswith(sys.path[0]), mod.__file__\n"
+        "pr = importlib.import_module('fuentes.silver.padron_ruc')\n"
+        "assert pr.__file__.startswith(sys.path[0]) and callable(pr.silver), pr.__file__\n"
+        "import incremental\n"
+        "assert incremental.fuentes_de('silver') == ['padron_ruc', 'ordenes_compra']\n"
         "reg = json.loads(importlib.resources.files('fuentes').joinpath('fuentes.json').read_text())\n"
         "assert 'compartidos' in reg and 'fuentes' in reg\n"
     )
