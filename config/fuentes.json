@@ -18,6 +18,7 @@
       "src/spark/jobs/02_clean_silver.py",
       "src/spark/common/silver_transforms.py",
       "src/spark/common/schema_contracts.py",
+      "src/spark/common/schema_definitions.py",
       "src/spark/common/region_normalizer.py",
       "src/spark/common/s3_paths.py",
       "src/spark/common/spark_session_factory.py",
