@@ -44,6 +44,7 @@ env:
 # publish dejaría la ruta viva a medias, el tope solo evita runners colgados por horas.
 # Cada etapa: check_stage.sh decide (hash de código + marcadores upstream + datos en S3);
 # si corre, escribe su marcador al final y su output "ran" fuerza a las siguientes.
+# small/bronze/silver: pending_periods.py decide por huellas (manifests) que (fuente, periodo) procesar.
 jobs:
   # ============================================================================
   # DEPLOY: empaqueta y sube el código una sola vez por corrida
@@ -111,7 +112,32 @@ jobs:
           TF_VAR_aws_profile: ""
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           TF_VAR_raw_bucket_name: ${{ env.RAW_BUCKET }}
+          TF_VAR_bronze_bucket_name: ${{ env.BRONZE_BUCKET }}
+          TF_VAR_force_redownload: ${{ inputs.force == 'raw' }}
         run: bash src/ingestion/run_and_destroy.sh
+
+      # Solo si esta corrida convirtio algo a _pendientes/ (lista no vacia); si no, no se dispara.
+      - name: Crawl pendientes (Glue)
+        if: steps.check.outputs.needs_run == 'true'
+        run: |
+          aws s3 cp "s3://${RAW_BUCKET}/_runs/last_run_pendientes.json" "$RUNNER_TEMP/pendientes.json" 2>/dev/null \
+            || echo '[]' > "$RUNNER_TEMP/pendientes.json"
+          N=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/pendientes.json")
+          if [[ "$N" == "0" ]]; then
+            echo "Sin fuentes nuevas en _pendientes/: no se arranca el crawler."
+            exit 0
+          fi
+          NAME="sunat-ssco-pendientes-crawler"
+          aws glue start-crawler --name "$NAME"
+          while true; do
+            state=$(aws glue get-crawler --name "$NAME" --query 'Crawler.State' --output text)
+            [[ "$state" == "READY" ]] && break
+            echo "  $NAME -> $state"
+            sleep 15
+          done
+          status=$(aws glue get-crawler --name "$NAME" --query 'Crawler.LastCrawl.Status' --output text)
+          echo "Crawler $NAME termino con estado: $status"
+          [[ "$status" == "SUCCEEDED" ]]
 
   # ============================================================================
   # ETAPA 0: Small Datasets (Job 00 -> Silver, en el runner)
@@ -124,7 +150,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: aws
     outputs:
-      ran: ${{ steps.check.outputs.needs_run }}
+      pending: ${{ steps.plan.outputs.pending }}
+      ran: ${{ steps.plan.outputs.pending != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/aws-setup
@@ -132,39 +159,60 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Solo detecta datos fisicos/markers ausentes; que procesar lo decide el planner por huellas.
       - name: Check stage
         id: check
         run: |
           FORCE_VAL="false"
-          if [[ "${{ inputs.force == 'small' || needs.raw.outputs.ran == 'true' }}" == "true" ]]; then
+          if [[ "${{ inputs.force == 'small' }}" == "true" ]]; then
             FORCE_VAL="true"
           fi
           bash scripts/check_stage.sh \
             --stage small \
             --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
-            --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
             --silver-bucket "${SILVER_BUCKET}" \
             --raw-bucket "${RAW_BUCKET}" \
             --force "$FORCE_VAL"
 
+      - name: Plan
+        id: plan
+        run: |
+          FORCE=""
+          if [[ "${{ inputs.force == 'small' }}" == "true" || "${{ steps.check.outputs.needs_run }}" == "true" ]]; then
+            FORCE="--force"
+          fi
+          aws s3 cp "s3://${RAW_BUCKET}/_manifests/raw_manifest.json" "$RUNNER_TEMP/upstream.json" 2>/dev/null || true
+          aws s3 cp "s3://${SILVER_BUCKET}/_manifests/small.json" "$RUNNER_TEMP/own.json" 2>/dev/null || true
+          PENDING=$(python3 scripts/pending_periods.py plan --stage small \
+            --upstream "$RUNNER_TEMP/upstream.json" --own "$RUNNER_TEMP/own.json" \
+            --expected "$RUNNER_TEMP/expected.json" $FORCE)
+          echo "PENDING_PERIODS='${PENDING}'"
+          echo "pending=${PENDING}" >> "$GITHUB_OUTPUT"
+
       - name: Run prepare small datasets
-        if: steps.check.outputs.needs_run == 'true'
+        if: steps.plan.outputs.pending != ''
         env:
+          PENDING_PERIODS: ${{ steps.plan.outputs.pending }}
           PYTHONPATH: src/spark/common
         run: |
           python -m pip install --upgrade pip
           pip install -r src/requirements.txt
           python3 src/spark/jobs/00_prepare_small_datasets.py
 
+      - name: Commit processed manifest
+        if: steps.plan.outputs.pending != ''
+        run: |
+          python3 scripts/pending_periods.py commit --stage small \
+            --expected "$RUNNER_TEMP/expected.json" --own "$RUNNER_TEMP/own.json" \
+            --published "${{ steps.plan.outputs.pending }}" --out "$RUNNER_TEMP/processed.json"
+          aws s3 cp "$RUNNER_TEMP/processed.json" "s3://${SILVER_BUCKET}/_manifests/small.json"
+
       - name: Write marker
-        if: steps.check.outputs.needs_run == 'true'
+        if: steps.plan.outputs.pending != ''
         run: |
           bash scripts/write_marker.sh \
             --stage small \
-            --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json" \
-            --files src/spark/jobs/00_prepare_small_datasets.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job00_complete.json"
 
   # ============================================================================
   # ETAPA 1: Bronze (Job 01)
@@ -177,7 +225,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: aws
     outputs:
-      ran: ${{ steps.check.outputs.needs_run }}
+      pending: ${{ steps.plan.outputs.pending }}
+      ran: ${{ steps.plan.outputs.pending != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/aws-setup
@@ -185,34 +234,60 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Solo detecta datos fisicos/markers ausentes; que procesar lo decide el planner por huellas.
       - name: Check stage
         id: check
         run: |
           FORCE_VAL="false"
-          if [[ "${{ inputs.force == 'bronze' || needs.raw.outputs.ran == 'true' }}" == "true" ]]; then
+          if [[ "${{ inputs.force == 'bronze' }}" == "true" ]]; then
             FORCE_VAL="true"
           fi
           bash scripts/check_stage.sh \
             --stage bronze \
             --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
-            --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json" \
             --bronze-bucket "${BRONZE_BUCKET}" \
             --raw-bucket "${RAW_BUCKET}" \
             --force "$FORCE_VAL"
 
+      - name: Plan
+        id: plan
+        run: |
+          FORCE=""
+          if [[ "${{ inputs.force == 'bronze' }}" == "true" || "${{ steps.check.outputs.needs_run }}" == "true" ]]; then
+            FORCE="--force"
+          fi
+          aws s3 cp "s3://${RAW_BUCKET}/_manifests/raw_manifest.json" "$RUNNER_TEMP/upstream.json" 2>/dev/null || true
+          aws s3 cp "s3://${BRONZE_BUCKET}/_manifests/processed.json" "$RUNNER_TEMP/own.json" 2>/dev/null || true
+          # Prefijos de _pendientes/ ya existentes: el planner avisa si alguno es de una fuente promovida.
+          EXISTENTES=$( { aws s3 ls "s3://${BRONZE_BUCKET}/_pendientes/" 2>/dev/null || true; } \
+            | awk '$1=="PRE"{sub("/$","",$2);print $2}' | tr '\n' ' ')
+          PENDING=$(python3 scripts/pending_periods.py plan --stage bronze \
+            --upstream "$RUNNER_TEMP/upstream.json" --own "$RUNNER_TEMP/own.json" \
+            --expected "$RUNNER_TEMP/expected.json" \
+            --pendientes-existentes "$EXISTENTES" $FORCE)
+          echo "PENDING_PERIODS='${PENDING}'"
+          echo "pending=${PENDING}" >> "$GITHUB_OUTPUT"
+
       - name: Submit Job 01 to EMR Serverless
-        if: steps.check.outputs.needs_run == 'true'
+        if: steps.plan.outputs.pending != ''
+        env:
+          PENDING_PERIODS: ${{ steps.plan.outputs.pending }}
         run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 01_ingest_bronze
 
+      - name: Commit processed manifest
+        if: steps.plan.outputs.pending != ''
+        run: |
+          python3 scripts/pending_periods.py commit --stage bronze \
+            --expected "$RUNNER_TEMP/expected.json" --own "$RUNNER_TEMP/own.json" \
+            --published "${{ steps.plan.outputs.pending }}" --out "$RUNNER_TEMP/processed.json"
+          aws s3 cp "$RUNNER_TEMP/processed.json" "s3://${BRONZE_BUCKET}/_manifests/processed.json"
+
       - name: Write marker
-        if: steps.check.outputs.needs_run == 'true'
+        if: steps.plan.outputs.pending != ''
         run: |
           bash scripts/write_marker.sh \
             --stage bronze \
-            --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
-            --files src/spark/jobs/01_ingest_bronze.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${RAW_BUCKET}/_markers/ingestion_complete.json"
+            --marker-uri "s3://${BRONZE_BUCKET}/_markers/job01_complete.json"
 
   # ============================================================================
   # ETAPA 2: Silver (Job 02)
@@ -225,7 +300,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: aws
     outputs:
-      ran: ${{ steps.check.outputs.needs_run }}
+      pending: ${{ steps.plan.outputs.pending }}
+      ran: ${{ steps.plan.outputs.pending != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/aws-setup
@@ -233,34 +309,56 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Solo detecta datos fisicos/markers ausentes; que procesar lo decide el planner por huellas.
       - name: Check stage
         id: check
         run: |
           FORCE_VAL="false"
-          if [[ "${{ inputs.force == 'silver' || needs.bronze.outputs.ran == 'true' }}" == "true" ]]; then
+          if [[ "${{ inputs.force == 'silver' }}" == "true" ]]; then
             FORCE_VAL="true"
           fi
           bash scripts/check_stage.sh \
             --stage silver \
             --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
-            --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json" \
             --silver-bucket "${SILVER_BUCKET}" \
             --bronze-bucket "${BRONZE_BUCKET}" \
             --force "$FORCE_VAL"
 
+      - name: Plan
+        id: plan
+        run: |
+          FORCE=""
+          if [[ "${{ inputs.force == 'silver' }}" == "true" || "${{ steps.check.outputs.needs_run }}" == "true" ]]; then
+            FORCE="--force"
+          fi
+          aws s3 cp "s3://${BRONZE_BUCKET}/_manifests/processed.json" "$RUNNER_TEMP/upstream.json" 2>/dev/null || true
+          aws s3 cp "s3://${SILVER_BUCKET}/_manifests/processed.json" "$RUNNER_TEMP/own.json" 2>/dev/null || true
+          PENDING=$(python3 scripts/pending_periods.py plan --stage silver \
+            --upstream "$RUNNER_TEMP/upstream.json" --own "$RUNNER_TEMP/own.json" \
+            --expected "$RUNNER_TEMP/expected.json" $FORCE)
+          echo "PENDING_PERIODS='${PENDING}'"
+          echo "pending=${PENDING}" >> "$GITHUB_OUTPUT"
+
       - name: Submit Job 02 to EMR Serverless
-        if: steps.check.outputs.needs_run == 'true'
+        if: steps.plan.outputs.pending != ''
+        env:
+          PENDING_PERIODS: ${{ steps.plan.outputs.pending }}
         run: bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 02_clean_silver
 
+      - name: Commit processed manifest
+        if: steps.plan.outputs.pending != ''
+        run: |
+          python3 scripts/pending_periods.py commit --stage silver \
+            --expected "$RUNNER_TEMP/expected.json" --own "$RUNNER_TEMP/own.json" \
+            --published "${{ steps.plan.outputs.pending }}" --out "$RUNNER_TEMP/processed.json"
+          aws s3 cp "$RUNNER_TEMP/processed.json" "s3://${SILVER_BUCKET}/_manifests/processed.json"
+
       - name: Write marker
-        if: steps.check.outputs.needs_run == 'true'
+        if: steps.plan.outputs.pending != ''
         run: |
           bash scripts/write_marker.sh \
             --stage silver \
-            --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json" \
-            --files src/spark/jobs/02_clean_silver.py "src/spark/common/*.py" \
-            --upstream-marker "s3://${BRONZE_BUCKET}/_markers/job01_complete.json"
+            --marker-uri "s3://${SILVER_BUCKET}/_markers/job02_complete.json"
 
   # ============================================================================
   # ETAPA 3: Gold RUC Features (Job 03)
