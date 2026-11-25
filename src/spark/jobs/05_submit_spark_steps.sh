@@ -321,7 +321,7 @@ sync_con_reintentos() {
 #                                 borra la del vivo
 #   fuente omitida             -> no se toca
 publish_step() {
-  local step="$1" bucket layer sub optional fuente pub alcance staging live part hay
+  local step="$1" bucket layer sub optional fuente pub alcance staging live part
   while read -r bucket layer sub optional fuente pub; do
     [[ -z "$bucket" ]] && continue
     alcance="$(alcance_de "$fuente")"
@@ -330,16 +330,6 @@ publish_step() {
     if [[ "$alcance" == "FULL" || "$pub" == "completa" ]]; then
       if ! s3_prefix_has_objects "$staging"; then
         echo "✗ ERROR: '${step}' terminó sin dejar ${staging}; no se publica nada." >&2
-        return 1
-      fi
-    else
-      # Una partición puede faltar (todo el mes en cuarentena), pero no todas.
-      hay=0
-      for part in $(partitions_of "$alcance"); do
-        if s3_prefix_has_objects "${staging}/${part}"; then hay=1; fi
-      done
-      if [[ "$hay" -eq 0 ]]; then
-        echo "✗ ERROR: '${step}' terminó sin dejar particiones de ${staging} (${alcance}); no se publica nada." >&2
         return 1
       fi
     fi

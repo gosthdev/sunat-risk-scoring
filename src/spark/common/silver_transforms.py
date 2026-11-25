@@ -202,6 +202,19 @@ def _leer_opcional(spark, path) -> DataFrame | None:
         return None
 
 
+def _leer_escrito(spark, path) -> DataFrame:
+    """Lo escrito en staging; vacío si no quedó ningún parquet (ningún periodo con filas limpias).
+
+    Otros errores de lectura (permisos, rutas, etc.) se propagan.
+    """
+    try:
+        return spark.read.parquet(path)
+    except AnalysisException as exc:
+        if exc.getCondition() != "UNABLE_TO_INFER_SCHEMA":
+            raise
+        return spark.createDataFrame([], "anio int, mes int")
+
+
 def _log_reporte(reporte: DataFrame) -> None:
     # Línea fácil de grepear en los logs del driver (stdout).
     for r in reporte.orderBy("fuente", "anio", "mes").collect():
@@ -222,6 +235,13 @@ def _reporte_previo(spark, fuente: str, periodos) -> DataFrame | None:
     # FULL de la fuente: sus claves viejas (incluso huérfanas) no sobreviven.
     if previo is not None and periodos is None:
         previo = previo.filter(col("fuente") != fuente)
+    elif previo is not None:
+        # Un periodo sin filas en bronze no genera fila nueva: la vieja no debe sobrevivir.
+        pedidos = spark.createDataFrame(periodos, "anio int, mes int")
+        propias = previo.filter(col("fuente") == fuente)
+        previo = previo.filter(col("fuente") != fuente).unionByName(
+            propias.join(pedidos, ["anio", "mes"], "left_anti").select(*previo.columns)
+        )
     if previo is None:
         return None
     # En memoria: se reescribe la misma ruta de staging de la que se leyó.
@@ -266,7 +286,7 @@ def procesar(
                 staging_de(silver_path)
             )
             verificar_silver_escrito(
-                reporte, spark.read.parquet(staging_de(silver_path))
+                reporte, _leer_escrito(spark, staging_de(silver_path))
             )
             if cuarentena.take(1):
                 cuarentena.write.mode("overwrite").partitionBy("anio", "mes").parquet(

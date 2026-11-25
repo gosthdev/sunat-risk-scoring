@@ -79,3 +79,54 @@ class TestProcesar(unittest.TestCase):
                 [("ordenes_compra", 2025, 1), ("padron_ruc", 2025, 2)],
             )
             self.assertTrue(Path(rep + "_stg").exists())
+
+    def test_periodo_sin_filas_limpias_no_falla_y_reemplaza_su_fila_del_reporte(self):
+        import silver_transforms as st
+        from fuentes.silver import padron_ruc as pr
+        from pyspark.sql.types import StructType
+        from schema_definitions import PADRON_RUC_SCHEMA
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bronze, silver, rep = (f"{tmp}/{n}" for n in ("bronze", "silver", "rep"))
+            valores = {"LongType": 20100000001, "StringType": "x"}
+            base = [valores.get(type(f.dataType).__name__) for f in PADRON_RUC_SCHEMA]
+            esquema = StructType(list(PADRON_RUC_SCHEMA.fields))
+            esquema.add("anio", "integer").add("mes", "integer")
+            self.spark.createDataFrame([(*base, 2025, 1)], esquema).write.partitionBy(
+                "anio", "mes"
+            ).parquet(bronze)
+            cols = (
+                "fuente string, anio int, mes int, filas_bronze long, "
+                "filas_cuarentena_bronze long, filas_entrada long, "
+                "filas_cuarentena_ruc long, filas_silver long, "
+                "tasa_cuarentena_bronze double, tasa_cuarentena_ruc double"
+            )
+            self.spark.createDataFrame(
+                [
+                    ("padron_ruc", 2025, 2, 9, 0, 9, 0, 9, 0.0, 0.0),
+                    ("ordenes_compra", 2025, 2, 9, 0, 9, 0, 9, 0.0, 0.0),
+                ],
+                cols,
+            ).write.partitionBy("fuente").parquet(rep)
+
+            self.enterContext(patch.object(st, "staging_de", lambda p: p + "_stg"))
+            self.enterContext(patch.object(st, "SILVER_QUALITY_REPORT", rep))
+            pr.procesar(
+                self.spark,
+                "padron_ruc",
+                bronze,
+                bronze + "_q",
+                pr.preparar_padron_ruc,
+                pr.separar_padron_ruc,
+                silver,
+                silver + "_q",
+                [(2025, 2)],
+            )
+            self.assertFalse(
+                Path(silver + "_stg").exists()
+                and any(Path(silver + "_stg").glob("anio=*"))
+            )
+            self.assertEqual(
+                [r["fuente"] for r in self.spark.read.parquet(rep + "_stg").collect()],
+                ["ordenes_compra"],
+            )
