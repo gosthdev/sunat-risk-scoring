@@ -225,8 +225,8 @@ def bootstrap_manifest(items: list[tuple[str, str, str]]) -> Manifest:
 
 
 def needs_download(entry: Entry | None, url: str, force: bool) -> bool:
-    if force or entry is None:
-        return True
+    if force or entry is None or entry.get("conversion") == "error":
+        return True  # error de conversión previo: se reintenta
     etag, lm = entry.get("etag"), entry.get("last_modified")
     if not etag and not lm:
         return False  # sin validadores -> inmutable, cero red
@@ -740,6 +740,9 @@ def convert_to_pendientes(fuente: str, periodo: str, files: list[Path]) -> list[
     try:
         for f in sorted(files):
             convert_file(f, fuente, periodo, out_root, parts)
+        if not out_root.exists():
+            log(f"WARN: {fuente}/{periodo} no produjo filas; nada que convertir")
+            return []
         tablas = sorted(p.name for p in out_root.iterdir() if p.is_dir())
         for tabla in tablas:
             pref = f"s3://{BRONZE_BUCKET}/_pendientes/{tabla}/"
@@ -837,7 +840,15 @@ def process_item(
     )
     if convertir:
         try:
-            converted.update(convert_to_pendientes(fuente, periodo, files))
+            tablas = convert_to_pendientes(fuente, periodo, files)
+            converted.update(tablas)
+            for t in sorted(set(entry.get("tablas", [])) - set(tablas)):
+                log(
+                    f"WARN: s3://{BRONZE_BUCKET}/_pendientes/{t}/ quedó huérfano "
+                    f"({fuente}/{periodo} ya no lo produce). Bórralo a mano y su "
+                    f"tabla dataset_pendiente_{t} del catálogo."
+                )
+            entry["tablas"] = tablas
             entry["conversion"] = "ok"
         except Exception as e:  # noqa: BLE001
             log(

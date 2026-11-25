@@ -203,3 +203,36 @@ def test_last_run_pendientes_lists_only_this_run(aws, tmp_path, monkeypatch):
     monkeypatch.setattr(pu, "load_manifest", lambda: json.loads(uploaded["manifest"]))
     pu.main()
     assert json.loads(uploaded["v"]) == []
+
+
+def test_error_entry_is_retried_even_without_validators(aws, tmp_path, monkeypatch):
+    serve(monkeypatch, {"http://x/b.xlsx": b"roto"})
+    m, _ = ingest("rt", "-", "http://x/b.xlsx")
+    assert m["rt"]["-"]["conversion"] == "error"
+    src = tmp_path / "b.xlsx"
+    make_xlsx(src, {"H": [["A"], [1]]})
+    serve(monkeypatch, {"http://x/b.xlsx": src})
+    m, conv = ingest("rt", "-", "http://x/b.xlsx", manifest=m)
+    assert m["rt"]["-"]["conversion"] == "ok" and conv == {"rt"}
+
+
+def test_all_empty_sheets_converts_nothing_without_error(aws, tmp_path, monkeypatch):
+    src = tmp_path / "e.xlsx"
+    make_xlsx(src, {"A": [], "B": []})
+    serve(monkeypatch, {"http://x/e.xlsx": src})
+    m, conv = ingest("vacio", "-", "http://x/e.xlsx")
+    assert conv == set() and m["vacio"]["-"]["conversion"] == "ok"
+
+
+def test_orphan_tables_warn_and_are_not_deleted(aws, tmp_path, monkeypatch, capsys):
+    src = tmp_path / "m.xlsx"
+    make_xlsx(src, {"Uno": [["A"], [1]], "Dos": [["B"], [2]]})
+    serve(monkeypatch, {"http://x/m.xlsx": src})
+    m, _ = ingest("orf", "-", "http://x/m.xlsx")
+    make_xlsx(src, {"Uno": [["A"], [1]]})  # pasa a 1 hoja
+    aws.calls.clear()
+    pu.process_item("orf", "-", "http://x/m.xlsx", m, True, set(), set())
+    out = capsys.readouterr().out
+    assert "_pendientes/orf__uno/ quedó huérfano" in out
+    assert "_pendientes/orf__dos/ quedó huérfano" in out
+    assert not any("orf__dos" in c[2] for c in aws.calls if c[1] == "rm")
