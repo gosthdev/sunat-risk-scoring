@@ -54,12 +54,13 @@ def escribir_bronze(
 ) -> None:
     """Escribe clean y cuarentena particionados por (anio, mes), aunque la cuarentena esté vacía.
 
-    FULL: se reemplaza clean y se borra la cuarentena completa (migra el layout
-    viejo, sin particionar). Incremental: se borran antes las particiones de esos
+    FULL: se borran clean y cuarentena completas (migra el layout viejo, sin particionar,
+    y quita los meses que ya no tienen filas). Incremental: se borran antes las particiones de esos
     periodos en ambas, así una cuarentena vacía no deja la de la corrida anterior.
     """
     if periodos_ is None:
-        borrar(spark, [ruta_cuarentena])
+        # Con partitionOverwriteMode=dynamic, overwrite no borra los meses que ya no reciben filas.
+        borrar(spark, [ruta_clean, ruta_cuarentena])
         modo = "overwrite"
     else:
         borrar(

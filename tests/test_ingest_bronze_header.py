@@ -96,6 +96,29 @@ class TestCabeceraCsvDeBronze(unittest.TestCase):
                 [(2025, 1, 20100000001), (2025, 2, 20100000002)],
             )
 
+    def test_full_quita_el_mes_que_ya_no_tiene_filas_limpias(self):
+        esquema = StructType(
+            [StructField("RUC", LongType()), StructField("Estado", StringType())]
+        )
+        self.spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, clean, cuar = (f"{tmp}/{n}" for n in ("raw", "clean", "cuar"))
+            self._particion(raw, 2025, 1, [("20100000001", "ok")])
+            self._particion(raw, 2025, 2, [("20100000002", "ok")])
+
+            def full():
+                df = self.inc.leer_raw(self.spark, raw, esquema, None)
+                c, q = self.inc.separar_esquema(df)
+                self.inc.escribir_bronze(self.spark, "x", c, q, clean, cuar, None)
+
+            full()
+            # Febrero queda 100% en cuarentena.
+            shutil.rmtree(f"{raw}/anio=2025/mes=02")
+            self._particion(raw, 2025, 2, [("zz", "malo")])
+            full()
+            meses = sorted(r["mes"] for r in self.spark.read.parquet(clean).collect())
+            self.assertEqual(meses, [1])
+
     def test_cuarentena_vieja_sin_particionar_se_migra_en_full(self):
         esquema = StructType(
             [StructField("RUC", LongType()), StructField("Estado", StringType())]
