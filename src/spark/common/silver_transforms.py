@@ -210,7 +210,10 @@ def _leer_escrito(spark, path) -> DataFrame:
     try:
         return spark.read.parquet(path)
     except AnalysisException as exc:
-        if exc.getCondition() != "UNABLE_TO_INFER_SCHEMA":
+        if (
+            getattr(exc, "getCondition", exc.getErrorClass)()
+            != "UNABLE_TO_INFER_SCHEMA"
+        ):
             raise
         return spark.createDataFrame([], "anio int, mes int")
 
