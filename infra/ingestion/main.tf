@@ -14,6 +14,10 @@ data "aws_s3_bucket" "raw" {
   bucket = var.raw_bucket_name
 }
 
+data "aws_s3_bucket" "bronze" {
+  bucket = var.bronze_bucket_name
+}
+
 data "aws_caller_identity" "current" {}
 
 data "aws_ami" "ubuntu" {
@@ -70,6 +74,21 @@ resource "aws_iam_policy" "ingestion_s3" {
           data.aws_s3_bucket.raw.arn,
           "${data.aws_s3_bucket.raw.arn}/*"
         ]
+      },
+      {
+        Sid      = "BronzePendientesWrite"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:DeleteObject"]
+        Resource = ["${data.aws_s3_bucket.bronze.arn}/_pendientes/*"]
+      },
+      {
+        Sid      = "BronzePendientesList"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [data.aws_s3_bucket.bronze.arn]
+        Condition = {
+          StringLike = { "s3:prefix" = ["_pendientes/*", "_pendientes"] }
+        }
       }
     ]
   })
@@ -114,6 +133,13 @@ resource "aws_s3_object" "bootstrap_urls" {
   etag   = filemd5("${path.module}/../../src/ingestion/urls.json")
 }
 
+resource "aws_s3_object" "bootstrap_fuentes" {
+  bucket = var.raw_bucket_name
+  key    = "_bootstrap/fuentes.json"
+  source = "${path.module}/../../config/fuentes.json"
+  etag   = filemd5("${path.module}/../../config/fuentes.json")
+}
+
 resource "aws_s3_object" "bootstrap_script" {
   bucket = var.raw_bucket_name
   key    = "_bootstrap/process_and_upload.py"
@@ -132,6 +158,7 @@ resource "aws_instance" "ingestion_worker" {
 
   depends_on = [
     aws_s3_object.bootstrap_urls,
+    aws_s3_object.bootstrap_fuentes,
     aws_s3_object.bootstrap_script,
     aws_iam_role_policy_attachment.ingestion
   ]
@@ -161,15 +188,19 @@ resource "aws_instance" "ingestion_worker" {
     echo "=== [1/4] Preparando dependencias en la EC2 ==="
     apt-get update -y
     apt-get install -y python3-pip python3-pandas python3-openpyxl unzip curl awscli
+    pip3 install pyarrow
 
     mkdir -p /opt/ingestion /data/tmp
 
     echo "=== [2/4] Descargando configuración y scripts desde S3 ==="
     aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/urls.json" /opt/ingestion/urls.json
+    aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/fuentes.json" /opt/ingestion/fuentes.json
     aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/process_and_upload.py" /opt/ingestion/process_and_upload.py
     chmod +x /opt/ingestion/process_and_upload.py
 
     export RAW_BUCKET="${var.raw_bucket_name}"
+    export BRONZE_BUCKET="${var.bronze_bucket_name}"
+    export FORCE_REDOWNLOAD="${var.force_redownload ? "1" : "0"}"
     export AWS_REGION="${var.aws_region}"
 
     echo "=== [3/4] Ejecutando procesamiento y subida ==="

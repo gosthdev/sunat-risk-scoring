@@ -12,3 +12,8 @@ variable "gold_bucket_arn" {
   description = "ARN del bucket gold (solo lectura)."
   type        = string
 }
+
+variable "bronze_bucket_arn" {
+  description = "ARN del bucket bronze (solo lectura de _pendientes/)."
+  type        = string
+}
