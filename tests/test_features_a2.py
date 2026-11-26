@@ -4,6 +4,7 @@ import unittest
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.sql.types import (
+    BooleanType,
     DoubleType,
     IntegerType,
     LongType,
@@ -122,7 +123,7 @@ class TestFeaturesA2(unittest.TestCase):
         pricos_schema = StructType(
             [
                 StructField("RUC", LongType(), True),
-                StructField("es_prico", StringType(), True),
+                StructField("es_prico", BooleanType(), True),
             ]
         )
 
@@ -176,7 +177,7 @@ class TestFeaturesA2(unittest.TestCase):
         pricos_schema = StructType(
             [
                 StructField("RUC", LongType(), True),
-                StructField("es_prico", StringType(), True),
+                StructField("es_prico", BooleanType(), True),
             ]
         )
 
@@ -289,7 +290,7 @@ class TestFeaturesA2(unittest.TestCase):
         pricos_schema = StructType(
             [
                 StructField("RUC", LongType(), True),
-                StructField("es_prico", StringType(), True),
+                StructField("es_prico", BooleanType(), True),
             ]
         )
         padron = self.spark.createDataFrame(
