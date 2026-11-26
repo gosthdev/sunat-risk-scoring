@@ -61,9 +61,8 @@ def serve(monkeypatch, files: dict[str, Path | bytes]):
 
 def ingest(fuente, periodo, url, manifest=None, registered=frozenset()):
     m = {} if manifest is None else manifest
-    conv: set[str] = set()
-    pu.process_item(fuente, periodo, url, m, False, set(registered), conv)
-    return m, conv
+    pu.process_item(fuente, periodo, url, m, False, set(registered))
+    return m, set(m.get(fuente, {}).get(periodo, {}).get("tablas", []))
 
 
 def make_xlsx(path: Path, sheets: dict[str, list[list]]):
@@ -152,7 +151,7 @@ def test_reconversion_removes_prefix_before_upload(aws, tmp_path, monkeypatch):
     m, _ = ingest("rec", "2026-04", "http://x/a.csv")
     src.write_text("a\n1\n2\n")
     aws.calls.clear()
-    pu.process_item("rec", "2026-04", "http://x/a.csv", m, True, set(), set())
+    pu.process_item("rec", "2026-04", "http://x/a.csv", m, True, set())
     kinds = [(c[1], c[2]) for c in aws.calls if c[1] in ("rm", "cp")]
     pref = f"s3://{pu.BRONZE_BUCKET}/_pendientes/rec/periodo=2026-04/"
     assert kinds[0] == ("rm", pref) and kinds[1][0] == "cp"
@@ -179,30 +178,22 @@ def test_zip_is_extracted_and_registered_source_not_converted(
     assert not (tmp_path / "data/padron_nuevo/z.zip").exists()
 
 
-def test_last_run_pendientes_lists_only_this_run(aws, tmp_path, monkeypatch):
-    src = tmp_path / "a.csv"
-    src.write_text("a\n1\n")
-    serve(monkeypatch, {"http://x/a.csv": src})
+def test_last_run_errors_lists_failed_conversions(aws, tmp_path, monkeypatch):
+    serve(monkeypatch, {"http://x/b.xlsx": b"roto"})
     urls = tmp_path / "urls.json"
-    urls.write_text(json.dumps({"nueva": {"2026-04": "http://x/a.csv"}}))
+    urls.write_text(json.dumps({"rota": {"-": "http://x/b.xlsx"}}))
     monkeypatch.setattr(pu, "URLS_FILE", urls)
     uploaded: dict[str, str] = {}
     orig = aws.__call__
 
     def spy(args, check=True):
-        if args[:2] == ["s3", "cp"] and args[3].endswith("last_run_pendientes.json"):
+        if args[:2] == ["s3", "cp"] and args[3].endswith("last_run_errors.json"):
             uploaded["v"] = Path(args[2]).read_text()
-        if args[:2] == ["s3", "cp"] and args[3].endswith(pu.MANIFEST_KEY):
-            uploaded["manifest"] = Path(args[2]).read_text()
         return orig(args, check)
 
     monkeypatch.setattr(pu, "_aws", spy)
     pu.main()
-    assert json.loads(uploaded["v"]) == ["nueva"]
-    # segunda corrida: sin validadores -> inmutable -> nada convertido -> []
-    monkeypatch.setattr(pu, "load_manifest", lambda: json.loads(uploaded["manifest"]))
-    pu.main()
-    assert json.loads(uploaded["v"]) == []
+    assert json.loads(uploaded["v"]) == ["rota/-"]
 
 
 def test_error_entry_is_retried_even_without_validators(aws, tmp_path, monkeypatch):
@@ -231,7 +222,7 @@ def test_orphan_tables_warn_and_are_not_deleted(aws, tmp_path, monkeypatch, caps
     m, _ = ingest("orf", "-", "http://x/m.xlsx")
     make_xlsx(src, {"Uno": [["A"], [1]]})  # pasa a 1 hoja
     aws.calls.clear()
-    pu.process_item("orf", "-", "http://x/m.xlsx", m, True, set(), set())
+    pu.process_item("orf", "-", "http://x/m.xlsx", m, True, set())
     out = capsys.readouterr().out
     assert "_pendientes/orf__uno/ quedó huérfano" in out
     assert "_pendientes/orf__dos/ quedó huérfano" in out

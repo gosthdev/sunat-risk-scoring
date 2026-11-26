@@ -82,7 +82,7 @@ def entry(sha="a" * 64, etag=None, lm=None):
 def run(
     manifest, periodo="2025-01", force=False, fuente="padron_ruc", url="http://x/p1.zip"
 ):
-    pu.process_item(fuente, periodo, url, manifest, force, set(), set())
+    pu.process_item(fuente, periodo, url, manifest, force, set())
 
 
 def test_collect_items_flattens_small_datasets():
@@ -195,7 +195,7 @@ def test_main_merge_keeps_removed_periods_and_orders_writes(env, capsys):
     i_manifest = cps.index(f"s3://{pu.RAW_BUCKET}/{pu.MANIFEST_KEY}")
     i_ok = cps.index(f"s3://{pu.RAW_BUCKET}/_INGESTION_SUCCESS")
     assert i_manifest < i_ok
-    assert s3.objs[f"s3://{pu.RAW_BUCKET}/_runs/last_run_pendientes.json"] == b"[]"
+    assert s3.objs[f"s3://{pu.RAW_BUCKET}/_runs/last_run_errors.json"] == b"[]"
 
 
 def test_load_manifest_error_is_not_treated_as_absent(env, monkeypatch):

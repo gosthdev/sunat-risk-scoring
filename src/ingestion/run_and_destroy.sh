@@ -51,9 +51,9 @@ cleanup() {
 # Registrar trap para garantizar destrucción ante cualquier interrupción o salida
 trap cleanup EXIT INT TERM
 
-# Estado de la corrida anterior: nunca debe leerse un last_run_pendientes.json viejo
+# Estado de la corrida anterior: nunca debe leerse un last_run_errors.json viejo
 RAW_BUCKET_PRE="${RAW_BUCKET:-sunat-risk-scoring-raw}"
-aws s3 rm "s3://$RAW_BUCKET_PRE/_runs/last_run_pendientes.json" 2>/dev/null || true
+aws s3 rm "s3://$RAW_BUCKET_PRE/_runs/last_run_errors.json" 2>/dev/null || true
 
 echo -e "\n[1/4] Inicializando Terraform..."
 terraform -chdir="$TF_DIR" init

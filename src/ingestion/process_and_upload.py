@@ -12,7 +12,7 @@ Ingesta incremental ejecutada en la EC2 efímera.
    padron_ruc/ordenes_compra/small en su layout Hive; las claves sin handler
    propio usan el handler genérico y, si no están en fuentes.json, se convierten
    en streaming a Parquet (todo string) en s3://BRONZE/_pendientes/.
-4. Sincroniza a s3://RAW/, escribe el manifest y last_run_pendientes.json y,
+4. Sincroniza a s3://RAW/, escribe el manifest y last_run_errors.json y,
    por último, emite _INGESTION_SUCCESS.
 """
 
@@ -803,7 +803,6 @@ def process_item(
     manifest: Manifest,
     force: bool,
     registered: set[str],
-    converted: set[str],
 ) -> None:
     entry = manifest.get(fuente, {}).get(periodo)
     if not needs_download(entry, url, force):
@@ -841,7 +840,6 @@ def process_item(
     if convertir:
         try:
             tablas = convert_to_pendientes(fuente, periodo, files)
-            converted.update(tablas)
             for t in sorted(set(entry.get("tablas", [])) - set(tablas)):
                 log(
                     f"WARN: s3://{BRONZE_BUCKET}/_pendientes/{t}/ quedó huérfano "
@@ -884,16 +882,23 @@ def upload_to_s3() -> list[str]:
     return uploaded_summary
 
 
-def write_last_run_pendientes(tablas: set[str]) -> None:
-    path = BASE_DIR / "tmp" / "last_run_pendientes.json"
+def write_last_run_errors(manifest: Manifest) -> None:
+    """Fuentes con conversión fallida (incluye las no reintentadas); el workflow avisa."""
+    errores = sorted(
+        f"{f}/{p}"
+        for f, ps in manifest.items()
+        for p, e in ps.items()
+        if e.get("conversion") == "error"
+    )
+    path = BASE_DIR / "tmp" / "last_run_errors.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(sorted(tablas)))
+    path.write_text(json.dumps(errores))
     _aws(
         [
             "s3",
             "cp",
             str(path),
-            f"s3://{RAW_BUCKET}/_runs/last_run_pendientes.json",
+            f"s3://{RAW_BUCKET}/_runs/last_run_errors.json",
             "--only-show-errors",
         ]
     )
@@ -939,13 +944,12 @@ def main():
                     f"WARN: {fuente}/{p} está en el manifest pero ya no en urls.json (se conserva)"
                 )
 
-    converted: set[str] = set()
     for fuente, periodo, url in items:
-        process_item(fuente, periodo, url, manifest, force, registered, converted)
+        process_item(fuente, periodo, url, manifest, force, registered)
 
     summary = upload_to_s3()
     save_manifest(manifest)
-    write_last_run_pendientes(converted)
+    write_last_run_errors(manifest)
     write_success(summary)
     log("\n=== INGESTA COMPLETADA EXITOSAMENTE ===")
 

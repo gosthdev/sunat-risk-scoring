@@ -116,28 +116,33 @@ jobs:
           TF_VAR_force_redownload: ${{ inputs.force == 'raw' }}
         run: bash src/ingestion/run_and_destroy.sh
 
-      # Solo si esta corrida convirtio algo a _pendientes/ (lista no vacia); si no, no se dispara.
+      # Corre si hubo ingesta o si el ultimo crawl no termino bien (reintento tras un fallo previo).
       - name: Crawl pendientes (Glue)
-        if: steps.check.outputs.needs_run == 'true'
         run: |
-          aws s3 cp "s3://${RAW_BUCKET}/_runs/last_run_pendientes.json" "$RUNNER_TEMP/pendientes.json" 2>/dev/null \
-            || echo '[]' > "$RUNNER_TEMP/pendientes.json"
-          N=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/pendientes.json")
-          if [[ "$N" == "0" ]]; then
-            echo "Sin fuentes nuevas en _pendientes/: no se arranca el crawler."
-            exit 0
-          fi
           NAME="sunat-ssco-pendientes-crawler"
-          aws glue start-crawler --name "$NAME"
-          while true; do
-            state=$(aws glue get-crawler --name "$NAME" --query 'Crawler.State' --output text)
-            [[ "$state" == "READY" ]] && break
-            echo "  $NAME -> $state"
-            sleep 15
-          done
-          status=$(aws glue get-crawler --name "$NAME" --query 'Crawler.LastCrawl.Status' --output text)
-          echo "Crawler $NAME termino con estado: $status"
-          [[ "$status" == "SUCCEEDED" ]]
+          if [[ -z "$(aws s3 ls "s3://${BRONZE_BUCKET}/_pendientes/" 2>/dev/null)" ]]; then
+            echo "Sin datasets en _pendientes/: no se arranca el crawler."
+          else
+            last=$(aws glue get-crawler --name "$NAME" --query 'Crawler.LastCrawl.Status' --output text)
+            if [[ "${{ steps.check.outputs.needs_run }}" == "true" || "$last" != "SUCCEEDED" ]]; then
+              aws glue start-crawler --name "$NAME"
+              while true; do
+                state=$(aws glue get-crawler --name "$NAME" --query 'Crawler.State' --output text)
+                [[ "$state" == "READY" ]] && break
+                echo "  $NAME -> $state"
+                sleep 15
+              done
+              status=$(aws glue get-crawler --name "$NAME" --query 'Crawler.LastCrawl.Status' --output text)
+              echo "Crawler $NAME termino con estado: $status"
+              [[ "$status" == "SUCCEEDED" ]]
+            fi
+          fi
+
+      - name: Avisar conversiones fallidas
+        if: always() && steps.check.outputs.needs_run == 'true'
+        run: |
+          aws s3 cp "s3://${RAW_BUCKET}/_runs/last_run_errors.json" "$RUNNER_TEMP/errors.json" 2>/dev/null || exit 0
+          python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); l and print("::warning::Conversion fallida (sin dataset en Athena): "+", ".join(l))' "$RUNNER_TEMP/errors.json"
 
   # ============================================================================
   # ETAPA 0: Small Datasets (Job 00 -> Silver, en el runner)
