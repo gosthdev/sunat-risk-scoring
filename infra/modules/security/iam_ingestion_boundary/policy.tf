@@ -22,6 +22,21 @@ resource "aws_iam_policy" "ingestion_boundary" {
         ]
       },
       {
+        Sid      = "BronzePendientesWrite"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:DeleteObject"]
+        Resource = ["${var.bronze_bucket_arn}/_pendientes/*"]
+      },
+      {
+        Sid      = "BronzePendientesList"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [var.bronze_bucket_arn]
+        Condition = {
+          StringLike = { "s3:prefix" = ["_pendientes/*", "_pendientes"] }
+        }
+      },
+      {
         Sid    = "SSMCore"
         Effect = "Allow"
         Action = [

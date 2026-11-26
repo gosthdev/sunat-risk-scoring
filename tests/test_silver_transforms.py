@@ -3,16 +3,19 @@
 import shutil
 import unittest
 
+from fuentes.silver.ordenes_compra import (
+    preparar_ordenes_compra,
+    separar_ordenes_compra,
+)
+from fuentes.silver.padron_ruc import preparar_padron_ruc, separar_padron_ruc
 from silver_transforms import (
     MOTIVO_COL,
     CuarentenaExcedidaError,
     SilverIncompletoError,
     construir_reporte_calidad,
-    preparar_ordenes_compra,
-    preparar_padron_ruc,
+    filtrar_periodos,
+    fusionar_reporte,
     ruc_valido,
-    separar_ordenes_compra,
-    separar_padron_ruc,
     verificar_silver_escrito,
     verificar_tasa_cuarentena,
 )
@@ -221,6 +224,53 @@ class TestSilverTransforms(unittest.TestCase):
         sin_febrero = completo.filter("mes != 2")
         with self.assertRaises(SilverIncompletoError):
             verificar_silver_escrito(reporte, sin_febrero)
+
+    def _rep(self, filas):
+        return self.spark.createDataFrame(
+            filas, "fuente string, anio int, mes int, filas_silver long"
+        )
+
+    def test_fusionar_reporte_reemplaza_solo_las_claves_recalculadas(self):
+        previo = self._rep(
+            [
+                ("padron_ruc", 2025, 1, 5),
+                ("padron_ruc", 2025, 2, 6),
+                ("ordenes", 2025, 1, 9),
+            ]
+        )
+        nuevo = self._rep([("padron_ruc", 2025, 2, 60), ("padron_ruc", 2025, 3, 7)])
+        fusion = {
+            (r["fuente"], r["anio"], r["mes"]): r["filas_silver"]
+            for r in fusionar_reporte(nuevo, previo).collect()
+        }
+        self.assertEqual(
+            fusion,
+            {
+                ("padron_ruc", 2025, 1): 5,
+                ("padron_ruc", 2025, 2): 60,
+                ("padron_ruc", 2025, 3): 7,
+                ("ordenes", 2025, 1): 9,
+            },
+        )
+
+    def test_fusionar_reporte_sin_previo_devuelve_el_nuevo(self):
+        nuevo = self._rep([("padron_ruc", 2025, 1, 5)])
+        self.assertEqual(fusionar_reporte(nuevo, None).count(), 1)
+
+    def test_filtrar_periodos(self):
+        df = self.spark.createDataFrame(
+            [(2025, 1), (2025, 2), (2026, 1)], "anio int, mes int"
+        )
+        self.assertEqual(filtrar_periodos(df, None).count(), 3)
+        self.assertEqual(
+            [
+                (r["anio"], r["mes"])
+                for r in filtrar_periodos(df, [(2025, 2), (2026, 1)])
+                .orderBy("anio")
+                .collect()
+            ],
+            [(2025, 2), (2026, 1)],
+        )
 
 
 if __name__ == "__main__":

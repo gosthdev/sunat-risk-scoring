@@ -70,11 +70,11 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         Resource = ["${var.tfstate_bucket_arn}/ingestion/*"]
       },
       {
-        # Solo los marcadores de ingesta que run_and_destroy.sh borra en la raíz de raw.
+        # Solo los marcadores de ingesta y _runs/ que run_and_destroy.sh borra en raw.
         Sid      = "DeleteRawIngestionFlags"
         Effect   = "Allow"
         Action   = ["s3:DeleteObject"]
-        Resource = ["${var.raw_bucket_arn}/_INGESTION_*"]
+        Resource = ["${var.raw_bucket_arn}/_INGESTION_*", "${var.raw_bucket_arn}/_runs/*"]
       },
       {
         # El provider de infra/ingestion etiqueta estos objetos (default_tags).

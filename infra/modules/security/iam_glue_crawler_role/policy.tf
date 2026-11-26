@@ -17,6 +17,21 @@ resource "aws_iam_role_policy" "s3_read" {
         Resource = [var.silver_bucket_arn, var.gold_bucket_arn]
       },
       {
+        Sid      = "ListBronzePendientes"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [var.bronze_bucket_arn]
+        Condition = {
+          StringLike = { "s3:prefix" = ["_pendientes", "_pendientes/*"] }
+        }
+      },
+      {
+        Sid      = "ReadBronzePendientes"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["${var.bronze_bucket_arn}/_pendientes/*"]
+      },
+      {
         Sid      = "ReadObjects"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]

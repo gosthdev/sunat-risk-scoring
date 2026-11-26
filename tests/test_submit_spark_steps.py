@@ -270,3 +270,112 @@ def test_variables_del_driver_llegan_a_emr(tmp_path):
     lanzamiento = _lanzamientos(llamadas)[0]
     assert "driverEnv.ANIO_REFERENCIA_REGIONAL=2025" in lanzamiento
     assert "driverEnv.MES_REFERENCIA_REGIONAL=6" in lanzamiento
+
+
+S = "s3://sunat-risk-scoring-silver"
+
+
+def _destinos(llamadas):
+    return sorted(c.split()[3] for c in _syncs(llamadas))
+
+
+def test_periodos_parciales_publican_solo_esas_particiones(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={"PENDING_PERIODS": "padron_ruc=2025-02"},
+    )
+    assert res.returncode == 0, res.stderr
+    assert _destinos(llamadas) == [
+        f"{S}/padron_ruc/anio=2025/mes=2/",
+        f"{S}/quality_report/",
+        f"{S}/quarantine_padron_ruc/anio=2025/mes=2/",
+    ]
+    assert "driverEnv.PENDING_PERIODS=padron_ruc=2025-02" in _lanzamientos(llamadas)[0]
+
+
+def test_varios_periodos_van_separados_por_punto_y_coma_al_driver(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={"PENDING_PERIODS": "padron_ruc=2025-01,2025-12 ordenes_compra=FULL"},
+    )
+    assert res.returncode == 0, res.stderr
+    lanzamiento = _lanzamientos(llamadas)[0]
+    assert (
+        "driverEnv.PENDING_PERIODS=padron_ruc=2025-01,2025-12;ordenes_compra=FULL"
+        in lanzamiento
+    )
+    assert f"{S}/padron_ruc/anio=2025/mes=12/" in _destinos(llamadas)
+
+
+def test_particion_ausente_en_staging_borra_la_del_vivo(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={
+            "PENDING_PERIODS": "padron_ruc=2025-02",
+            "AWS_EMPTY_MATCH": "quarantine_padron_ruc",
+        },
+    )
+    assert res.returncode == 0, res.stderr
+    assert f"{S}/quarantine_padron_ruc/anio=2025/mes=2/" not in _destinos(llamadas)
+    assert any(
+        c.startswith(f"s3 rm {S}/quarantine_padron_ruc/anio=2025/mes=2/ ")
+        for c in llamadas
+    )
+
+
+def test_fuente_full_sincroniza_la_tabla_completa_con_delete(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={"PENDING_PERIODS": "ordenes_compra=FULL"},
+    )
+    assert res.returncode == 0, res.stderr
+    assert _destinos(llamadas) == [
+        f"{S}/ordenes_compra/",
+        f"{S}/quality_report/",
+        f"{S}/quarantine_ordenes_compra/",
+    ]
+    assert all("--delete" in c for c in _syncs(llamadas))
+
+
+def test_periodos_en_salida_completa_sincronizan_la_tabla_entera(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={"PENDING_PERIODS": "ordenes_compra=2025-03"},
+    )
+    assert res.returncode == 0, res.stderr
+    assert f"{S}/ordenes_compra/" in _destinos(llamadas)
+
+
+def test_pending_periods_vacio_omite_01_y_02(tmp_path):
+    res, llamadas = _ejecutar(
+        tmp_path, ["SUCCESS"], step="02_clean_silver", extra_env={"PENDING_PERIODS": ""}
+    )
+    assert res.returncode == 0, res.stderr
+    assert _lanzamientos(llamadas) == []
+    assert _syncs(llamadas) == []
+
+
+def test_fuente_nueva_en_el_registro_se_publica_sin_tocar_el_script(tmp_path):
+    registro = tmp_path / "fuentes.json"
+    registro.write_text(
+        '{"compartidos": {}, "fuentes": {"nueva": {"capas": {"silver": {"codigo": [],'
+        ' "salidas": [{"ruta": "SILVER_SEE", "publicacion": "particiones"}]}}}}}'
+    )
+    res, llamadas = _ejecutar(
+        tmp_path,
+        ["SUCCESS"],
+        step="02_clean_silver",
+        extra_env={"FUENTES_JSON": str(registro), "PENDING_PERIODS": "nueva=2025-03"},
+    )
+    assert res.returncode == 0, res.stderr
+    assert _destinos(llamadas) == [f"{S}/quality_report/", f"{S}/see/anio=2025/mes=3/"]

@@ -33,3 +33,15 @@ variable "ebs_volume_size" {
   default     = 60
   description = "Tamaño del disco EBS gp3 en GB (se borra al terminar la instancia)."
 }
+
+variable "bronze_bucket_name" {
+  type        = string
+  default     = "sunat-risk-scoring-bronze"
+  description = "Bucket bronze: la EC2 solo escribe/borra bajo _pendientes/."
+}
+
+variable "force_redownload" {
+  type        = bool
+  default     = false
+  description = "true = raw vuelve a descargar todo ignorando el manifest (FORCE_REDOWNLOAD=1 en la EC2)."
+}

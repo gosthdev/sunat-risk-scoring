@@ -1,31 +1,34 @@
 """
-Transformaciones puras de la capa Silver (DataFrame -> DataFrame).
+Lo compartido de la capa Silver: validación de RUC, reporte de calidad,
+verificaciones y `procesar`, el flujo leer bronze -> limpiar -> staging.
 
-No leen ni escriben S3: reciben DataFrames y devuelven DataFrames. Así la
-lógica de limpieza no depende del motor de consulta ni del almacenamiento,
-y se prueba con datos en memoria. 02_clean_silver.py solo une lectura,
-estas funciones y escritura.
+Todo lo demás son funciones puras (DataFrame -> DataFrame) que no leen ni
+escriben S3. La limpieza propia de cada fuente vive en fuentes/silver/<fuente>.py.
 
 Regla de calidad principal: un RUC válido tiene exactamente 11 dígitos.
 Las filas con un RUC inválido no se descartan en silencio: se separan a
 cuarentena con el motivo, para poder auditarlas y reportar su tasa.
 """
 
+import os
+from functools import reduce
+
+from pyspark.errors import AnalysisException
 from pyspark.sql import Column, DataFrame
 from pyspark.sql.functions import (
     coalesce,
     col,
-    concat_ws,
     count,
     lit,
-    row_number,
     trim,
     udf,
     when,
 )
 from pyspark.sql.types import StringType
-from pyspark.sql.window import Window
+from pyspark.storagelevel import StorageLevel
 from region_normalizer import normalize_department
+from s3_paths import SILVER_QUALITY_REPORT, staging_de
+from schema_contracts import validar_esquema
 
 RUC_REGEX = r"^[0-9]{11}$"
 MOTIVO_COL = "motivo_cuarentena"
@@ -36,82 +39,12 @@ MOTIVO_RUC_CONTRATISTA_INVALIDO = "ruc_contratista_invalido"
 MOTIVO_MONTO_NULO = "monto_nulo"
 MOTIVO_MONTO_NEGATIVO = "monto_negativo"
 
-_normalize_department_udf = udf(normalize_department, StringType())
+normalize_department_udf = udf(normalize_department, StringType())
 
 
 def ruc_valido(columna: Column) -> Column:
     """True si el valor tiene exactamente 11 dígitos; nulo cuenta como inválido."""
     return coalesce(trim(columna.cast("string")).rlike(RUC_REGEX), lit(False))
-
-
-def preparar_padron_ruc(bronze: DataFrame) -> DataFrame:
-    """Deduplica las fotos del Padrón por (RUC, PERIODO_PUBLICACION)."""
-    return bronze.dropDuplicates(["RUC", "PERIODO_PUBLICACION"])
-
-
-def separar_padron_ruc(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
-    """Devuelve (silver, cuarentena) según la validez del RUC."""
-    valido = ruc_valido(col("RUC"))
-    silver = entrada.filter(valido).withColumn(
-        "Departamento", _normalize_department_udf(trim(col("Departamento")))
-    )
-    cuarentena = entrada.filter(~valido).withColumn(
-        MOTIVO_COL, lit(MOTIVO_RUC_INVALIDO)
-    )
-    return silver, cuarentena
-
-
-def preparar_ordenes_compra(bronze: DataFrame) -> DataFrame:
-    """Deduplica las órdenes por número de orden, quedándose con la última foto.
-
-    La misma orden llega en varias cargas mensuales (≈37% de las filas de bronze).
-    `dropDuplicates` elegía una versión y una partición (anio, mes) distintas en
-    cada evaluación, y colapsaba en una sola todas las órdenes con `orden` nulo.
-    Aquí gana la carga más reciente y las filas sin `orden` pasan sin deduplicar.
-    """
-    orden_de_recencia = [col("anio").desc(), col("mes").desc()]
-    if "fecha_de_emision" in bronze.columns:
-        orden_de_recencia.append(col("fecha_de_emision").desc())
-    ultima = Window.partitionBy("orden").orderBy(*orden_de_recencia)
-    con_orden = (
-        bronze.filter(col("orden").isNotNull())
-        .withColumn("_rn", row_number().over(ultima))
-        .filter(col("_rn") == 1)
-        .drop("_rn")
-    )
-    return con_orden.unionByName(bronze.filter(col("orden").isNull()))
-
-
-def separar_ordenes_compra(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
-    """Devuelve (silver, cuarentena).
-
-    - ruc_entidad debe ser un RUC de 11 dígitos.
-    - ruc_contratista puede venir nulo, pero si viene debe ser un RUC de 11
-      dígitos (el crudo mezcla RUC y DNI de 8 dígitos; un DNI no es un RUC).
-    - monto_total_orden_original debe existir y ser >= 0. Un monto nulo o negativo
-      no se descarta en silencio: va a cuarentena con su motivo.
-    """
-    entidad_ok = ruc_valido(col("ruc_entidad"))
-    contratista_ok = col("ruc_contratista").isNull() | ruc_valido(
-        col("ruc_contratista")
-    )
-    monto = col("monto_total_orden_original")
-    aceptada = entidad_ok & contratista_ok & coalesce(monto >= 0, lit(False))
-
-    motivo = concat_ws(
-        ";",
-        when(~entidad_ok, lit(MOTIVO_RUC_ENTIDAD_INVALIDO)),
-        when(~contratista_ok, lit(MOTIVO_RUC_CONTRATISTA_INVALIDO)),
-        when(monto.isNull(), lit(MOTIVO_MONTO_NULO)),
-        when(monto < 0, lit(MOTIVO_MONTO_NEGATIVO)),
-    )
-
-    silver = entrada.filter(aceptada).withColumn(
-        "departamento_entidad",
-        _normalize_department_udf(trim(col("departamento_entidad"))),
-    )
-    cuarentena = entrada.filter(~aceptada).withColumn(MOTIVO_COL, motivo)
-    return silver, cuarentena
 
 
 def _conteo_por_mes(df: DataFrame, nombre: str) -> DataFrame:
@@ -232,3 +165,140 @@ def verificar_tasa_cuarentena(reporte: DataFrame, maximo: float) -> None:
             f"Tasa de cuarentena por RUC sobre el máximo {maximo:.1%} en: {detalle}. "
             "Se aborta sin escribir Silver; revisar el formato de la fuente."
         )
+
+
+def filtrar_periodos(
+    df: DataFrame, periodos: list[tuple[int, int]] | None
+) -> DataFrame:
+    """Solo las filas de esos (anio, mes); None deja todo (FULL)."""
+    if periodos is None:
+        return df
+    return df.filter(
+        reduce(
+            lambda a, b: a | b,
+            [(col("anio") == a) & (col("mes") == m) for a, m in periodos],
+        )
+    )
+
+
+def fusionar_reporte(nuevo: DataFrame, previo: DataFrame | None) -> DataFrame:
+    """Reporte vivo menos las claves (fuente, anio, mes) recalculadas, unido al nuevo.
+
+    Así el reporte publicado sigue completo aunque la corrida solo toque algunos periodos.
+    """
+    if previo is None:
+        return nuevo
+    conservado = previo.select(*nuevo.columns).join(
+        nuevo.select("fuente", "anio", "mes"), ["fuente", "anio", "mes"], "left_anti"
+    )
+    return conservado.unionByName(nuevo)
+
+
+def _leer_opcional(spark, path) -> DataFrame | None:
+    """Lee un parquet que puede no existir (bronze no escribe cuarentena vacía)."""
+    try:
+        return spark.read.parquet(path)
+    except AnalysisException:
+        return None
+
+
+def _leer_escrito(spark, path) -> DataFrame:
+    """Lo escrito en staging; vacío si no quedó ningún parquet (ningún periodo con filas limpias).
+
+    Otros errores de lectura (permisos, rutas, etc.) se propagan.
+    """
+    try:
+        return spark.read.parquet(path)
+    except AnalysisException as exc:
+        if (
+            getattr(exc, "getCondition", exc.getErrorClass)()
+            != "UNABLE_TO_INFER_SCHEMA"
+        ):
+            raise
+        return spark.createDataFrame([], "anio int, mes int")
+
+
+def _log_reporte(reporte: DataFrame) -> None:
+    # Línea fácil de grepear en los logs del driver (stdout).
+    for r in reporte.orderBy("fuente", "anio", "mes").collect():
+        print(
+            f"CALIDAD fuente={r['fuente']} anio={r['anio']} mes={r['mes']} "
+            f"bronze={r['filas_bronze']} cuarentena_bronze={r['filas_cuarentena_bronze']} "
+            f"tasa_bronze={r['tasa_cuarentena_bronze']:.4f} "
+            f"cuarentena_ruc={r['filas_cuarentena_ruc']} "
+            f"tasa_ruc={r['tasa_cuarentena_ruc']:.4f} silver={r['filas_silver']}"
+        )
+
+
+def _reporte_previo(spark, fuente: str, periodos) -> DataFrame | None:
+    """Reporte ya escrito en staging por esta corrida; si no, el publicado."""
+    previo = _leer_opcional(spark, staging_de(SILVER_QUALITY_REPORT)) or _leer_opcional(
+        spark, SILVER_QUALITY_REPORT
+    )
+    # FULL de la fuente: sus claves viejas (incluso huérfanas) no sobreviven.
+    if previo is not None and periodos is None:
+        previo = previo.filter(col("fuente") != fuente)
+    elif previo is not None:
+        # Un periodo sin filas en bronze no genera fila nueva: la vieja no debe sobrevivir.
+        pedidos = spark.createDataFrame(periodos, "anio int, mes int")
+        propias = previo.filter(col("fuente") == fuente)
+        previo = previo.filter(col("fuente") != fuente).unionByName(
+            propias.join(pedidos, ["anio", "mes"], "left_anti").select(*previo.columns)
+        )
+    if previo is None:
+        return None
+    # En memoria: se reescribe la misma ruta de staging de la que se leyó.
+    return spark.createDataFrame(previo.collect(), previo.schema)
+
+
+def procesar(
+    spark,
+    fuente,
+    bronze_path,
+    bronze_quarantine_path,
+    preparar,
+    separar,
+    silver_path,
+    silver_quarantine_path,
+    periodos,
+):
+    """Bronze (filtrado por periodos) -> preparar -> separar -> staging, con reporte de calidad."""
+    bronze = filtrar_periodos(spark.read.parquet(bronze_path), periodos)
+    # Contrato de esquema: un cambio en la fuente falla acá, antes de escribir Silver.
+    validar_esquema(bronze.schema, fuente)
+    cuarentena_bronze = _leer_opcional(spark, bronze_quarantine_path)
+    if cuarentena_bronze is not None:
+        cuarentena_bronze = filtrar_periodos(cuarentena_bronze, periodos)
+    entrada = preparar(bronze).persist(StorageLevel.MEMORY_AND_DISK)
+    try:
+        silver, cuarentena = separar(entrada)
+        reporte = construir_reporte_calidad(
+            fuente, bronze, entrada, silver, cuarentena, cuarentena_bronze
+        ).persist(StorageLevel.MEMORY_AND_DISK)
+        try:
+            _log_reporte(reporte)
+            # Antes de escribir nada: si la fuente cambió de formato, Silver no se toca.
+            verificar_tasa_cuarentena(
+                reporte, float(os.environ.get("MAX_TASA_CUARENTENA_RUC", "0.5"))
+            )
+            previo = _reporte_previo(spark, fuente, periodos)
+
+            # Se escribe en staging: la publicación a la ruta viva la hace el
+            # orquestador solo si el job completo termina bien.
+            silver.write.mode("overwrite").partitionBy("anio", "mes").parquet(
+                staging_de(silver_path)
+            )
+            verificar_silver_escrito(
+                reporte, _leer_escrito(spark, staging_de(silver_path))
+            )
+            if cuarentena.take(1):
+                cuarentena.write.mode("overwrite").partitionBy("anio", "mes").parquet(
+                    staging_de(silver_quarantine_path)
+                )
+            fusionar_reporte(reporte, previo).write.mode("overwrite").partitionBy(
+                "fuente"
+            ).parquet(staging_de(SILVER_QUALITY_REPORT))
+        finally:
+            reporte.unpersist()
+    finally:
+        entrada.unpersist()

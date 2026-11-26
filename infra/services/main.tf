@@ -41,13 +41,15 @@ module "iam_sagemaker_execution_role" {
 }
 
 module "iam_ingestion_boundary" {
-  source         = "../modules/security/iam_ingestion_boundary"
-  raw_bucket_arn = data.aws_s3_bucket.raw.arn
+  source            = "../modules/security/iam_ingestion_boundary"
+  raw_bucket_arn    = data.aws_s3_bucket.raw.arn
+  bronze_bucket_arn = data.aws_s3_bucket.bronze.arn
 }
 
 module "iam_glue_crawler_role" {
   source            = "../modules/security/iam_glue_crawler_role"
   role_name         = "sunat-ssco-glue-crawler-role"
+  bronze_bucket_arn = data.aws_s3_bucket.bronze.arn
   silver_bucket_arn = data.aws_s3_bucket.silver.arn
   gold_bucket_arn   = data.aws_s3_bucket.gold.arn
 }
@@ -105,6 +107,17 @@ module "glue_crawler_silver" {
   table_prefix   = "silver_"
   # _staging/ es la ruta de paso de los jobs: solo se cataloga lo ya publicado.
   extra_exclusions = ["_staging/**"]
+}
+
+module "glue_crawler_pendientes" {
+  source         = "../modules/glue/glue_crawler"
+  crawler_name   = "sunat-ssco-pendientes-crawler"
+  database_name  = module.glue_database.database_name
+  role_arn       = module.iam_glue_crawler_role.role_arn
+  s3_target_path = "s3://${data.aws_s3_bucket.bronze.bucket}/_pendientes/"
+  table_prefix   = "dataset_pendiente_"
+  # s3://bucket/ = 1, _pendientes/ = 2, <tabla>/ = 3: una tabla por carpeta, periodo= como partición.
+  table_level = 3
 }
 
 module "glue_crawler_gold" {

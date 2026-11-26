@@ -25,6 +25,9 @@
 #   - POLL_INTERVAL_SECONDS  : Intervalo de sondeo en segundos (por defecto: 15)
 #   - STEP_MAX_ATTEMPTS      : Intentos por step antes de abortar (por defecto: 2)
 #   - RETRY_BACKOFF_SECONDS  : Espera entre intentos (por defecto: 30)
+#   - PENDING_PERIODS        : Alcance de 01/02 por fuente (ver incremental.py): "fuente=FULL
+#                              fuente2=2026-04,2026-05". Sin definir = todas en FULL; vacío = se omite.
+#   - FUENTES_JSON           : Registro de fuentes (por defecto config/fuentes.json)
 #   - PADRON_SNAPSHOTS       : Nº de fotos del Padrón a procesar; si no se da, se
 #                              cuentan en raw/padron_ruc (por defecto si falla: 12)
 #   - MIN_EXECUTORS          : Piso de executors (por defecto: 2)
@@ -208,21 +211,66 @@ staging_uri() {
   fi
 }
 
-# Salidas que cada step deja en staging: "<bucket> <capa> <subruta> <opcional 0|1>".
-# Las opcionales (cuarentena) pueden no existir si no hubo filas rechazadas.
+# Registro de fuentes y constantes de rutas: de ahí salen las salidas por fuente, así que
+# agregar una fuente no obliga a editar este script. FUENTES_JSON permite otro registro.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FUENTES_JSON="${FUENTES_JSON:-$SCRIPT_DIR/../../../config/fuentes.json}"
+S3_PATHS_PY="$SCRIPT_DIR/../common/s3_paths.py"
+
+# capa_outputs <capa>: una línea por salida declarada en el registro para esa capa:
+# "<VAR_BUCKET> <capa> <subruta> <opcional 0|1> <fuente> <publicacion>".
+# \x22 en la regex es la comilla doble (el código va entre comillas simples de bash).
+# La subruta se lee de la constante `ruta` en s3_paths.py (_build_path(BUCKET, "capa", "sub")).
+capa_outputs() {
+  python3 -c '
+import json, re, sys
+registro, s3_paths, capa = sys.argv[1:4]
+constantes = {
+    m[1]: (m[2], m[3], m[4])
+    for m in re.finditer(
+        r"^(\w+) = _build_path\(\s*(\w+),\s*\x22(\w+)\x22,\s*\x22([^\x22]+)\x22",
+        open(s3_paths).read(), re.M)
+}
+for fuente, datos in json.load(open(registro))["fuentes"].items():
+    for salida in datos["capas"].get(capa, {}).get("salidas", []):
+        bucket, layer, sub = constantes[salida["ruta"]]
+        print(bucket, layer, sub, int(salida.get("opcional", False)), fuente, salida["publicacion"])
+' "$FUENTES_JSON" "$S3_PATHS_PY" "$1"
+}
+
+# Salidas que cada step deja en staging: "<bucket> <capa> <subruta> <opcional 0|1> <fuente|-> <publicacion>".
+# Las opcionales (cuarentena) pueden no existir si no hubo filas rechazadas. `fuente` "-" son
+# salidas compartidas, siempre de tabla completa.
 step_outputs() {
+  local var layer sub optional fuente pub
   case "$1" in
     02_clean_silver)
-      echo "$SILVER_BUCKET silver padron_ruc 0"
-      echo "$SILVER_BUCKET silver ordenes_compra 0"
-      echo "$SILVER_BUCKET silver quarantine_padron_ruc 1"
-      echo "$SILVER_BUCKET silver quarantine_ordenes_compra 1"
-      echo "$SILVER_BUCKET silver quality_report 0"
+      while read -r var layer sub optional fuente pub; do
+        echo "${!var} $layer $sub $optional $fuente $pub"
+      done < <(capa_outputs silver)
+      echo "$SILVER_BUCKET silver quality_report 0 - completa"
       ;;
-    03_feature_gold) echo "$GOLD_BUCKET gold ruc_features 0" ;;
-    04_regional_gold) echo "$GOLD_BUCKET gold regional_summary 0" ;;
-    05_scoring_dataset_gold) echo "$GOLD_BUCKET gold scoring_dataset 0" ;;
+    03_feature_gold) echo "$GOLD_BUCKET gold ruc_features 0 - completa" ;;
+    04_regional_gold) echo "$GOLD_BUCKET gold regional_summary 0 - completa" ;;
+    05_scoring_dataset_gold) echo "$GOLD_BUCKET gold scoring_dataset 0 - completa" ;;
   esac
+}
+
+# Alcance de una fuente según PENDING_PERIODS: FULL (env sin definir o fuente=FULL),
+# OMITIDA (ausente) o la lista "YYYY-MM,YYYY-MM". La fuente "-" siempre es FULL.
+alcance_de() {
+  local fuente="$1" token
+  if [[ "$fuente" == "-" || -z "${PENDING_PERIODS+x}" ]]; then echo FULL; return; fi
+  for token in ${PENDING_PERIODS//;/ }; do
+    if [[ "${token%%=*}" == "$fuente" ]]; then echo "${token#*=}"; return; fi
+  done
+  echo OMITIDA
+}
+
+# partitions_of <alcance>: una "anio=Y/mes=M" por periodo (mes sin cero, como bronze/silver).
+partitions_of() {
+  local p
+  for p in ${1//,/ }; do echo "anio=${p%-*}/mes=$((10#${p#*-}))"; done
 }
 
 # 0 si el prefijo tiene objetos, 1 si está vacío. `aws s3 ls` sale con 1 cuando no hay
@@ -242,8 +290,8 @@ s3_prefix_has_objects() {
 }
 
 clear_staging() {
-  local bucket layer sub optional
-  while read -r bucket layer sub optional; do
+  local bucket layer sub optional fuente pub
+  while read -r bucket layer sub optional fuente pub; do
     [[ -z "$bucket" ]] && continue
     aws s3 rm "$(staging_uri "$bucket" "$layer" "$sub")/" --recursive --only-show-errors >/dev/null 2>&1 || true
   done < <(step_outputs "$1")
@@ -266,28 +314,54 @@ sync_con_reintentos() {
 }
 
 # Publica staging -> ruta viva. Primero verifica que toda salida obligatoria exista:
-# si falta alguna no se toca nada de lo publicado.
+# si falta alguna no se toca nada de lo publicado. Alcance por salida (token de su fuente
+# en PENDING_PERIODS + la `publicacion` declarada en el registro):
+#   FULL, o lista + "completa" -> tabla completa con --delete
+#   lista + "particiones"      -> solo anio=Y/mes=M; si la partición no está en staging, se
+#                                 borra la del vivo
+#   fuente omitida             -> no se toca
 publish_step() {
-  local step="$1" bucket layer sub optional staging live
-  while read -r bucket layer sub optional; do
+  local step="$1" bucket layer sub optional fuente pub alcance staging live part
+  while read -r bucket layer sub optional fuente pub; do
     [[ -z "$bucket" ]] && continue
+    alcance="$(alcance_de "$fuente")"
+    [[ "$alcance" == "OMITIDA" || "$optional" -ne 0 ]] && continue
     staging="$(staging_uri "$bucket" "$layer" "$sub")"
-    if [[ "$optional" -eq 0 ]] && ! s3_prefix_has_objects "$staging"; then
-      echo "✗ ERROR: '${step}' terminó sin dejar ${staging}; no se publica nada." >&2
-      return 1
+    if [[ "$alcance" == "FULL" || "$pub" == "completa" ]]; then
+      if ! s3_prefix_has_objects "$staging"; then
+        echo "✗ ERROR: '${step}' terminó sin dejar ${staging}; no se publica nada." >&2
+        return 1
+      fi
     fi
   done < <(step_outputs "$step")
 
-  while read -r bucket layer sub optional; do
+  while read -r bucket layer sub optional fuente pub; do
     [[ -z "$bucket" ]] && continue
+    alcance="$(alcance_de "$fuente")"
+    if [[ "$alcance" == "OMITIDA" ]]; then
+      echo "Sin cambios para ${fuente}: no se publica ${sub}"
+      continue
+    fi
     staging="$(staging_uri "$bucket" "$layer" "$sub")"
     live="$(live_uri "$bucket" "$layer" "$sub")"
-    if s3_prefix_has_objects "$staging"; then
-      echo "Publicando ${staging} -> ${live}"
-      sync_con_reintentos "$staging" "$live" || return 1
+    if [[ "$alcance" == "FULL" || "$pub" == "completa" ]]; then
+      if s3_prefix_has_objects "$staging"; then
+        echo "Publicando ${staging} -> ${live}"
+        sync_con_reintentos "$staging" "$live" || return 1
+      else
+        echo "Sin ${staging} (salida opcional): se limpia ${live}"
+        aws s3 rm "${live}/" --recursive --only-show-errors >/dev/null 2>&1 || true
+      fi
     else
-      echo "Sin ${staging} (salida opcional): se limpia ${live}"
-      aws s3 rm "${live}/" --recursive --only-show-errors >/dev/null 2>&1 || true
+      for part in $(partitions_of "$alcance"); do
+        if s3_prefix_has_objects "${staging}/${part}"; then
+          echo "Publicando ${staging}/${part} -> ${live}/${part}"
+          sync_con_reintentos "${staging}/${part}" "${live}/${part}" || return 1
+        else
+          echo "Sin ${staging}/${part}: se limpia ${live}/${part}"
+          aws s3 rm "${live}/${part}/" --recursive --only-show-errors >/dev/null 2>&1 || true
+        fi
+      done
     fi
   done < <(step_outputs "$step")
 
@@ -476,6 +550,11 @@ run_step_once() {
 --conf spark.emr-serverless.driverEnv.DATASET_VERSION=${DATASET_VERSION:-v1} \
 --conf spark.emr-serverless.driverEnv.GOLD_CORTES=${GOLD_CORTES:-todas} \
 --conf spark.emr-serverless.driverEnv.MAX_TASA_CUARENTENA_RUC=${MAX_TASA_CUARENTENA_RUC:-0.5}"
+  # Alcance incremental de 01/02 (incremental.periodos). Los tokens van separados por ";"
+  # porque el espacio parte los argumentos de sparkSubmitParameters; incremental.py acepta ambos.
+  if [[ -n "${PENDING_PERIODS:-}" ]]; then
+    SPARK_PARAMS+=" --conf spark.emr-serverless.driverEnv.PENDING_PERIODS=${PENDING_PERIODS// /;}"
+  fi
   # Mes de referencia de 04_regional_gold: solo si se define (por defecto usa el último).
   if [[ -n "${ANIO_REFERENCIA_REGIONAL:-}" ]]; then
     SPARK_PARAMS+=" --conf spark.emr-serverless.driverEnv.ANIO_REFERENCIA_REGIONAL=${ANIO_REFERENCIA_REGIONAL}"
@@ -576,6 +655,13 @@ for step in "${STEPS[@]}"; do
   echo "------------------------------------------------------------------------"
   echo "[${CURRENT_STEP}/${TOTAL_STEPS}] Lanzando: ${step}"
   echo "------------------------------------------------------------------------"
+
+  # PENDING_PERIODS vacío (definido): el planner no dejó nada pendiente en esta etapa.
+  if [[ ( "$step" == "01_ingest_bronze" || "$step" == "02_clean_silver" ) \
+        && -n "${PENDING_PERIODS+x}" && -z "${PENDING_PERIODS// /}" ]]; then
+    echo "PENDING_PERIODS vacío: '${step}' se omite."
+    continue
+  fi
 
   ok=0
   for attempt in $(seq 1 "${STEP_MAX_ATTEMPTS}"); do

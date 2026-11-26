@@ -1,0 +1,124 @@
+{
+  "compartidos": {
+    "small": [
+      "src/spark/jobs/00_prepare_small_datasets.py",
+      "src/spark/common/ruc_pandas.py",
+      "src/spark/common/s3_paths.py",
+      "src/spark/common/incremental.py"
+    ],
+    "bronze": [
+      "src/spark/jobs/01_ingest_bronze.py",
+      "src/spark/common/schema_definitions.py",
+      "src/spark/common/bronze_io.py",
+      "src/spark/common/s3_paths.py",
+      "src/spark/common/spark_session_factory.py",
+      "src/spark/common/incremental.py"
+    ],
+    "silver": [
+      "src/spark/jobs/02_clean_silver.py",
+      "src/spark/common/silver_transforms.py",
+      "src/spark/common/schema_contracts.py",
+      "src/spark/common/schema_definitions.py",
+      "src/spark/common/region_normalizer.py",
+      "src/spark/common/s3_paths.py",
+      "src/spark/common/spark_session_factory.py",
+      "src/spark/common/incremental.py"
+    ]
+  },
+  "fuentes": {
+    "padron_ruc": {
+      "capas": {
+        "bronze": {
+          "codigo": ["src/spark/common/fuentes/bronze/padron_ruc.py"],
+          "salidas": [
+            {"ruta": "BRONZE_PADRON_RUC", "publicacion": "particiones"},
+            {"ruta": "BRONZE_PADRON_RUC_QUARANTINE", "publicacion": "particiones", "opcional": true}
+          ]
+        },
+        "silver": {
+          "codigo": ["src/spark/common/fuentes/silver/padron_ruc.py"],
+          "salidas": [
+            {"ruta": "SILVER_PADRON_RUC", "publicacion": "particiones"},
+            {"ruta": "SILVER_PADRON_RUC_QUARANTINE", "publicacion": "particiones", "opcional": true}
+          ]
+        }
+      }
+    },
+    "ordenes_compra": {
+      "capas": {
+        "bronze": {
+          "codigo": ["src/spark/common/fuentes/bronze/ordenes_compra.py"],
+          "salidas": [
+            {"ruta": "BRONZE_ORDENES_COMPRA", "publicacion": "particiones"},
+            {"ruta": "BRONZE_ORDENES_COMPRA_QUARANTINE", "publicacion": "particiones", "opcional": true}
+          ]
+        },
+        "silver": {
+          "codigo": ["src/spark/common/fuentes/silver/ordenes_compra.py"],
+          "salidas": [
+            {"ruta": "SILVER_ORDENES_COMPRA", "publicacion": "completa"},
+            {"ruta": "SILVER_ORDENES_COMPRA_QUARANTINE", "publicacion": "completa", "opcional": true}
+          ]
+        }
+      }
+    },
+    "pricos": {
+      "capas": {
+        "small": {
+          "codigo": ["src/spark/common/fuentes/small/pricos.py"],
+          "salidas": [
+            {"ruta": "BRONZE_PRICOS", "publicacion": "completa"},
+            {"ruta": "SILVER_PRICOS", "publicacion": "completa"}
+          ]
+        }
+      }
+    },
+    "ingresos_tributarios": {
+      "capas": {
+        "small": {
+          "codigo": [
+            "src/spark/common/fuentes/small/ingresos_tributarios.py",
+            "src/spark/common/ingresos_transformer.py"
+          ],
+          "salidas": [
+            {"ruta": "BRONZE_INGRESOS_TRIBUTARIOS", "publicacion": "completa"},
+            {"ruta": "SILVER_INGRESOS_TRIBUTARIOS", "publicacion": "completa"}
+          ]
+        }
+      }
+    },
+    "epen": {
+      "capas": {
+        "small": {
+          "codigo": ["src/spark/common/fuentes/small/epen.py"],
+          "salidas": [
+            {"ruta": "BRONZE_EPEN", "publicacion": "completa"},
+            {"ruta": "SILVER_EPEN", "publicacion": "completa"}
+          ]
+        }
+      }
+    },
+    "ssco": {
+      "capas": {
+        "small": {
+          "codigo": ["src/spark/common/fuentes/small/ssco.py"],
+          "salidas": [
+            {"ruta": "BRONZE_SSCO", "publicacion": "completa"},
+            {"ruta": "SILVER_SSCO", "publicacion": "completa"}
+          ]
+        }
+      }
+    },
+    "see": {
+      "capas": {
+        "small": {
+          "codigo": ["src/spark/common/fuentes/small/see.py"],
+          "salidas": [
+            {"ruta": "BRONZE_SEE", "publicacion": "completa"},
+            {"ruta": "SILVER_SEE", "publicacion": "completa"}
+          ]
+        }
+      }
+    }
+  }
+}
