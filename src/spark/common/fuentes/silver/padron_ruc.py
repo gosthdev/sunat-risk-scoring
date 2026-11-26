@@ -19,7 +19,8 @@ from silver_transforms import (
 
 def preparar_padron_ruc(bronze: DataFrame) -> DataFrame:
     """Deduplica las fotos del Padrón por (RUC, PERIODO_PUBLICACION)."""
-    return bronze.dropDuplicates(["RUC", "PERIODO_PUBLICACION"])
+    clave = ["RUC", "PERIODO_PUBLICACION"]
+    return bronze.repartition(*clave).dropDuplicates(clave)
 
 
 def separar_padron_ruc(entrada: DataFrame) -> tuple[DataFrame, DataFrame]:
