@@ -138,11 +138,12 @@ jobs:
             fi
           fi
 
-      - name: Avisar conversiones fallidas
+      # Despues del crawler: los datasets buenos quedan catalogados y la etapa falla igual.
+      - name: Fallar si hubo conversiones fallidas
         if: always() && steps.check.outputs.needs_run == 'true'
         run: |
           aws s3 cp "s3://${RAW_BUCKET}/_runs/last_run_errors.json" "$RUNNER_TEMP/errors.json" 2>/dev/null || exit 0
-          python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); l and print("::warning::Conversion fallida (sin dataset en Athena): "+", ".join(l))' "$RUNNER_TEMP/errors.json"
+          python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); l and (print("::error::Conversion fallida (sin dataset en Athena): "+", ".join(l)), sys.exit(1))' "$RUNNER_TEMP/errors.json"
 
   # ============================================================================
   # ETAPA 0: Small Datasets (Job 00 -> Silver, en el runner)
