@@ -42,6 +42,7 @@ BRONZE_BUCKET = os.environ.get("BRONZE_BUCKET", "sunat-risk-scoring-bronze")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 CHUNK_ROWS = 50_000
 MANIFEST_KEY = "_manifests/raw_manifest.json"
+MIN_ORDENES = 50 * 1024  # un ordenes.csv menor es un archivo vacío o corrupto
 
 Entry = dict[str, Any]
 Manifest = dict[str, dict[str, Entry]]
@@ -269,35 +270,10 @@ def head_validators(url: str) -> dict[str, str | None]:
 # ---------------------------------------------------------------------------
 
 
-def process_padron_ruc(key: str, url: str) -> tuple[list[Path], str]:
-    # key esperada: "2025-01" o similar
-    anio, mes = _split_periodo(key)
-
-    out_dir = BASE_DIR / "padron_ruc" / f"anio={anio}" / f"mes={mes}"
+def conv_padron(src_file: Path, out_dir: Path) -> list[Path]:
+    """Deja en out_dir/padron.csv un CSV estándar (coma, UTF-8): convierte el pipe."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = out_dir / "padron.csv"
-
-    temp_zip = BASE_DIR / "tmp" / f"padron_{anio}_{mes}.zip"
-    download_file(url, temp_zip)
-
-    log(f"Extrayendo {temp_zip.name}...")
-    extract_dir = BASE_DIR / "tmp" / f"padron_extract_{anio}_{mes}"
-    extract_dir.mkdir(parents=True, exist_ok=True)
-
-    with zipfile.ZipFile(temp_zip, "r") as z:
-        z.extractall(extract_dir)
-
-    # Buscar el archivo extraído (.txt o .csv)
-    extracted_files = [
-        f for f in extract_dir.rglob("*") if f.is_file() and not f.name.startswith(".")
-    ]
-    if not extracted_files:
-        raise FileNotFoundError(f"No se encontraron archivos dentro de {temp_zip}")
-
-    src_file = extracted_files[0]
-    log(
-        f"Archivo extraído: {src_file.name} ({src_file.stat().st_size / (1024 * 1024):.2f} MB)"
-    )
 
     # Inspeccionar codificación y delimitador de la cabecera
     src_encoding = "utf-8"
@@ -324,13 +300,42 @@ def process_padron_ruc(key: str, url: str) -> tuple[list[Path], str]:
     else:
         # Ya es CSV con comas
         shutil.move(str(src_file), str(out_csv))
+    return [out_csv]
 
-    log(f"✓ Guardado en partición: {out_csv}")
+
+def process_padron_ruc(key: str, url: str) -> tuple[list[Path], str]:
+    # key esperada: "2025-01" o similar
+    anio, mes = _split_periodo(key)
+
+    out_dir = BASE_DIR / "padron_ruc" / f"anio={anio}" / f"mes={mes}"
+    temp_zip = BASE_DIR / "tmp" / f"padron_{anio}_{mes}.zip"
+    download_file(url, temp_zip)
+
+    log(f"Extrayendo {temp_zip.name}...")
+    extract_dir = BASE_DIR / "tmp" / f"padron_extract_{anio}_{mes}"
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(temp_zip, "r") as z:
+        z.extractall(extract_dir)
+
+    # Buscar el archivo extraído (.txt o .csv)
+    extracted_files = [
+        f for f in extract_dir.rglob("*") if f.is_file() and not f.name.startswith(".")
+    ]
+    if not extracted_files:
+        raise FileNotFoundError(f"No se encontraron archivos dentro de {temp_zip}")
+
+    src_file = extracted_files[0]
+    log(
+        f"Archivo extraído: {src_file.name} ({src_file.stat().st_size / (1024 * 1024):.2f} MB)"
+    )
+    out = conv_padron(src_file, out_dir)
+    log(f"✓ Guardado en partición: {out[0]}")
 
     # Limpiar temporales para ahorrar espacio
     temp_zip.unlink(missing_ok=True)
     shutil.rmtree(extract_dir, ignore_errors=True)
-    return [out_csv], url
+    return out, url
 
 
 MONTH_VARIANTS = {
@@ -416,26 +421,32 @@ def _download_osce_xlsx(url_or_key: str, anio: str, mes: str, dest_path: Path) -
     )
 
 
+def conv_ordenes(src: Path, out_dir: Path) -> list[Path]:
+    """Deja en out_dir/ordenes.csv el contenido real: el Excel se pasa a CSV con pandas."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_csv = out_dir / "ordenes.csv"
+    if src.suffix.lower() != ".xlsx":
+        shutil.move(str(src), str(out_csv))
+        return [out_csv]
+    import pandas as pd
+
+    log(f"Leyendo Excel {src.name} con pandas...")
+    df = pd.read_excel(src)
+    log(f"Convirtiendo a CSV (filas: {len(df)})...")
+    df.to_csv(out_csv, index=False, encoding="utf-8")
+    return [out_csv]
+
+
 def process_ordenes_compra(key: str, url: str) -> tuple[list[Path], str]:
     anio, mes = _split_periodo(key)
 
     out_dir = BASE_DIR / "ordenes_compra" / f"anio={anio}" / f"mes={mes}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = out_dir / "ordenes.csv"
-
     temp_xlsx = BASE_DIR / "tmp" / f"ordenes_{anio}_{mes}.xlsx"
     used_url = _download_osce_xlsx(url, anio, mes, temp_xlsx)
-
-    # Convertir Excel a CSV garantizando contenido real
-    import pandas as pd
-
-    log(f"Leyendo Excel {temp_xlsx.name} con pandas...")
-    df = pd.read_excel(temp_xlsx)
-    log(f"Convertiendo a CSV (filas: {len(df)})...")
-    df.to_csv(out_csv, index=False, encoding="utf-8")
+    (out_csv,) = conv_ordenes(temp_xlsx, out_dir)
 
     # Validar que no sea un archivo vacío o corrupto
-    if out_csv.stat().st_size < 1024 * 50:
+    if out_csv.stat().st_size < MIN_ORDENES:
         raise ValueError(
             f"El CSV generado ({out_csv.stat().st_size} bytes) es anormalmente pequeño para {key}."
         )
@@ -460,29 +471,31 @@ def process_ssco(_periodo: str, url: str) -> tuple[list[Path], str]:
     return [dest], url
 
 
+def conv_ingresos(src: Path, out_dir: Path) -> list[Path]:
+    """Des-pivotea el Excel de SUNAT en out_dir (monto y variación); lanza si no calza."""
+    # En la EC2 (/opt/ingestion) este árbol no existe: falla el import y aplica el respaldo
+    common_dir = str(Path(__file__).resolve().parents[1] / "spark" / "common")
+    if common_dir not in sys.path:
+        sys.path.insert(0, common_dir)
+    from ingresos_transformer import process_both_ingresos
+
+    df_monto, df_var = process_both_ingresos(str(src))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_csv = out_dir / "cdrA13_tabular.csv"
+    df_monto.to_csv(out_csv, index=False, encoding="utf-8")
+    df_var.to_csv(out_dir / "cdrA13_Var_tabular.csv", index=False, encoding="utf-8")
+    return [out_csv]
+
+
 def process_ingresos_tributarios(_periodo: str, url: str) -> tuple[list[Path], str]:
     out_dir = BASE_DIR / "ingresos_tributarios"
     out_dir.mkdir(parents=True, exist_ok=True)
     dest_csv = out_dir / "cdrA13_tabular.csv"
-    dest_var_csv = out_dir / "cdrA13_Var_tabular.csv"
     temp_file = BASE_DIR / "tmp" / "ingresos_tributarios.raw"
     download_file(url, temp_file)
 
     try:
-        # Intentar des-pivoteado estandarizado con ingresos_transformer
-        common_dir = str(
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "src"
-            / "spark"
-            / "common"
-        )
-        if common_dir not in sys.path:
-            sys.path.insert(0, common_dir)
-        from ingresos_transformer import process_both_ingresos
-
-        df_monto, df_var = process_both_ingresos(str(temp_file))
-        df_monto.to_csv(dest_csv, index=False, encoding="utf-8")
-        df_var.to_csv(dest_var_csv, index=False, encoding="utf-8")
+        conv_ingresos(temp_file, out_dir)
         log(
             "✓ Ingresos Tributarios des-pivoteados exitosamente en cdrA13_tabular.csv y cdrA13_Var_tabular.csv"
         )
@@ -496,59 +509,70 @@ def process_ingresos_tributarios(_periodo: str, url: str) -> tuple[list[Path], s
     return [dest_csv], url
 
 
-def process_epen(_periodo: str, url: str) -> tuple[list[Path], str]:
-    out_dir = BASE_DIR / "epen" / "anio=2025"
+def conv_epen(
+    src: Path, out_dir: Path, es_zip: Callable[[Path], bool] = zipfile.is_zipfile
+) -> list[Path]:
+    """Deja en out_dir/epen.csv el dato principal: ZIP o Excel se pasan a CSV."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = out_dir / "epen.csv"
-    temp_file = BASE_DIR / "tmp" / "epen_download.raw"
-    download_file(url, temp_file)
 
     # Chequear si es un archivo ZIP
-    if zipfile.is_zipfile(temp_file):
+    if es_zip(src):
         log("EPEN detectado como archivo ZIP. Descomprimiendo...")
         extract_dir = BASE_DIR / "tmp" / "epen_extract"
         extract_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(temp_file, "r") as z:
-            z.extractall(extract_dir)
+        try:
+            with zipfile.ZipFile(src, "r") as z:
+                z.extractall(extract_dir)
 
-        # Buscar archivo de datos principal (el más pesado o de datos)
-        candidates = [
-            f
-            for f in extract_dir.rglob("*")
-            if f.is_file() and not f.name.startswith(".")
-        ]
-        if not candidates:
-            raise FileNotFoundError("No se encontraron archivos dentro del ZIP de EPEN")
-        candidates.sort(key=lambda f: f.stat().st_size, reverse=True)
-        chosen = candidates[0]
-        log(
-            f"Archivo de datos detectado en EPEN: {chosen.name} ({chosen.stat().st_size / (1024 * 1024):.2f} MB)"
-        )
+            # Buscar archivo de datos principal (el más pesado o de datos)
+            candidates = [
+                f
+                for f in extract_dir.rglob("*")
+                if f.is_file() and not f.name.startswith(".")
+            ]
+            if not candidates:
+                raise FileNotFoundError(
+                    "No se encontraron archivos dentro del ZIP de EPEN"
+                )
+            candidates.sort(key=lambda f: f.stat().st_size, reverse=True)
+            chosen = candidates[0]
+            log(
+                f"Archivo de datos detectado en EPEN: {chosen.name} ({chosen.stat().st_size / (1024 * 1024):.2f} MB)"
+            )
 
-        if chosen.suffix.lower() in [".xlsx", ".xls"]:
-            log("Convirtiendo Excel de EPEN a CSV...")
-            import pandas as pd
+            if chosen.suffix.lower() in [".xlsx", ".xls"]:
+                log("Convirtiendo Excel de EPEN a CSV...")
+                import pandas as pd
 
-            df = pd.read_excel(chosen)
-            df.to_csv(out_csv, index=False, encoding="utf-8")
-        else:
-            shutil.move(str(chosen), str(out_csv))
-        shutil.rmtree(extract_dir, ignore_errors=True)
-        temp_file.unlink(missing_ok=True)
+                df = pd.read_excel(chosen)
+                df.to_csv(out_csv, index=False, encoding="utf-8")
+            else:
+                shutil.move(str(chosen), str(out_csv))
+        finally:
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        src.unlink(missing_ok=True)
     else:
         # Si se descargó directo (no ZIP)
         try:
             import pandas as pd
 
-            df = pd.read_excel(temp_file)
+            df = pd.read_excel(src)
             log("EPEN detectado como Excel (.xlsx). Convirtiendo a CSV...")
             df.to_csv(out_csv, index=False, encoding="utf-8")
-            temp_file.unlink(missing_ok=True)
+            src.unlink(missing_ok=True)
         except Exception:  # noqa: BLE001
-            shutil.move(str(temp_file), str(out_csv))
+            shutil.move(str(src), str(out_csv))
+    return [out_csv]
 
-    log(f"✓ EPEN guardado en partición: {out_csv}")
-    return [out_csv], url
+
+def process_epen(_periodo: str, url: str) -> tuple[list[Path], str]:
+    out_dir = BASE_DIR / "epen" / "anio=2025"
+    temp_file = BASE_DIR / "tmp" / "epen_download.raw"
+    download_file(url, temp_file)
+    out = conv_epen(temp_file, out_dir)
+    log(f"✓ EPEN guardado en partición: {out[0]}")
+    return out, url
 
 
 def process_see(_periodo: str, url: str) -> tuple[list[Path], str]:
@@ -568,6 +592,14 @@ def process_see(_periodo: str, url: str) -> tuple[list[Path], str]:
     log(f"✓ SEE guardado ({out_csv.stat().st_size / 1024**2:.2f} MB): {out_csv}")
     return [out_csv], url
 
+
+# Conversión sobre un archivo local (src, directorio destino) -> archivos; la reusa intake.py
+CONVERSORES: dict[str, Callable[[Path, Path], list[Path]]] = {
+    "padron_ruc": conv_padron,
+    "ordenes_compra": conv_ordenes,
+    "epen": conv_epen,
+    "ingresos_tributarios": conv_ingresos,
+}
 
 HANDLERS: dict[str, Callable[[str, str], tuple[list[Path], str]]] = {
     "padron_ruc": process_padron_ruc,
