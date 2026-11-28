@@ -9,3 +9,6 @@ artifacts_bucket_name = "sunat-risk-scoring-artifacts"
 
 # Mantener en false para proteger los buckets contra borrado accidental.
 force_destroy_buckets = false
+
+# Orígenes exactos del portal web de subida (CORS de raw), sin comodines
+web_uploader_origins = ["https://portal.example.com"]

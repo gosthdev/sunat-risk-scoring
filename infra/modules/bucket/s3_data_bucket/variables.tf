@@ -40,3 +40,26 @@ variable "protect_versions" {
     error_message = "protect_versions solo tiene sentido con versioning_enabled = true."
   }
 }
+
+variable "inbox_lifecycle_enabled" {
+  description = "true agrega una regla que expira _inbox/ y aborta multipart incompletos al día."
+  type        = bool
+  default     = false
+}
+
+variable "inbox_expiration_days" {
+  description = "Días tras los que expiran los objetos de _inbox/ (solo con inbox_lifecycle_enabled)."
+  type        = number
+  default     = 7
+}
+
+variable "cors_allowed_origins" {
+  description = "Orígenes exactos (sin comodines) autorizados a hacer POST desde el navegador. Vacío = sin CORS."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for o in var.cors_allowed_origins : !strcontains(o, "*")])
+    error_message = "cors_allowed_origins no admite comodines."
+  }
+}

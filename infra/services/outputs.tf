@@ -47,3 +47,8 @@ output "quicksight_role_arn" {
   value       = module.iam_quicksight_role.role_arn
   description = "ARN del rol IAM que usa QuickSight para leer Athena, Glue y S3."
 }
+
+output "web_uploader_user_name" {
+  value       = module.iam_web_uploader.user_name
+  description = "Usuario IAM del portal web; su access key se crea a mano."
+}

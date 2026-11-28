@@ -38,6 +38,13 @@ resource "aws_iam_role_policy" "deploy_jobs" {
         ]))
       },
       {
+        # Bandeja de subida web: el CI limpia _inbox/ en raw (Get/Put/List ya los cubre el acceso general a raw).
+        Sid      = "RawInboxDelete"
+        Effect   = "Allow"
+        Action   = ["s3:DeleteObject"]
+        Resource = ["${var.raw_bucket_arn}/_inbox/*"]
+      },
+      {
         # clean_layer.sh borra solo prefijos de bronze, silver y gold.
         Sid    = "CleanProcessedLayers"
         Effect = "Allow"

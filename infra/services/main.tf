@@ -46,6 +46,12 @@ module "iam_ingestion_boundary" {
   bronze_bucket_arn = data.aws_s3_bucket.bronze.arn
 }
 
+module "iam_web_uploader" {
+  source         = "../modules/security/iam_web_uploader"
+  user_name      = "sunat-web-uploader"
+  raw_bucket_arn = data.aws_s3_bucket.raw.arn
+}
+
 module "iam_glue_crawler_role" {
   source            = "../modules/security/iam_glue_crawler_role"
   role_name         = "sunat-ssco-glue-crawler-role"

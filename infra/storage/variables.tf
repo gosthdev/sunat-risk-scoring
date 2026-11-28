@@ -38,3 +38,8 @@ variable "force_destroy_buckets" {
   type        = bool
   default     = false
 }
+
+variable "web_uploader_origins" {
+  description = "Orígenes exactos (https://dominio, sin comodines) del portal web que sube a raw/_inbox/ por POST."
+  type        = list(string)
+}

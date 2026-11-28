@@ -12,6 +12,28 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
     }
   }
 
+  # Bandeja de subida web: lo no procesado en inbox_expiration_days se elimina.
+  dynamic "rule" {
+    for_each = var.inbox_lifecycle_enabled ? [1] : []
+
+    content {
+      id     = "expire-inbox"
+      status = "Enabled"
+
+      filter {
+        prefix = "_inbox/"
+      }
+
+      expiration {
+        days = var.inbox_expiration_days
+      }
+
+      abort_incomplete_multipart_upload {
+        days_after_initiation = 1
+      }
+    }
+  }
+
   # Las versiones reemplazadas se conservan noncurrent_version_expiration_days
   # días (ventana de recuperación) y luego se eliminan para no acumular costo.
   dynamic "rule" {

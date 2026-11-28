@@ -9,6 +9,10 @@ module "s3_raw" {
   versioning_enabled                 = true
   protect_versions                   = true
   noncurrent_version_expiration_days = 90
+
+  # Portal web: sube a _inbox/ con URL prefirmada; lo no procesado expira.
+  inbox_lifecycle_enabled = true
+  cors_allowed_origins    = var.web_uploader_origins
 }
 
 module "s3_bronze" {
