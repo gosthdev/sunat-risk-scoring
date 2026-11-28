@@ -137,39 +137,57 @@ def _max_executors(llamadas):
 
 
 @pytest.mark.parametrize(
-    "snapshots, esperado",
-    [(1, 2), (3, 3), (6, 4), (12, 6), (36, 6)],
+    "raw_gb, esperado",
+    [(1, 2), (9, 2), (27, 3), (53, 6), (140, 16), (263, 16), (5000, 16)],
 )
-def test_executors_crecen_mas_despacio_que_los_snapshots_y_tienen_techo(
-    tmp_path, snapshots, esperado
+def test_executors_crecen_con_el_volumen_del_raw_y_tienen_techo(
+    tmp_path, raw_gb, esperado
 ):
-    res, llamadas = _ejecutar(
-        tmp_path, ["SUCCESS"], extra_env={"PADRON_SNAPSHOTS": str(snapshots)}
-    )
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"], extra_env={"RAW_GB": str(raw_gb)})
     assert res.returncode == 0, res.stderr
     assert _max_executors(llamadas) == esperado
 
 
-def test_cuenta_los_snapshots_del_padron_en_raw(tmp_path):
+def test_mide_el_raw_de_las_dos_fuentes_grandes(tmp_path):
+    # 2 fuentes x 26,5 GB = 53 GB, el volumen actual -> 6 executors.
     res, llamadas = _ejecutar(
-        tmp_path, ["SUCCESS"], extra_env={"AWS_PADRON_SNAPSHOTS": "6"}
+        tmp_path, ["SUCCESS"], extra_env={"AWS_RAW_BYTES": "26500000000"}
     )
     assert res.returncode == 0, res.stderr
-    assert "Snapshots del Padrón: 6 -> maxExecutors=4" in res.stdout
-    assert _max_executors(llamadas) == 4
-
-
-def test_sin_poder_contar_asume_el_peor_caso_pero_dentro_del_techo(tmp_path):
-    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"])
-    assert res.returncode == 0, res.stderr
+    assert "RAW: 53 GB -> maxExecutors=6" in res.stdout
     assert _max_executors(llamadas) == 6
+
+
+@pytest.mark.parametrize(
+    "extra_env, esperado",
+    [
+        ({"RAW_GB": "1"}, 64),
+        ({"RAW_GB": "53"}, 212),
+        ({"RAW_GB": "263"}, 1052),
+        ({}, 1000),
+        ({"RAW_GB": "53", "SHUFFLE_PARTITIONS": "300"}, 300),
+    ],
+)
+def test_particiones_de_shuffle_siguen_al_volumen_del_raw(
+    tmp_path, extra_env, esperado
+):
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"], extra_env=extra_env)
+    assert res.returncode == 0, res.stderr
+    assert f"spark.sql.shuffle.partitions={esperado} " in _lanzamientos(llamadas)[0]
+
+
+@pytest.mark.parametrize("env", [{}, {"AWS_RAW_LS_ERROR": "1"}])
+def test_sin_poder_medir_usa_el_techo(tmp_path, env):
+    res, llamadas = _ejecutar(tmp_path, ["SUCCESS"], extra_env=env)
+    assert res.returncode == 0, res.stderr
+    assert _max_executors(llamadas) == 16
 
 
 def test_el_techo_es_configurable(tmp_path):
     res, llamadas = _ejecutar(
         tmp_path,
         ["SUCCESS"],
-        extra_env={"PADRON_SNAPSHOTS": "12", "MAX_EXECUTORS_CAP": "3"},
+        extra_env={"RAW_GB": "53", "MAX_EXECUTORS_CAP": "3"},
     )
     assert res.returncode == 0, res.stderr
     assert _max_executors(llamadas) == 3
@@ -242,7 +260,7 @@ def test_piso_de_executors_nunca_supera_el_techo(tmp_path):
         tmp_path,
         ["SUCCESS"],
         extra_env={
-            "PADRON_SNAPSHOTS": "12",
+            "RAW_GB": "53",
             "MIN_EXECUTORS": "8",
             "MAX_EXECUTORS_CAP": "3",
         },

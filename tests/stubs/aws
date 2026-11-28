@@ -3,7 +3,8 @@
 # Registra cada llamada en $AWS_LOG. Variables de control:
 #   AWS_STATES_FILE : un estado de Job Run por línea; se consume uno por consulta
 #                     (el último se repite).
-#   AWS_PADRON_SNAPSHOTS=n : `s3 ls --recursive` de padron_ruc lista n snapshots.
+#   AWS_RAW_BYTES=n : `s3 ls --summarize` de cada fuente RAW informa n bytes.
+#   AWS_RAW_LS_ERROR=1 : `s3 ls --summarize` falla.
 #   AWS_EMPTY_STAGING=1 : `s3 ls` sobre _staging no devuelve objetos.
 #   AWS_EMPTY_MATCH=txt : `s3 ls` sobre _staging cuya ruta contiene txt no devuelve objetos.
 #   AWS_LS_ERROR=1 : `s3 ls` sobre _staging falla (código 255), como un error de credenciales.
@@ -43,10 +44,11 @@ case "$1 $2" in
     if [[ "$3" == *_staging* && "${AWS_LS_ERROR:-0}" == "1" ]]; then
       exit 255
     fi
-    if [[ "$*" == *--recursive* && "$*" == *padron_ruc* ]]; then
-      for ((i = 1; i <= ${AWS_PADRON_SNAPSHOTS:-0}; i++)); do
-        printf '2026-01-01 00:00:00 1 padron_ruc/anio=2025/mes=%02d/padron.csv\n' "$i"
-      done
+    if [[ "$*" == *--summarize* ]]; then
+      if [[ "${AWS_RAW_LS_ERROR:-0}" == "1" ]]; then exit 255; fi
+      if [[ -n "${AWS_RAW_BYTES:-}" ]]; then
+        printf '\nTotal Objects: 1\n   Total Size: %s\n' "$AWS_RAW_BYTES"
+      fi
       exit 0
     fi
     if [[ "$3" == *_staging* && "${AWS_EMPTY_STAGING:-0}" == "1" ]]; then
