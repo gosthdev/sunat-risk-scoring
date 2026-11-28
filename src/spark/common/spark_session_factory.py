@@ -11,7 +11,14 @@ from pyspark.sql import SparkSession
 def create_spark_session(app_name: str) -> SparkSession:
     return (
         SparkSession.builder.appName(app_name)
-        .config("spark.sql.shuffle.partitions", "64")
+        # shuffle.partitions no se fija aquí: lo calcula 05_submit_spark_steps.sh según
+        # el volumen del RAW (fijarlo en el código anula el --conf del envío). AQE junta
+        # las particiones que queden chicas, hasta ~128 MB, salvo en tablas cacheadas.
+        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+        .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "128m")
+        # Sin esto AQE prioriza el paralelismo e ignora el tamaño objetivo.
+        .config("spark.sql.adaptive.coalescePartitions.parallelismFirst", "false")
         # "dynamic" permite reescribir solo las particiones tocadas por el
         # job (ej. un solo mes) en vez de sobreescribir toda la tabla.
         # Importante para que los jobs sean re-ejecutables de forma segura.
