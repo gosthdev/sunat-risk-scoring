@@ -155,6 +155,20 @@ export EMR_APPLICATION_ID=... EMR_EXECUTION_ROLE_ARN=...
 bash src/spark/jobs/05_submit_spark_steps.sh --only-steps 01_ingest_bronze
 ```
 
+#### Carga manual desde el portal
+
+Los archivos subidos por el portal caen en `s3://RAW/_inbox/{fuente}/{periodo}/{carga_id}/{archivo}`.
+Antes de la ingesta, `python -m src.ingestion.intake` los valida, les aplica la misma
+conversión que la EC2 y los deja en su ruta raw. Solo acepta fuentes con job en
+`config/fuentes.json` y archivos con las columnas que espera el lector de raw de la
+fuente: padron_ruc y ordenes_compra, la cabecera exacta de `schema_definitions.py` (en orden,
+sin distinguir mayúsculas); see y epen, sus constantes de `fuentes/small/`; pricos, `PRICOS_COLUMNAS`;
+ssco, la columna RUC y la fecha de emisión; ingresos_tributarios se des-pivotea como en la EC2 (solo se sube `cdrA13_tabular.csv`) y se rechaza si el Excel no tiene el formato de SUNAT. Lo inválido (fuente desconocida, columnas
+faltantes, archivo ilegible) va a `_inbox/_rechazados/` con un `.txt` con el motivo.
+**La carga manual gana a la URL:** queda registrada con `url: "manual"` y sin validadores, así que
+la EC2 no la pisa. Para volver a la fuente oficial, correr el workflow con el input `force=raw`
+(`TF_VAR_force_redownload`).
+
 ### 3. Entrenamiento
 
 Ejecutar el workflow **Train & Benchmark SSCO Models (SageMaker)** y luego

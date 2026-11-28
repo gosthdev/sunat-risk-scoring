@@ -4,10 +4,13 @@ import awswrangler as wr
 from ruc_pandas import exigir_columnas, filtrar_ruc_validos
 from s3_paths import BRONZE_PRICOS, RAW_PRICOS, SILVER_PRICOS
 
+# Encabezado del Excel de SUNAT -> columna de bronze (todas obligatorias).
+PRICOS_COLUMNAS = {"RUC": "RUC", "Nombre o Razón Social": "nombre_razon_social"}
+
 
 def bronze_pricos(df):
-    df = df.rename(columns={"Nombre o Razón Social": "nombre_razon_social"})
-    exigir_columnas(df, {"RUC", "nombre_razon_social"}, "PRICOS")
+    df = df.rename(columns=PRICOS_COLUMNAS)
+    exigir_columnas(df, PRICOS_COLUMNAS.values(), "PRICOS")
     # Un object con tipos mezclados (p. ej. una nota al pie) no se puede escribir a Parquet.
     texto = df.select_dtypes("object").columns
     df[texto] = df[texto].astype("string")
