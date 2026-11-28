@@ -1,0 +1,14 @@
+project_id = "sunat-risk-scoring"
+
+[auth]
+enable_signup = false
+
+[functions.firmar-carga]
+verify_jwt = true
+
+[functions.confirmar]
+verify_jwt = true
+
+# Llamada por GitHub Actions con PIPELINE_WEBHOOK_SECRET, no con JWT de usuario.
+[functions.actualizar-estado]
+verify_jwt = false
