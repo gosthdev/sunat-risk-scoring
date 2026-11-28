@@ -39,6 +39,10 @@ env:
   # Tope por intento en EMR (2 intentos): vence antes que el timeout-minutes 240 del job,
   # así EMR cancela y no se publica nada, en vez de cortar el runner a mitad del publish.
   STEP_TIMEOUT_MINUTES: "100"
+  # Avance hacia el portal (Supabase); si faltan, los pasos de reporte no hacen nada.
+  SUPABASE_FUNCTIONS_URL: ${{ secrets.SUPABASE_FUNCTIONS_URL }}
+  PIPELINE_WEBHOOK_SECRET: ${{ secrets.PIPELINE_WEBHOOK_SECRET }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 # timeout-minutes holgado (la corrida completa real tarda ~1.5 h): cortar a mitad de un
 # publish dejaría la ruta viva a medias, el tope solo evita runners colgados por horas.
@@ -77,12 +81,36 @@ jobs:
     environment: aws
     outputs:
       ran: ${{ steps.check.outputs.needs_run }}
+      intake: ${{ steps.intake.outcome }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/aws-setup
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      # Siempre, aunque la etapa EC2 se omita: procesa lo que haya en _inbox/.
+      - name: Intake de cargas del portal
+        id: intake
+        env:
+          CARGAS_LOTE: ${{ runner.temp }}/cargas_lote.json
+        run: |
+          # Sin cargas pendientes no hay nada que instalar ni validar (cargas_lote.json no se crea).
+          # Un error de AWS (permisos, bucket, credenciales) debe fallar el paso, no verse como inbox vacío.
+          keys=$(aws s3api list-objects-v2 --bucket "$RAW_BUCKET" --prefix _inbox/ --query 'Contents[].Key' --output text)
+          pend=$(tr '\t' '\n' <<< "$keys" | awk '$0 != "None" && $0 !~ /^_inbox\/_rechazados\// && NF')
+          if [[ -z "$pend" ]]; then
+            echo "Sin cargas en _inbox/; se omite intake"
+            exit 0
+          fi
+          # awswrangler y pyspark: solo para importar las definiciones de columnas de los lectores de raw
+          pip install -r src/requirements.txt boto3 pyspark
+          python -m src.ingestion.intake "$CARGAS_LOTE"
+
+      - name: Reportar estado (Supabase)
+        if: always()
+        continue-on-error: true
+        run: bash scripts/reportar_estado.sh intake
 
       - name: Check stage
         id: check
@@ -145,6 +173,14 @@ jobs:
           aws s3 cp "s3://${RAW_BUCKET}/_runs/last_run_errors.json" "$RUNNER_TEMP/errors.json" 2>/dev/null || exit 0
           python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); l and (print("::error::Conversion fallida (sin dataset en Athena): "+", ".join(l)), sys.exit(1))' "$RUNNER_TEMP/errors.json"
 
+      # Si intake cayó puede no existir.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cargas_lote-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cargas_lote.json
+          if-no-files-found: ignore
+
   # ============================================================================
   # ETAPA 0: Small Datasets (Job 00 -> Silver, en el runner)
   # ============================================================================
@@ -164,6 +200,16 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cargas_lote-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+
+      - name: Reportar estado (Supabase)
+        continue-on-error: true
+        run: bash scripts/reportar_estado.sh pendientes
 
       # Solo detecta datos fisicos/markers ausentes; que procesar lo decide el planner por huellas.
       - name: Check stage
@@ -240,6 +286,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cargas_lote-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+
+      - name: Reportar estado (Supabase)
+        continue-on-error: true
+        run: bash scripts/reportar_estado.sh bronze
+
       # Solo detecta datos fisicos/markers ausentes; que procesar lo decide el planner por huellas.
       - name: Check stage
         id: check
@@ -314,6 +370,16 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cargas_lote-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+
+      - name: Reportar estado (Supabase)
+        continue-on-error: true
+        run: bash scripts/reportar_estado.sh silver
 
       # Solo detecta datos fisicos/markers ausentes; que procesar lo decide el planner por huellas.
       - name: Check stage
@@ -588,3 +654,33 @@ jobs:
 
       - name: Run pipeline health verification
         run: bash scripts/verify_pipeline_health.sh
+
+  # ============================================================================
+  # FINAL: avisa al portal el resultado de la corrida
+  # ============================================================================
+  notificar:
+    name: Notify Portal
+    timeout-minutes: 10
+    needs: [deploy, raw, small, bronze, silver, gold-ruc, gold-regional, scoring, analytics, verify]
+    if: always()
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cargas_lote-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+
+      - name: Reportar estado final (Supabase)
+        continue-on-error: true
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          # Cuenta intake, raw y small/bronze/silver (skipped = una etapa previa cayó y no se llegó
+          # a procesar). Una conversión fallida en raw hace fallar raw: las cargas de ese lote quedan en error.
+          FALLO=$(jq -r '[(if .raw.outputs.intake == "failure" then "intake" elif (.raw.result | IN("failure","cancelled")) then "raw" else empty end), (["small","bronze","silver"][] as $k | select(.[$k].result | IN("failure","cancelled","skipped")) | $k)] | .[0] // empty' <<< "$NEEDS_JSON")
+          bash scripts/reportar_estado.sh "$([[ -n "$FALLO" ]] && echo error || echo completada)" "${FALLO:+El pipeline falló en $FALLO}"
