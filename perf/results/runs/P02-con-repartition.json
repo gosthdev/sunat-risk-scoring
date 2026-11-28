@@ -1,0 +1,87 @@
+{
+  "tipo": "prueba_paso02",
+  "corrida": "P02-con-repartition",
+  "factor": 1,
+  "perfil": "Base-v2",
+  "fecha": "2026-11-26T21:15:11+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": true,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": true,
+  "total": {
+    "ejecucion_s": 779,
+    "pared_s": 1162,
+    "vcpu_h": 5.684,
+    "memoria_gb_h": 22.738,
+    "disco_gb_h": 0.0,
+    "costo_usd": 0.4305
+  },
+  "pasos": [
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gak06t26s2bo0b",
+      "codigo_salida": 0,
+      "pared_s": 1162,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-26T20:55:50.857000+00:00",
+      "terminado": "2026-11-26T21:10:48.825000+00:00",
+      "ejecucion_s": 779,
+      "cola_s": 0.0,
+      "publicacion_s": 255.2,
+      "recursos": {
+        "vCPUHour": 5.684,
+        "memoryGBHour": 22.738,
+        "storageGBHour": 28.422
+      },
+      "facturado": {
+        "vCPUHour": 5.684,
+        "memoryGBHour": 22.738,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.4305,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {
+          "padron_ruc": {
+            "bronze": 191408828,
+            "cuarentena_bronze": 1525,
+            "cuarentena_ruc": 0,
+            "silver": 191408828
+          },
+          "ordenes_compra": {
+            "bronze": 4952097,
+            "cuarentena_bronze": 122639,
+            "cuarentena_ruc": 467,
+            "silver": 3124332
+          }
+        }
+      },
+      "spark": {
+        "tareas": 6638,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 12941.2,
+        "gc_pct": 1.14,
+        "shuffle_escrito_gb": 19.97,
+        "shuffle_leido_gb": 21.403,
+        "spill_memoria_gb": 49.954,
+        "spill_disco_gb": 16.112,
+        "entrada_gb": 33.631,
+        "salida_gb": 3.0,
+        "tarea_max_s": 77.6,
+        "tarea_mediana_s": 0.1,
+        "heap_pico_executor_gb": 11.2
+      }
+    }
+  ],
+  "configuracion": {
+    "repartition_padron": true,
+    "shuffle_partitions": 212,
+    "max_executors": 6,
+    "capacidad_app": "68 vCPU / 272 GB / 500 GB",
+    "aqe_advisory": "128m",
+    "parallelismFirst": false,
+    "raw_gb": 53
+  },
+  "nota": "Prueba A/B: solo paso 02 sobre el 1x con repartition (Bronze de S-06-r1)."
+}

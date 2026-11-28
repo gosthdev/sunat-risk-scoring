@@ -1,0 +1,87 @@
+{
+  "tipo": "prueba_paso02",
+  "corrida": "P02-sin-repartition",
+  "factor": 1,
+  "perfil": "Base-v2",
+  "fecha": "2026-11-26T21:35:25+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": true,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": true,
+  "total": {
+    "ejecucion_s": 778,
+    "pared_s": 1082,
+    "vcpu_h": 5.663,
+    "memoria_gb_h": 22.653,
+    "disco_gb_h": 0.0,
+    "costo_usd": 0.4289
+  },
+  "pasos": [
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gak0j7o46ui80b",
+      "codigo_salida": 0,
+      "pared_s": 1082,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-26T21:17:24.160000+00:00",
+      "terminado": "2026-11-26T21:30:59.700000+00:00",
+      "ejecucion_s": 778,
+      "cola_s": 0.1,
+      "publicacion_s": 258.3,
+      "recursos": {
+        "vCPUHour": 5.663,
+        "memoryGBHour": 22.653,
+        "storageGBHour": 28.317
+      },
+      "facturado": {
+        "vCPUHour": 5.663,
+        "memoryGBHour": 22.653,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.4289,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {
+          "padron_ruc": {
+            "bronze": 191408828,
+            "cuarentena_bronze": 1525,
+            "cuarentena_ruc": 0,
+            "silver": 191408828
+          },
+          "ordenes_compra": {
+            "bronze": 4952097,
+            "cuarentena_bronze": 122639,
+            "cuarentena_ruc": 467,
+            "silver": 3124332
+          }
+        }
+      },
+      "spark": {
+        "tareas": 6638,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 12849.2,
+        "gc_pct": 1.72,
+        "shuffle_escrito_gb": 22.385,
+        "shuffle_leido_gb": 23.799,
+        "spill_memoria_gb": 124.68,
+        "spill_disco_gb": 28.041,
+        "entrada_gb": 33.669,
+        "salida_gb": 3.0,
+        "tarea_max_s": 135.1,
+        "tarea_mediana_s": 0.1,
+        "heap_pico_executor_gb": 14.51
+      }
+    }
+  ],
+  "configuracion": {
+    "repartition_padron": false,
+    "shuffle_partitions": 212,
+    "max_executors": 6,
+    "capacidad_app": "68 vCPU / 272 GB / 500 GB",
+    "aqe_advisory": "128m",
+    "parallelismFirst": false,
+    "raw_gb": 53
+  },
+  "nota": "Prueba A/B: solo paso 02 sobre el 1x sin repartition (codigo original de preparar_padron_ruc)."
+}

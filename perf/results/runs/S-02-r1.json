@@ -1,0 +1,112 @@
+{
+  "tipo": "pipeline",
+  "corrida": "S-02-r1",
+  "factor": 1,
+  "perfil": "C1",
+  "fecha": "2026-11-22T19:17:00+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": false,
+  "emr_application_id": "00gagmpah6gu6u09",
+  "completa": false,
+  "total": {
+    "ejecucion_s": 1969,
+    "pared_s": 2161,
+    "vcpu_h": 4.326,
+    "memoria_gb_h": 17.302,
+    "disco_gb_h": 0.0,
+    "costo_usd": 0.3277
+  },
+  "pasos": [
+    {
+      "paso": "01_ingest_bronze",
+      "job_run_id": "00gagmpqs1il980b",
+      "codigo_salida": 0,
+      "pared_s": 1382,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T18:40:58.987000+00:00",
+      "terminado": "2026-11-22T19:03:46.720000+00:00",
+      "ejecucion_s": 1256,
+      "cola_s": 0.0,
+      "publicacion_s": 11.3,
+      "recursos": {
+        "vCPUHour": 2.766,
+        "memoryGBHour": 11.062,
+        "storageGBHour": 13.828
+      },
+      "facturado": {
+        "vCPUHour": 2.766,
+        "memoryGBHour": 11.062,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.2095,
+      "filas": {
+        "salidas": {
+          "padron_ruc": 191408828,
+          "padron_ruc_cuarentena": 1525,
+          "ordenes_compra": 4952097,
+          "ordenes_compra_cuarentena": 122639
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 879,
+        "executors_lanzados": 1,
+        "tiempo_tareas_s": 4689.8,
+        "gc_pct": 0.49,
+        "shuffle_escrito_gb": 0.0,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 108.206,
+        "salida_gb": 2.787,
+        "tarea_max_s": 26.3,
+        "tarea_mediana_s": 4.4,
+        "heap_pico_executor_gb": 8.55
+      }
+    },
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gagn72bag4a00b",
+      "codigo_salida": 1,
+      "pared_s": 779,
+      "estado": "FAILED",
+      "detalle_estado": "Job failed, please check complete logs in configured logging destination. ExitCode: 1. Last few exceptions: 26/11/22 19:16:26 WARN TaskSetManager: Lost task 21.2 in stage 3.0 (TID 69) ([2600:1f18:7566:aa01:9065:3386:4e4:d7ff] executor 1): TaskKilled (Stage cancelled: Job aborted due to stage failure: Task 23 in stage 3.0 failed 4 times, most recent failure: Lost task 23.3 in stage 3.0 (TID 68) ([2600:1f18:7566:aa01:9065:3386:4e4:d7ff] executor 1): java.io.IOException: No space left on device\n26/11/22 19:16:26 INFO SQLExecution: Skipped SparkListenerSQLExecutionObfuscatedInfo event due to NON_EMPTY_ERROR.\n26/11/22 19:16:26 INFO DAGScheduler: ShuffleMapStage 3 (collect at /tmp/spark-0a53007b-0b51-4d01-b702-7575e0fd2355/02_clean_silver.py:78) failed in 652.506 s due to Job aborted due to stage failure: Task 23 in stage 3.0 failed 4 times, most recent failure: Lost task 23.3 in stage 3.0 (TID 68) ([2600:1f18:7566:aa01:9065:3386:4e4:d7ff] executor 1): java.io.IOException: No space left on device\n26/11/22 19:16:26 INFO TaskSchedulerImpl: Killing all running tasks in stage 3: Stage cancelled: Job aborted due to stage failure: Task 23 in stage 3.0 failed 4 times, most recent failure: Lost task 23.3 in stage 3.0 (TID 68) ([2600:1f18:7566:aa01:9065:3386:4e4:d7ff] executor 1): java.io.IOException: No space left on device\n26/11/22 19:16:26 ERROR TaskSetManager: Task 23 in stage 3.0 failed 4 times; aborting job\n26/11/22 19:16:26 INFO TaskSetManager: Lost task 23.3 in stage 3.0 (TID 68) on [2600:1f18:7566:aa01:9065:3386:4e4:d7ff], executor 1: java.io.IOException (No space left on device) [duplicate 1]...",
+      "creado": "2026-11-22T19:04:06.638000+00:00",
+      "terminado": "2026-11-22T19:16:32.508000+00:00",
+      "ejecucion_s": 713,
+      "cola_s": 0.1,
+      "publicacion_s": 24.5,
+      "recursos": {
+        "vCPUHour": 1.56,
+        "memoryGBHour": 6.24,
+        "storageGBHour": 7.8
+      },
+      "facturado": {
+        "vCPUHour": 1.56,
+        "memoryGBHour": 6.24,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.1182,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 70,
+        "executors_lanzados": 1,
+        "tiempo_tareas_s": 2605.7,
+        "gc_pct": 0.74,
+        "shuffle_escrito_gb": 15.592,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 53.486,
+        "spill_disco_gb": 7.571,
+        "entrada_gb": 2.442,
+        "salida_gb": 0.0,
+        "tarea_max_s": 120.0,
+        "tarea_mediana_s": 7.8,
+        "heap_pico_executor_gb": 12.9
+      }
+    }
+  ]
+}

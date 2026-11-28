@@ -1,0 +1,216 @@
+{
+  "tipo": "pipeline",
+  "corrida": "S-06-r1",
+  "factor": 1,
+  "perfil": "Base-v2-2000part",
+  "fecha": "2026-11-26T17:50:54+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": true,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": false,
+  "total": {
+    "ejecucion_s": 5814,
+    "pared_s": 8121,
+    "vcpu_h": 43.467,
+    "memoria_gb_h": 173.867,
+    "disco_gb_h": 0.0,
+    "costo_usd": 3.292
+  },
+  "pasos": [
+    {
+      "paso": "01_ingest_bronze",
+      "job_run_id": "00gajfv2pov5n00b",
+      "codigo_salida": 0,
+      "pared_s": 443,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-26T05:47:23.702000+00:00",
+      "terminado": "2026-11-26T05:54:26.214000+00:00",
+      "ejecucion_s": 317,
+      "cola_s": 0.0,
+      "publicacion_s": 16.8,
+      "recursos": {
+        "vCPUHour": 2.1,
+        "memoryGBHour": 8.4,
+        "storageGBHour": 10.5
+      },
+      "facturado": {
+        "vCPUHour": 2.1,
+        "memoryGBHour": 8.4,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.159,
+      "filas": {
+        "salidas": {
+          "padron_ruc": 191408828,
+          "padron_ruc_cuarentena": 1525,
+          "ordenes_compra": 4952097,
+          "ordenes_compra_cuarentena": 122639
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 1028,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 4903.1,
+        "gc_pct": 0.99,
+        "shuffle_escrito_gb": 0.0,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 108.207,
+        "salida_gb": 2.788,
+        "tarea_max_s": 21.3,
+        "tarea_mediana_s": 3.3,
+        "heap_pico_executor_gb": 6.38
+      }
+    },
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gajg3br33e300b",
+      "codigo_salida": 0,
+      "pared_s": 4029,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-26T05:54:52.758000+00:00",
+      "terminado": "2026-11-26T06:28:02.021000+00:00",
+      "ejecucion_s": 1956,
+      "cola_s": 0.1,
+      "publicacion_s": 2031.0,
+      "recursos": {
+        "vCPUHour": 14.829,
+        "memoryGBHour": 59.316,
+        "storageGBHour": 74.144
+      },
+      "facturado": {
+        "vCPUHour": 14.829,
+        "memoryGBHour": 59.316,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 1.1231,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {
+          "padron_ruc": {
+            "bronze": 191408828,
+            "cuarentena_bronze": 1525,
+            "cuarentena_ruc": 0,
+            "silver": 191408828
+          },
+          "ordenes_compra": {
+            "bronze": 4952097,
+            "cuarentena_bronze": 122639,
+            "cuarentena_ruc": 467,
+            "silver": 3124332
+          }
+        }
+      },
+      "spark": {
+        "tareas": 58363,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 23414.9,
+        "gc_pct": 0.66,
+        "shuffle_escrito_gb": 20.574,
+        "shuffle_leido_gb": 20.574,
+        "spill_memoria_gb": 46.708,
+        "spill_disco_gb": 16.578,
+        "entrada_gb": 39.474,
+        "salida_gb": 4.172,
+        "tarea_max_s": 85.3,
+        "tarea_mediana_s": 0.0,
+        "heap_pico_executor_gb": 9.82
+      }
+    },
+    {
+      "paso": "04_regional_gold",
+      "job_run_id": "00gajh9o7vms380b",
+      "codigo_salida": 0,
+      "pared_s": 385,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-26T07:01:57.989000+00:00",
+      "terminado": "2026-11-26T07:07:53.860000+00:00",
+      "ejecucion_s": 317,
+      "cola_s": 0.0,
+      "publicacion_s": 24.1,
+      "recursos": {
+        "vCPUHour": 1.99,
+        "memoryGBHour": 7.96,
+        "storageGBHour": 9.95
+      },
+      "facturado": {
+        "vCPUHour": 1.99,
+        "memoryGBHour": 7.96,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.1507,
+      "filas": {
+        "salidas": {
+          "gold_regional_summary": 26
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 1093,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 4827.4,
+        "gc_pct": 0.58,
+        "shuffle_escrito_gb": 0.178,
+        "shuffle_leido_gb": 0.178,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 2.339,
+        "salida_gb": 0.0,
+        "tarea_max_s": 33.3,
+        "tarea_mediana_s": 3.9,
+        "heap_pico_executor_gb": 4.15
+      }
+    },
+    {
+      "paso": "03_feature_gold",
+      "job_run_id": "00gajhddls36k80b",
+      "codigo_salida": 143,
+      "pared_s": 3263,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-26T07:08:22.797000+00:00",
+      "terminado": "2026-11-26T08:02:41.236000+00:00",
+      "ejecucion_s": 3224,
+      "cola_s": 0.0,
+      "publicacion_s": -0.2,
+      "recursos": {
+        "vCPUHour": 24.548,
+        "memoryGBHour": 98.191,
+        "storageGBHour": 122.739
+      },
+      "facturado": {
+        "vCPUHour": 24.548,
+        "memoryGBHour": 98.191,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 1.8592,
+      "filas": {
+        "salidas": {
+          "gold_ruc_features": 38737472
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 11716,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 73896.1,
+        "gc_pct": 0.17,
+        "shuffle_escrito_gb": 39.186,
+        "shuffle_leido_gb": 39.186,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 24.418,
+        "salida_gb": 0.848,
+        "tarea_max_s": 23.2,
+        "tarea_mediana_s": 7.7,
+        "heap_pico_executor_gb": 7.44
+      }
+    }
+  ],
+  "nota": "Pipeline v2 con shuffle.partitions=2000 fijo en la sesion (version descartada). El paso 02 escribio 30.001 archivos de Silver Padron porque AQE no junta particiones de una tabla cacheada. La corrida se interrumpio a mano: el paso 03 termino en EMR pero no se publico y el paso 05 no se lanzo; pared_s de 02 y 03 llega hasta el fin del job en EMR."
+}
