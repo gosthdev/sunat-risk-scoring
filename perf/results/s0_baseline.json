@@ -1,0 +1,116 @@
+{
+  "descripcion": "Línea base 1x: volumen real de producción medido el 2026-11-21 (solo lectura, Athena workgroup sunat-ssco, catálogo sunat_ssco). Es la referencia contra la que se valida cada réplica.",
+  "fecha": "2026-11-21",
+  "raw_s3": {
+    "padron_ruc": {
+      "objetos": 15,
+      "gb": 50.36,
+      "fotos": 15,
+      "rango": "2025-01 a 2026-03"
+    },
+    "ordenes_compra": {
+      "objetos": 15,
+      "gb": 2.49
+    },
+    "total_gb": 52.85
+  },
+  "bronze": {
+    "padron_ruc": {
+      "filas_limpias": 191408828,
+      "filas_cuarentena": 1525
+    },
+    "ordenes_compra": {
+      "filas_limpias": 4952097,
+      "filas_cuarentena": 122639
+    }
+  },
+  "silver": {
+    "padron_ruc": {
+      "filas": 191408828,
+      "ruc_distintos_total": 13761829,
+      "filas_por_foto": {
+        "2025-01": 12567707,
+        "2025-02": 12424078,
+        "2025-03": 12460948,
+        "2025-04": 12527347,
+        "2025-05": 12557650,
+        "2025-06": 12613407,
+        "2025-07": 12700122,
+        "2025-08": 12749039,
+        "2025-09": 12809890,
+        "2025-10": 12854390,
+        "2025-11": 12916714,
+        "2025-12": 12972695,
+        "2026-01": 13025373,
+        "2026-02": 13078098,
+        "2026-03": 13151370
+      },
+      "cuarentena_ruc": 0
+    },
+    "ordenes_compra": {
+      "filas": 3124332,
+      "contratistas_distintos": 668344,
+      "cuarentena_ruc": 467
+    },
+    "pricos": {
+      "ruc": 17628
+    }
+  },
+  "gold": {
+    "ruc_features": {
+      "202506": {
+        "filas": 12613407,
+        "pricos": 13409
+      },
+      "202512": {
+        "filas": 12972695,
+        "pricos": 13244
+      },
+      "202603": {
+        "filas": 13151370,
+        "pricos": 13208
+      }
+    },
+    "scoring_dataset": {
+      "202506": {
+        "filas": 12613407,
+        "ssco": 989
+      },
+      "202512": {
+        "filas": 12972695,
+        "ssco": 1117
+      },
+      "202603": {
+        "filas": 13151370,
+        "ssco": 1125
+      }
+    },
+    "regional_summary": {
+      "filas": 26
+    }
+  },
+  "modelo": {
+    "model_inputs_v1": {
+      "mes_referencia": "202506",
+      "filas": 12599998,
+      "positivos_ssco": 668
+    }
+  },
+  "reconciliacion_modelo": {
+    "regla": "gold.ruc_features[202506].filas - gold.ruc_features[202506].pricos == modelo.model_inputs_v1.filas",
+    "calculo": "12613407 - 13409 = 12599998",
+    "coincide": true
+  },
+  "athena_query_ids": [
+    "0021b288-0e20-4a3e-9e22-60623c517cc7",
+    "cd0ba6a6-35bc-45bf-91a1-55a18a307ecd",
+    "0a4f677a-2e5d-43f6-8908-74df20272a44",
+    "244d9b84-f01a-4cb8-afa6-bfc04fbe9006",
+    "383a379d-cc06-4d3b-97f3-dde2f9a3239b",
+    "7dcd4215-687e-4802-9cdd-d2aedb574ae5",
+    "b3572866-9ff1-4b5f-b580-0d826aee174b",
+    "673b99d8-a5f3-476c-be35-d5278aeafc0f",
+    "adfb3942-de4f-4b18-840c-c85f03bfa90d"
+  ],
+  "costo_usd_aprox": 0.01
+}
