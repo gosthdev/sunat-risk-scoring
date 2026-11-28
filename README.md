@@ -71,8 +71,8 @@ Los buckets son `raw`, `bronze`, `silver`, `gold` y `artifacts`.
 - **Cuarentena, no descarte.** Filas con esquema inválido, años fuera de rango o
   RUC inválido se separan con su motivo; si la tasa por RUC supera
   `MAX_TASA_CUARENTENA_RUC` (0.5) el job aborta antes de escribir Silver.
-- **Executors acotados.** `maxExecutors = ceil(snapshots/2) + 1`, entre 2 y 6
-  (`MAX_EXECUTORS_CAP`), por el tope de 32 vCPU de la aplicación EMR.
+- **Executors según el volumen.** `maxExecutors = ceil(GB del RAW / 9)`, entre 2 y 16
+  (`MAX_EXECUTORS_CAP`), por el tope de 68 vCPU de la aplicación EMR.
 - **Contratos.** Los esquemas y reglas están en `contracts/` y `docs/model/`.
 
 Más detalle y limitaciones conocidas en [`src/README.md`](src/README.md).

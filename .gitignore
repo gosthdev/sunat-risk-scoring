@@ -87,11 +87,9 @@ spark-warehouse/
 .DS_Store
 Thumbs.db
 
-# ── Performance Experiments & Benchmarks ──────────────────────
-perf/
-tests/perf/
+# ── Pruebas de escalabilidad ──────────────────────────────────
 infra/perf/
-**/perf/
+docs/perf/
 
 # ── Local Scratch & Agent ─────────────────────────────────────
 .antigravity/

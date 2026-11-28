@@ -1,0 +1,21 @@
+{
+  "tipo": "replicacion",
+  "corrida": "replicacion-x1",
+  "factor": 1,
+  "perfil": "Base",
+  "fecha": "2026-11-22T16:13:27+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": false,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": true,
+  "total": {
+    "ejecucion_s": 0,
+    "pared_s": 0,
+    "vcpu_h": 0,
+    "memoria_gb_h": 0,
+    "disco_gb_h": 0,
+    "costo_usd": 0
+  },
+  "pasos": [],
+  "raw_gb_en_bucket": 52.84
+}

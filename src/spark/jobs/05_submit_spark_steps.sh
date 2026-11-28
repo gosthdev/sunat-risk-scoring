@@ -28,12 +28,13 @@
 #   - PENDING_PERIODS        : Alcance de 01/02 por fuente (ver incremental.py): "fuente=FULL
 #                              fuente2=2026-04,2026-05". Sin definir = todas en FULL; vacío = se omite.
 #   - FUENTES_JSON           : Registro de fuentes (por defecto config/fuentes.json)
-#   - PADRON_SNAPSHOTS       : Nº de fotos del Padrón a procesar; si no se da, se
-#                              cuentan en raw/padron_ruc (por defecto si falla: 12)
+#   - RAW_GB                 : GB del RAW a procesar; si no se da, se mide en la capa
+#                              raw (si falla, se usa el techo)
+#   - SHUFFLE_PARTITIONS     : Particiones de shuffle; si no se da, max(64, RAW_GB * 4)
 #   - MIN_EXECUTORS          : Piso de executors (por defecto: 2)
-#   - MAX_EXECUTORS_CAP      : Techo duro de executors (por defecto: 6). Con 4 vCPU
-#                              por executor y 4 del driver son 28 vCPU, bajo el tope de
-#                              32 vCPU de la aplicación EMR (infra/services emr_max_cpu).
+#   - MAX_EXECUTORS_CAP      : Techo duro de executors (por defecto: 16). Con 4 vCPU
+#                              por executor y 4 del driver son 68 vCPU, el tope de la
+#                              aplicación EMR (infra/services emr_max_cpu).
 # ==============================================================================
 
 set -euo pipefail
@@ -43,7 +44,7 @@ POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-15}"
 STEP_MAX_ATTEMPTS="${STEP_MAX_ATTEMPTS:-2}"
 RETRY_BACKOFF_SECONDS="${RETRY_BACKOFF_SECONDS:-30}"
 MIN_EXECUTORS="${MIN_EXECUTORS:-2}"
-MAX_EXECUTORS_CAP="${MAX_EXECUTORS_CAP:-6}"
+MAX_EXECUTORS_CAP="${MAX_EXECUTORS_CAP:-16}"
 if (( MIN_EXECUTORS > MAX_EXECUTORS_CAP )); then
   echo "WARN: MIN_EXECUTORS (${MIN_EXECUTORS}) supera MAX_EXECUTORS_CAP (${MAX_EXECUTORS_CAP}); se usa el techo." >&2
   MIN_EXECUTORS="$MAX_EXECUTORS_CAP"
@@ -56,8 +57,8 @@ RAW_BUCKET="${RAW_BUCKET:-sunat-risk-scoring-raw}"
 BRONZE_BUCKET="${BRONZE_BUCKET:-sunat-risk-scoring-bronze}"
 SILVER_BUCKET="${SILVER_BUCKET:-sunat-risk-scoring-silver}"
 GOLD_BUCKET="${GOLD_BUCKET:-sunat-risk-scoring-gold}"
-# Permite sobreescribir shuffle.partitions vía env var (útil para perf testing)
-SHUFFLE_PARTITIONS="${SHUFFLE_PARTITIONS:-200}"
+# Si no se da, se calcula con el volumen del RAW (ver dimensionamiento).
+SHUFFLE_PARTITIONS="${SHUFFLE_PARTITIONS:-}"
 
 # ------------------------------------------------------------------------------
 # 1. Resolución y Validación de variables
@@ -369,35 +370,49 @@ publish_step() {
 }
 
 # ------------------------------------------------------------------------------
-# Dimensionamiento: los executors crecen más despacio que los datos y nunca
-# pasan del techo, así más snapshots del Padrón no disparan el cómputo.
-#   executors = ceil(snapshots / 2) + 1, acotado a [MIN_EXECUTORS, MAX_EXECUTORS_CAP]
-#   1 -> 2, 3 -> 3, 6 -> 4, 12 -> 6 (techo)
+# Dimensionamiento por volumen: el disco local de cada executor (20 GB) es lo que
+# se agota primero en los shuffles, así que los executors crecen con los GB del RAW.
+#   executors = ceil(RAW_GB / 9), acotado a [MIN_EXECUTORS, MAX_EXECUTORS_CAP]
+#   53 GB (volumen actual) -> 6, 263 GB (5x) -> 16 (techo)
+# Las particiones de shuffle siguen al mismo volumen: el shuffle medido es 0,41 GB
+# (paso 02) y 0,63 GB (paso 03) por GB de RAW, así que 4 por GB deja 100-160 MB por
+# partición. Se fija aquí y no con AQE porque el paso 02 cachea su tabla y AQE no
+# junta particiones de una tabla cacheada; donde no hay caché, AQE junta las chicas.
+#   shuffle.partitions = max(64, RAW_GB * 4); 53 GB -> 212, 263 GB -> 1052
 # ------------------------------------------------------------------------------
+GB_POR_EXECUTOR=9
+PARTICIONES_POR_GB=4
+
 compute_max_executors() {
-  local snapshots="$1" n
-  n=$(( (snapshots + 1) / 2 + 1 ))
+  local gb="$1" n
+  n=$(( (gb + GB_POR_EXECUTOR - 1) / GB_POR_EXECUTOR ))
   (( n < MIN_EXECUTORS )) && n="$MIN_EXECUTORS"
   (( n > MAX_EXECUTORS_CAP )) && n="$MAX_EXECUTORS_CAP"
   echo "$n"
 }
 
-count_padron_snapshots() {
-  local raw_uri
-  raw_uri="$(live_uri "$RAW_BUCKET" raw padron_ruc)"
-  aws s3 ls "${raw_uri}/" --recursive 2>/dev/null \
-    | grep -o 'anio=[0-9]*/mes=[0-9]*' | sort -u | wc -l | tr -d ' ' || true
+# Solo las dos fuentes grandes: el resto del RAW pesa poco y no define el cómputo.
+measure_raw_gb() {
+  local dataset
+  for dataset in padron_ruc ordenes_compra; do
+    aws s3 ls "$(live_uri "$RAW_BUCKET" raw "$dataset")/" --recursive --summarize 2>/dev/null || echo FALLO
+  done | awk '/^FALLO/ {f = 1} /Total Size:/ {s += $3} END {if (!f && s > 0) printf "%d", (s + 999999999) / 1000000000}'
 }
 
-if [[ -z "${PADRON_SNAPSHOTS:-}" ]]; then
-  PADRON_SNAPSHOTS="$(count_padron_snapshots)"
-  if [[ -z "$PADRON_SNAPSHOTS" || "$PADRON_SNAPSHOTS" -lt 1 ]]; then
-    echo "WARN: no se pudieron contar los snapshots del Padrón; se asumen 12."
-    PADRON_SNAPSHOTS=12
-  fi
+if [[ -z "${RAW_GB:-}" ]]; then
+  RAW_GB="$(measure_raw_gb)"
 fi
-MAX_EXECUTORS="$(compute_max_executors "$PADRON_SNAPSHOTS")"
-echo "Snapshots del Padrón: ${PADRON_SNAPSHOTS} -> maxExecutors=${MAX_EXECUTORS} (techo ${MAX_EXECUTORS_CAP})"
+if [[ -n "$RAW_GB" && "$RAW_GB" -ge 1 ]]; then
+  MAX_EXECUTORS="$(compute_max_executors "$RAW_GB")"
+  particiones=$(( RAW_GB * PARTICIONES_POR_GB ))
+  (( particiones < 64 )) && particiones=64
+else
+  echo "WARN: no se pudo medir el RAW; se usa el techo de executors."
+  MAX_EXECUTORS="$MAX_EXECUTORS_CAP"
+  particiones=1000
+fi
+SHUFFLE_PARTITIONS="${SHUFFLE_PARTITIONS:-$particiones}"
+echo "RAW: ${RAW_GB:-?} GB -> maxExecutors=${MAX_EXECUTORS} (techo ${MAX_EXECUTORS_CAP}), shuffle.partitions=${SHUFFLE_PARTITIONS}"
 
 # ------------------------------------------------------------------------------
 # 4. Ejecución de un step (un intento) y monitoreo

@@ -1,0 +1,225 @@
+{
+  "tipo": "pipeline",
+  "corrida": "S-08-r1",
+  "factor": 10,
+  "perfil": "Base-v2",
+  "fecha": "2026-11-27T16:44:15+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": true,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": false,
+  "total": {
+    "ejecucion_s": 15683,
+    "pared_s": 16108,
+    "vcpu_h": 288.984,
+    "memoria_gb_h": 1155.938,
+    "disco_gb_h": 0.0,
+    "costo_usd": 21.8871
+  },
+  "pasos": [
+    {
+      "paso": "01_ingest_bronze",
+      "job_run_id": "00gak44lb0h5v00b",
+      "codigo_salida": 0,
+      "pared_s": 857,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-27T00:35:37.601000+00:00",
+      "terminado": "2026-11-27T00:49:36.620000+00:00",
+      "ejecucion_s": 800,
+      "cola_s": 0.0,
+      "publicacion_s": 13.4,
+      "recursos": {
+        "vCPUHour": 13.69,
+        "memoryGBHour": 54.76,
+        "storageGBHour": 68.45
+      },
+      "facturado": {
+        "vCPUHour": 13.69,
+        "memoryGBHour": 54.76,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 1.0369,
+      "filas": {
+        "salidas": {
+          "padron_ruc": 1914088280,
+          "padron_ruc_cuarentena": 1525,
+          "ordenes_compra": 49520970,
+          "ordenes_compra_cuarentena": 136310
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 9129,
+        "executors_lanzados": 16,
+        "tiempo_tareas_s": 38495.3,
+        "gc_pct": 0.58,
+        "shuffle_escrito_gb": 0.0,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 1076.034,
+        "salida_gb": 14.353,
+        "tarea_max_s": 25.4,
+        "tarea_mediana_s": 3.5,
+        "heap_pico_executor_gb": 7.67
+      }
+    },
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gak4csc6vkoo0b",
+      "codigo_salida": 0,
+      "pared_s": 5503,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-27T00:49:59.523000+00:00",
+      "terminado": "2026-11-27T01:41:43.330000+00:00",
+      "ejecucion_s": 3068,
+      "cola_s": 0.0,
+      "publicacion_s": 2389.7,
+      "recursos": {
+        "vCPUHour": 56.472,
+        "memoryGBHour": 225.889,
+        "storageGBHour": 282.361
+      },
+      "facturado": {
+        "vCPUHour": 56.472,
+        "memoryGBHour": 225.889,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 4.2771,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {
+          "padron_ruc": {
+            "bronze": 1914088280,
+            "cuarentena_bronze": 1525,
+            "cuarentena_ruc": 0,
+            "silver": 1914088280
+          },
+          "ordenes_compra": {
+            "bronze": 49520970,
+            "cuarentena_bronze": 136310,
+            "cuarentena_ruc": 4670,
+            "silver": 31243320
+          }
+        }
+      },
+      "spark": {
+        "tareas": 62631,
+        "executors_lanzados": 16,
+        "tiempo_tareas_s": 125837.0,
+        "gc_pct": 0.84,
+        "shuffle_escrito_gb": 204.061,
+        "shuffle_leido_gb": 207.181,
+        "spill_memoria_gb": 504.457,
+        "spill_disco_gb": 178.648,
+        "entrada_gb": 322.606,
+        "salida_gb": 30.258,
+        "tarea_max_s": 120.0,
+        "tarea_mediana_s": 0.1,
+        "heap_pico_executor_gb": 14.75
+      }
+    },
+    {
+      "paso": "04_regional_gold",
+      "job_run_id": "00gak61a8845e00b",
+      "codigo_salida": 0,
+      "pared_s": 419,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-27T02:21:37.587000+00:00",
+      "terminado": "2026-11-27T02:28:13.705000+00:00",
+      "ejecucion_s": 274,
+      "cola_s": 0.0,
+      "publicacion_s": 18.3,
+      "recursos": {
+        "vCPUHour": 3.219,
+        "memoryGBHour": 12.876,
+        "storageGBHour": 16.094
+      },
+      "facturado": {
+        "vCPUHour": 3.219,
+        "memoryGBHour": 12.876,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.2438,
+      "filas": {
+        "salidas": {
+          "gold_regional_summary": 26
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 1387,
+        "executors_lanzados": 16,
+        "tiempo_tareas_s": 7773.1,
+        "gc_pct": 0.79,
+        "shuffle_escrito_gb": 1.464,
+        "shuffle_leido_gb": 1.464,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 3.191,
+        "salida_gb": 0.0,
+        "tarea_max_s": 38.7,
+        "tarea_mediana_s": 5.0,
+        "heap_pico_executor_gb": 4.78
+      }
+    },
+    {
+      "paso": "03_feature_gold",
+      "job_run_id": "00gak659vquhi00b",
+      "codigo_salida": 1,
+      "pared_s": 9329,
+      "estado": "CANCELLED",
+      "detalle_estado": "Job run cancellation requested by user.",
+      "creado": "2026-11-27T02:28:36.156000+00:00",
+      "terminado": "2026-11-27T05:41:34.811000+00:00",
+      "ejecucion_s": 11541,
+      "cola_s": 0.0,
+      "publicacion_s": -2253.8,
+      "recursos": {
+        "vCPUHour": 215.603,
+        "memoryGBHour": 862.413,
+        "storageGBHour": 1078.017
+      },
+      "facturado": {
+        "vCPUHour": 215.603,
+        "memoryGBHour": 862.413,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 16.3293,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 6815,
+        "executors_lanzados": 16,
+        "tiempo_tareas_s": 63348.9,
+        "gc_pct": 0.5,
+        "shuffle_escrito_gb": 170.767,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 30.32,
+        "salida_gb": 0.0,
+        "tarea_max_s": 36.7,
+        "tarea_mediana_s": 7.6,
+        "heap_pico_executor_gb": 12.49
+      }
+    }
+  ],
+  "configuracion": {
+    "repartition_padron": true,
+    "shuffle_partitions": 2104,
+    "max_executors": 16,
+    "raw_gb": 526,
+    "formula_particiones": "max(64, RAW_GB*4)",
+    "formula_executors": "ceil(RAW_GB/9) en [2,16]",
+    "capacidad_app": "68 vCPU / 272 GB / 500 GB",
+    "aqe_advisory": "128m",
+    "parallelismFirst": false
+  },
+  "nota": "Pipeline v2 sobre el 10x: 01, 02 y 04 OK (conteos exactos x10); el paso 03 lleno el disco local (No space left on device) y quedo reintentando; la sesion de AWS expiro a las 00:03 y el monitoreo marco fallo; se cancelo a mano a las 00:41 (estado CANCELLED tras 11.541 s, US$ 16,33 facturados). El paso 05 no se lanzo."
+}

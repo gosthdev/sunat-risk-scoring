@@ -165,6 +165,16 @@ class TestSilverTransforms(unittest.TestCase):
         self.assertEqual(silver.count(), 5)
         self.assertTrue(all(len(str(r["RUC"])) == 11 for r in silver.collect()))
 
+    def test_padron_deduplica_con_un_solo_shuffle_y_sin_parcial_previo(self):
+        bronze = self._padron_con_dos_meses()
+        duplicado = bronze.unionByName(bronze.filter("mes = 2"))
+        entrada = preparar_padron_ruc(duplicado)
+        plan = entrada._jdf.queryExecution().executedPlan().toString()
+        self.assertEqual(plan.count("Exchange "), 1)
+        # Debajo del shuffle (lo que corre antes de él) no hay ninguna agregación.
+        self.assertNotIn("Aggregate", plan[plan.index("Exchange ") :])
+        self.assertEqual(entrada.count(), bronze.count())
+
     def _padron_con_dos_meses(self):
         filas = (
             [(20100000001 + i, "lima", 202501, 2025, 1) for i in range(8)]

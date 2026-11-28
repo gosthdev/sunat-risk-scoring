@@ -1,0 +1,112 @@
+{
+  "tipo": "pipeline",
+  "corrida": "S-03-r1",
+  "factor": 10,
+  "perfil": "Base",
+  "fecha": "2026-11-22T23:54:30+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": false,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": false,
+  "total": {
+    "ejecucion_s": 2606,
+    "pared_s": 2721,
+    "vcpu_h": 19.277,
+    "memoria_gb_h": 77.106,
+    "disco_gb_h": 0.0,
+    "costo_usd": 1.46
+  },
+  "pasos": [
+    {
+      "paso": "01_ingest_bronze",
+      "job_run_id": "00gagrj89i0ppo0b",
+      "codigo_salida": 0,
+      "pared_s": 1871,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T23:09:06.182000+00:00",
+      "terminado": "2026-11-22T23:40:01.972000+00:00",
+      "ejecucion_s": 1822,
+      "cola_s": 0.1,
+      "publicacion_s": 12.0,
+      "recursos": {
+        "vCPUHour": 13.566,
+        "memoryGBHour": 54.262,
+        "storageGBHour": 67.828
+      },
+      "facturado": {
+        "vCPUHour": 13.566,
+        "memoryGBHour": 54.262,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 1.0275,
+      "filas": {
+        "salidas": {
+          "padron_ruc": 1914088280,
+          "padron_ruc_cuarentena": 1525,
+          "ordenes_compra": 49520970,
+          "ordenes_compra_cuarentena": 136310
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 8895,
+        "executors_lanzados": 12,
+        "tiempo_tareas_s": 37999.3,
+        "gc_pct": 0.46,
+        "shuffle_escrito_gb": 0.0,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 1076.034,
+        "salida_gb": 14.347,
+        "tarea_max_s": 25.6,
+        "tarea_mediana_s": 3.7,
+        "heap_pico_executor_gb": 7.83
+      }
+    },
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gags55jo2rno0b",
+      "codigo_salida": 1,
+      "pared_s": 850,
+      "estado": "FAILED",
+      "detalle_estado": "Job failed, please check complete logs in configured logging destination. ExitCode: 1. Last few exceptions: 26/11/22 23:53:52 WARN TaskSetManager: Lost task 119.0 in stage 3.0 (TID 385) ([2600:1f18:5503:8205:b034:be52:910a:c7f2] executor 6): TaskKilled (Stage cancelled: Job aborted due to stage failure: Task 117 in stage 3.0 failed 4 times, most recent failure: Lost task 117.3 in stage 3.0 (TID 413) ([2600:1f18:5503:8205:b034:be52:910a:c7f2] executor 6): org.apache.spark.memory.SparkOutOfMemoryError: error while calling spill() on org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter@57b708dc : No space left on device\n26/11/22 23:53:52 WARN TaskSetManager: Lost task 106.1 in stage 3.0 (TID 384) ([2600:1f18:5503:8205:1479:3426:2418:1d1e] executor 4): TaskKilled (Stage cancelled: Job aborted due to stage failure: Task 117 in stage 3.0 failed 4 times, most recent failure: Lost task 117.3 in stage 3.0 (TID 413) ([2600:1f18:5503:8205:b034:be52:910a:c7f2] executor 6): org.apache.spark.memory.SparkOutOfMemoryError: error while calling spill() on org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter@57b708dc : No space left on device\n26/11/22 23:53:52 WARN TaskSetManager: Lost task 110.1 in stage 3.0 (TID 390) ([2600:1f18:5503:8205:b3de:9f30:33a:3f4e] executor 2): TaskKilled (Stage cancelled: Job aborted due to stage failure: Task 117 in stage 3.0 failed 4 times, most recent failure: Lost task 117.3 in stage 3.0 (TID 413) ([2600:1f18:5503:8205:b034:be52:910a:c7f2] executor 6): org.apache.spark.memory.SparkOutOfMemoryError: error while calling spill() on org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter@57b708dc : No space left on device\n26/11/22 23:53:52 WARN TaskSetManager: Lost task 101.2 in stage 3.0 (TID 397) ([2600:1f18:5503:8205:c8c4:7bdc:248:35c6] executor 1): TaskKilled (Stage cancelled: Job aborted due to stage failure: Task 117 in stage 3.0 failed 4 times, most recent failure: Lost task 117.3 in stage 3.0 (TID 413) ([2600:1f18:5503:8205:b034:be52:910a:c7f2] executor 6): org.apache.spark.memory.SparkOutOfMemoryError: error while calling spill() on org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter@57b708dc : No space left on device\n26/11/22 23:53:52 WARN TaskSetManager: Lost task 93.2 in stage 3.0 (TID 388) ([2600:1f18:5503:8205:b3de:9f30:33a:3f4e] executor 2): TaskKilled (Stage cancelled: Job aborted due to stage failure: Task 117 in stage 3.0 failed 4 times, most recent failure: Lost task 117.3 in stage 3.0 (TID 413) ([2600:1f18:5503:8205:b034:be52:910a:c7f2] executor 6): org.apache.spark.memory.SparkOutOfMemoryError: error while calling spill() on org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter@57b708dc : No space left on device...",
+      "creado": "2026-11-22T23:40:24.832000+00:00",
+      "terminado": "2026-11-22T23:54:00.719000+00:00",
+      "ejecucion_s": 784,
+      "cola_s": 0.0,
+      "publicacion_s": 23.3,
+      "recursos": {
+        "vCPUHour": 5.711,
+        "memoryGBHour": 22.844,
+        "storageGBHour": 28.556
+      },
+      "facturado": {
+        "vCPUHour": 5.711,
+        "memoryGBHour": 22.844,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.4325,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 412,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 16356.5,
+        "gc_pct": 2.16,
+        "shuffle_escrito_gb": 83.389,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 323.599,
+        "spill_disco_gb": 65.108,
+        "entrada_gb": 9.472,
+        "salida_gb": 0.0,
+        "tarea_max_s": 159.4,
+        "tarea_mediana_s": 6.3,
+        "heap_pico_executor_gb": 14.59
+      }
+    }
+  ]
+}

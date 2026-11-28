@@ -1,0 +1,70 @@
+{
+  "tipo": "replicacion",
+  "corrida": "replicacion-x10",
+  "factor": 10,
+  "perfil": "Base",
+  "fecha": "2026-11-27T00:35:13+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": true,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": true,
+  "total": {
+    "ejecucion_s": 1065,
+    "pared_s": 1108,
+    "vcpu_h": 7.804,
+    "memoria_gb_h": 31.218,
+    "disco_gb_h": 0.0,
+    "costo_usd": 0.5911
+  },
+  "pasos": [
+    {
+      "paso": "replicacion",
+      "job_run_id": "00gak3pq34f3ro0b",
+      "codigo_salida": 0,
+      "pared_s": 1108,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-27T00:16:39.745000+00:00",
+      "terminado": "2026-11-27T00:35:00.817000+00:00",
+      "ejecucion_s": 1065,
+      "cola_s": 0.0,
+      "publicacion_s": 5.2,
+      "recursos": {
+        "vCPUHour": 7.804,
+        "memoryGBHour": 31.218,
+        "storageGBHour": 39.022
+      },
+      "facturado": {
+        "vCPUHour": 7.804,
+        "memoryGBHour": 31.218,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.5911,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {},
+        "PERF_REPLICACION": {
+          "factor": 10,
+          "rucs_distintos": 13762934,
+          "bloque": 16000000
+        }
+      },
+      "spark": {
+        "tareas": 1108,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 21788.3,
+        "gc_pct": 1.14,
+        "shuffle_escrito_gb": 1.226,
+        "shuffle_leido_gb": 3.529,
+        "spill_memoria_gb": 587.068,
+        "spill_disco_gb": 35.811,
+        "entrada_gb": 105.79,
+        "salida_gb": 472.935,
+        "tarea_max_s": 72.9,
+        "tarea_mediana_s": 2.8,
+        "heap_pico_executor_gb": 14.56
+      }
+    }
+  ],
+  "raw_gb_en_bucket": 525.78
+}

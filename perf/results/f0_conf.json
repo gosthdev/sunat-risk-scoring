@@ -1,0 +1,26 @@
+{
+  "descripcion": "Comprobación en EMR de qué spark.sql.shuffle.partitions usa el pipeline. Se pidió 640 por spark-submit; create_spark_session (src/spark/common/spark_session_factory.py:14) fija 64.",
+  "fecha": "2026-11-21",
+  "emr": {
+    "application_id": "00gafu9js2mmd409",
+    "job_run_id": "00gafug947hln80b",
+    "release": "emr-7.13.0",
+    "estado": "SUCCESS",
+    "duracion_s": 83
+  },
+  "pedido_en_submit": "640",
+  "resultado_driver": {
+    "pedido_en_submit": "64",
+    "efectivo_en_sesion": "64",
+    "aqe_activado": "true",
+    "aqe_agrupa_particiones": "true",
+    "version_spark": "3.5.6-amzn-2"
+  },
+  "conclusion": "El valor fijado en el código (64) anula el de spark-submit. El pipeline corre siempre con 64 particiones de shuffle, en 1x, 10x y 100x; AQE solo puede agruparlas, no aumentarlas.",
+  "recursos_facturados": {
+    "vCPUHour": 0.04,
+    "memoryGBHour": 0.12,
+    "storageGBHour": 0.0
+  },
+  "costo_usd_aprox": 0.003
+}

@@ -1,0 +1,260 @@
+{
+  "tipo": "pipeline",
+  "corrida": "S-01-r2",
+  "factor": 1,
+  "perfil": "Base",
+  "fecha": "2026-11-22T18:34:33+00:00",
+  "commit": "9868b5d0d8643a0acb76e3dcc0fbdd316415dad9",
+  "codigo_pipeline_modificado": false,
+  "emr_application_id": "00gafu9js2mmd409",
+  "completa": true,
+  "total": {
+    "ejecucion_s": 1793,
+    "pared_s": 2266,
+    "vcpu_h": 11.843,
+    "memoria_gb_h": 47.377,
+    "disco_gb_h": 0.0,
+    "costo_usd": 0.897
+  },
+  "pasos": [
+    {
+      "paso": "01_ingest_bronze",
+      "job_run_id": "00gagm0g2i0sd00b",
+      "codigo_salida": 0,
+      "pared_s": 446,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T17:56:42.169000+00:00",
+      "terminado": "2026-11-22T18:03:57.669000+00:00",
+      "ejecucion_s": 315,
+      "cola_s": 0.0,
+      "publicacion_s": 7.3,
+      "recursos": {
+        "vCPUHour": 2.053,
+        "memoryGBHour": 8.213,
+        "storageGBHour": 10.267
+      },
+      "facturado": {
+        "vCPUHour": 2.053,
+        "memoryGBHour": 8.213,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.1555,
+      "filas": {
+        "salidas": {
+          "padron_ruc": 191408828,
+          "padron_ruc_cuarentena": 1525,
+          "ordenes_compra": 4952097,
+          "ordenes_compra_cuarentena": 122639
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 1028,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 4811.7,
+        "gc_pct": 1.02,
+        "shuffle_escrito_gb": 0.0,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 108.207,
+        "salida_gb": 2.788,
+        "tarea_max_s": 19.5,
+        "tarea_mediana_s": 3.3,
+        "heap_pico_executor_gb": 6.52
+      }
+    },
+    {
+      "paso": "02_clean_silver",
+      "job_run_id": "00gagm4qa19oog0b",
+      "codigo_salida": 0,
+      "pared_s": 894,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T18:04:15.133000+00:00",
+      "terminado": "2026-11-22T18:17:01.800000+00:00",
+      "ejecucion_s": 732,
+      "cola_s": 0.0,
+      "publicacion_s": 117.2,
+      "recursos": {
+        "vCPUHour": 5.311,
+        "memoryGBHour": 21.244,
+        "storageGBHour": 26.556
+      },
+      "facturado": {
+        "vCPUHour": 5.311,
+        "memoryGBHour": 21.244,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.4022,
+      "filas": {
+        "salidas": {},
+        "calidad_silver": {
+          "padron_ruc": {
+            "bronze": 191408828,
+            "cuarentena_bronze": 1525,
+            "cuarentena_ruc": 0,
+            "silver": 191408828
+          },
+          "ordenes_compra": {
+            "bronze": 4952097,
+            "cuarentena_bronze": 122639,
+            "cuarentena_ruc": 467,
+            "silver": 3124332
+          }
+        }
+      },
+      "spark": {
+        "tareas": 2356,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 12723.2,
+        "gc_pct": 1.71,
+        "shuffle_escrito_gb": 21.916,
+        "shuffle_leido_gb": 27.991,
+        "spill_memoria_gb": 49.593,
+        "spill_disco_gb": 6.966,
+        "entrada_gb": 29.386,
+        "salida_gb": 2.802,
+        "tarea_max_s": 120.4,
+        "tarea_mediana_s": 0.1,
+        "heap_pico_executor_gb": 14.19
+      }
+    },
+    {
+      "paso": "04_regional_gold",
+      "job_run_id": "00gagmd9dsh5go0b",
+      "codigo_salida": 0,
+      "pared_s": 159,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T18:19:03.540000+00:00",
+      "terminado": "2026-11-22T18:21:17.332000+00:00",
+      "ejecucion_s": 94,
+      "cola_s": 0.1,
+      "publicacion_s": 20.7,
+      "recursos": {
+        "vCPUHour": 0.337,
+        "memoryGBHour": 1.347,
+        "storageGBHour": 1.683
+      },
+      "facturado": {
+        "vCPUHour": 0.402,
+        "memoryGBHour": 1.609,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.0305,
+      "filas": {
+        "salidas": {
+          "gold_regional_summary": 26
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 112,
+        "executors_lanzados": 3,
+        "tiempo_tareas_s": 359.4,
+        "gc_pct": 2.24,
+        "shuffle_escrito_gb": 0.134,
+        "shuffle_leido_gb": 0.134,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 0.155,
+        "salida_gb": 0.0,
+        "tarea_max_s": 7.1,
+        "tarea_mediana_s": 3.8,
+        "heap_pico_executor_gb": 3.39
+      }
+    },
+    {
+      "paso": "03_feature_gold",
+      "job_run_id": "00gagmepr170qo0b",
+      "codigo_salida": 0,
+      "pared_s": 570,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T18:21:42.173000+00:00",
+      "terminado": "2026-11-22T18:30:47.589000+00:00",
+      "ejecucion_s": 506,
+      "cola_s": 0.0,
+      "publicacion_s": 20.4,
+      "recursos": {
+        "vCPUHour": 3.514,
+        "memoryGBHour": 14.058,
+        "storageGBHour": 17.572
+      },
+      "facturado": {
+        "vCPUHour": 3.514,
+        "memoryGBHour": 14.058,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.2662,
+      "filas": {
+        "salidas": {
+          "gold_ruc_features": 38737472
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 1370,
+        "executors_lanzados": 6,
+        "tiempo_tareas_s": 9281.4,
+        "gc_pct": 3.13,
+        "shuffle_escrito_gb": 33.587,
+        "shuffle_leido_gb": 33.587,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 4.128,
+        "salida_gb": 0.78,
+        "tarea_max_s": 37.5,
+        "tarea_mediana_s": 6.0,
+        "heap_pico_executor_gb": 13.22
+      }
+    },
+    {
+      "paso": "05_scoring_dataset_gold",
+      "job_run_id": "00gagmk7naotb00b",
+      "codigo_salida": 0,
+      "pared_s": 197,
+      "estado": "SUCCESS",
+      "detalle_estado": "",
+      "creado": "2026-11-22T18:31:11.957000+00:00",
+      "terminado": "2026-11-22T18:34:10.831000+00:00",
+      "ejecucion_s": 146,
+      "cola_s": 0.0,
+      "publicacion_s": 14.2,
+      "recursos": {
+        "vCPUHour": 0.563,
+        "memoryGBHour": 2.253,
+        "storageGBHour": 2.817
+      },
+      "facturado": {
+        "vCPUHour": 0.563,
+        "memoryGBHour": 2.253,
+        "storageGBHour": 0.0
+      },
+      "costo_usd": 0.0426,
+      "filas": {
+        "salidas": {
+          "gold_scoring_dataset": 38737472
+        },
+        "calidad_silver": {}
+      },
+      "spark": {
+        "tareas": 68,
+        "executors_lanzados": 3,
+        "tiempo_tareas_s": 953.1,
+        "gc_pct": 6.74,
+        "shuffle_escrito_gb": 0.0,
+        "shuffle_leido_gb": 0.0,
+        "spill_memoria_gb": 0.0,
+        "spill_disco_gb": 0.0,
+        "entrada_gb": 1.032,
+        "salida_gb": 0.77,
+        "tarea_max_s": 70.3,
+        "tarea_mediana_s": 2.8,
+        "heap_pico_executor_gb": 10.75
+      }
+    }
+  ]
+}

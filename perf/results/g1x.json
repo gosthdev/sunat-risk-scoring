@@ -1,0 +1,89 @@
+{
+  "descripcion": "Compuerta G-1x: el pipeline corrido sobre la copia 1x (perf-x1) reproduce los conteos de producción (s0_baseline.json).",
+  "corrida": "S-01-r1",
+  "fuente_perf": "conteos SALIDA/CALIDAD de los logs del driver (S-01-r1.json) y lectura de gold/ruc_features por corte en s3://sunat-risk-scoring-perf-x1",
+  "conteos": {
+    "bronze_padron": {
+      "perf_x1": 191408828,
+      "produccion": 191408828,
+      "coincide": true
+    },
+    "bronze_padron_cuarentena": {
+      "perf_x1": 1525,
+      "produccion": 1525,
+      "coincide": true
+    },
+    "bronze_ordenes": {
+      "perf_x1": 4952097,
+      "produccion": 4952097,
+      "coincide": true
+    },
+    "bronze_ordenes_cuarentena": {
+      "perf_x1": 122639,
+      "produccion": 122639,
+      "coincide": true
+    },
+    "silver_padron": {
+      "perf_x1": 191408828,
+      "produccion": 191408828,
+      "coincide": true
+    },
+    "silver_ordenes": {
+      "perf_x1": 3124332,
+      "produccion": 3124332,
+      "coincide": true
+    },
+    "gold_regional_summary": {
+      "perf_x1": 26,
+      "produccion": 26,
+      "coincide": true
+    },
+    "gold_ruc_features_total": {
+      "perf_x1": 38737472,
+      "produccion": 38737472,
+      "coincide": true
+    },
+    "gold_scoring_dataset_total": {
+      "perf_x1": 38737472,
+      "produccion": 38737472,
+      "coincide": true
+    },
+    "gold_ruc_features_202506": {
+      "perf_x1": 12613407,
+      "produccion": 12613407,
+      "coincide": true
+    },
+    "gold_pricos_202506": {
+      "perf_x1": 13409,
+      "produccion": 13409,
+      "coincide": true
+    },
+    "gold_ruc_features_202512": {
+      "perf_x1": 12972695,
+      "produccion": 12972695,
+      "coincide": true
+    },
+    "gold_pricos_202512": {
+      "perf_x1": 13244,
+      "produccion": 13244,
+      "coincide": true
+    },
+    "gold_ruc_features_202603": {
+      "perf_x1": 13151370,
+      "produccion": 13151370,
+      "coincide": true
+    },
+    "gold_pricos_202603": {
+      "perf_x1": 13208,
+      "produccion": 13208,
+      "coincide": true
+    }
+  },
+  "modelo": {
+    "regla": "ruc_features[202506] - pricos[202506] == model_inputs v1",
+    "perf_x1": 12599998,
+    "produccion": 12599998,
+    "coincide": true
+  },
+  "aprobada": true
+}
