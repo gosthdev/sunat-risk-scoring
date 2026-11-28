@@ -94,13 +94,21 @@ Los workflows ejecutan las tareas en runners seguros asumiendo el rol IAM vía O
 
 ## Decisiones y limitaciones conocidas
 
-- **Executors acotados (`05_submit_spark_steps.sh`).** El script cuenta los
-  snapshots del Padrón en `raw/padron_ruc` y fija `maxExecutors =
-  ceil(snapshots/2) + 1`, entre `MIN_EXECUTORS` (2) y `MAX_EXECUTORS_CAP` (6):
-  1 → 2, 3 → 3, 6 → 4, 12 → 6. El cómputo crece más despacio que los datos y
-  tiene techo; el límite duro sigue siendo `emr_max_cpu` de la aplicación EMR
-  (32 vCPU; 6 executors de 4 vCPU + driver de 4 = 28). Que el tiempo del job
-  crezca menos que linealmente hay que medirlo corriendo 1, 3, 6 y 12 snapshots.
+- **Executors según el volumen (`05_submit_spark_steps.sh`).** El script mide los
+  GB de `raw/padron_ruc` y `raw/ordenes_compra` y fija `maxExecutors =
+  ceil(GB / 9)`, entre `MIN_EXECUTORS` (2) y `MAX_EXECUTORS_CAP` (16): el volumen
+  actual (53 GB) usa 6 y el 5× (263 GB) llega al techo. Lo que se agota primero al
+  crecer es el disco local de 20 GB de cada executor en los shuffles ([prueba de
+  escalabilidad](../docs/escalabilidad.md)), por eso el cómputo sigue a los datos. El
+  límite duro es `emr_max_cpu` de la aplicación EMR (68 vCPU = 16 executors de
+  4 vCPU + driver de 4).
+- **Particiones de shuffle según el volumen (`05_submit_spark_steps.sh`).**
+  `shuffle.partitions = max(64, GB del RAW × 4)`: el shuffle medido es 0,41 GB
+  (paso 02) y 0,63 GB (paso 03) por GB de RAW, así que cada partición queda en
+  100–160 MB a cualquier volumen; con un número fijo (antes 64) crecían con los
+  datos y terminaban en spill. No se deja a AQE: el paso 02 cachea su tabla y AQE no
+  junta particiones de una tabla cacheada (con 2000 iniciales, Silver salía en 30.000
+  archivos). Donde no hay caché, AQE junta las que queden chicas hasta ~128 MB.
 
 - **Publicación en dos pasos.** Los steps 02–05 escriben en `<bucket>/_staging/`
   y el orquestador publica a la ruta viva (`aws s3 sync --delete`) solo si el
