@@ -90,8 +90,10 @@ class TestReplicadorLocal(unittest.TestCase):
                 self.esquemas.PADRON_RUC_SCHEMA,
                 None,
             )
-            self.assertEqual(padron.filter("_corrupt_record IS NOT NULL").count(), 0)
-            rucs = [str(f.RUC) for f in padron.collect()]
+            # Spark 4 no deja consultar un CSV solo por _corrupt_record: se revisa en Python.
+            filas = padron.collect()
+            self.assertTrue(all(f._corrupt_record is None for f in filas))
+            rucs = [str(f.RUC) for f in filas]
             self.assertEqual(len(rucs), 6)  # 3 filas válidas x copias 1 y 2
             self.assertEqual(len(set(rucs)), 6)
             self.assertTrue(all(len(r) == 11 and int(r) >= 21 * 10**9 for r in rucs))

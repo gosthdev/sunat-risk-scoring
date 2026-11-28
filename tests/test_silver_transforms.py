@@ -171,8 +171,8 @@ class TestSilverTransforms(unittest.TestCase):
         entrada = preparar_padron_ruc(duplicado)
         plan = entrada._jdf.queryExecution().executedPlan().toString()
         self.assertEqual(plan.count("Exchange "), 1)
-        # El agregado parcial queda encima (después) del único shuffle.
-        self.assertLess(plan.index("partial_"), plan.index("Exchange "))
+        # Debajo del shuffle (lo que corre antes de él) no hay ninguna agregación.
+        self.assertNotIn("Aggregate", plan[plan.index("Exchange ") :])
         self.assertEqual(entrada.count(), bronze.count())
 
     def _padron_con_dos_meses(self):
