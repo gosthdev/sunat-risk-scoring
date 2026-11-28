@@ -35,7 +35,7 @@ class TestReplicadorLocal(unittest.TestCase):
             .getOrCreate()
         )
         cls.replicador = importlib.import_module("s_replicate_dataset")
-        cls.job01 = importlib.import_module("01_ingest_bronze")
+        cls.bronze_io = importlib.import_module("bronze_io")
         cls.esquemas = importlib.import_module("schema_definitions")
 
     @classmethod
@@ -84,8 +84,11 @@ class TestReplicadorLocal(unittest.TestCase):
             self.assertTrue(
                 (raiz / "perf" / "padron_ruc" / "anio=2025" / "mes=01").is_dir()
             )
-            padron = self.job01._read_raw(
-                self.spark, f"{destino}/padron_ruc", self.esquemas.PADRON_RUC_SCHEMA
+            padron = self.bronze_io.leer_raw(
+                self.spark,
+                f"{destino}/padron_ruc",
+                self.esquemas.PADRON_RUC_SCHEMA,
+                None,
             )
             self.assertEqual(padron.filter("_corrupt_record IS NOT NULL").count(), 0)
             rucs = [str(f.RUC) for f in padron.collect()]
@@ -93,10 +96,11 @@ class TestReplicadorLocal(unittest.TestCase):
             self.assertEqual(len(set(rucs)), 6)
             self.assertTrue(all(len(r) == 11 and int(r) >= 21 * 10**9 for r in rucs))
 
-            ordenes = self.job01._read_raw(
+            ordenes = self.bronze_io.leer_raw(
                 self.spark,
                 f"{destino}/ordenes_compra",
                 self.esquemas.ORDENES_COMPRA_SCHEMA,
+                None,
             ).collect()
             self.assertEqual(len(ordenes), 4)
             self.assertTrue(all(o._corrupt_record is None for o in ordenes))
