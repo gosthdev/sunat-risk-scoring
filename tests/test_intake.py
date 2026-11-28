@@ -530,3 +530,26 @@ def test_cleanup_runs_even_if_rechazar_fails(env, monkeypatch):
     with pytest.raises(RuntimeError):
         intake.main(out)
     assert CLAVE_SEE not in cli.objs
+
+
+def test_conv_ingresos_real_transformer_writes_csv(tmp_path):
+    import pandas as pd
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "cdrA13"
+    wb.create_sheet("cdrA13(Var)")
+    for ws in wb.worksheets:
+        ws.cell(4, 3, 2025)
+        ws.cell(5, 3, "Ene.")
+        ws.cell(9, 1, "Lima")
+        ws.cell(9, 3, 10.5)
+    src = tmp_path / "in.xlsx"
+    wb.save(src)
+    (csv,) = pu.conv_ingresos(src, tmp_path / "out")
+    assert csv.name == "cdrA13_tabular.csv"
+    df = pd.read_csv(csv)
+    # REQUIRED_INGRESOS_COLUMNS de fuentes/small/ingresos_tributarios.py
+    assert {"Departamento", "Periodo", "Anio", "Mes", "Monto_Recaudado"} <= set(
+        df.columns
+    )
+    assert df.loc[0, "Monto_Recaudado"] == 10.5

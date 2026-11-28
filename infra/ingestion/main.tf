@@ -147,6 +147,13 @@ resource "aws_s3_object" "bootstrap_script" {
   etag   = filemd5("${path.module}/../../src/ingestion/process_and_upload.py")
 }
 
+resource "aws_s3_object" "bootstrap_transformer" {
+  bucket = var.raw_bucket_name
+  key    = "_bootstrap/ingresos_transformer.py"
+  source = "${path.module}/../../src/spark/common/ingresos_transformer.py"
+  etag   = filemd5("${path.module}/../../src/spark/common/ingresos_transformer.py")
+}
+
 ############ Instancia EC2 Efímera ############
 resource "aws_instance" "ingestion_worker" {
   ami                         = data.aws_ami.ubuntu.id
@@ -160,6 +167,7 @@ resource "aws_instance" "ingestion_worker" {
     aws_s3_object.bootstrap_urls,
     aws_s3_object.bootstrap_fuentes,
     aws_s3_object.bootstrap_script,
+    aws_s3_object.bootstrap_transformer,
     aws_iam_role_policy_attachment.ingestion
   ]
 
@@ -196,6 +204,7 @@ resource "aws_instance" "ingestion_worker" {
     aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/urls.json" /opt/ingestion/urls.json
     aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/fuentes.json" /opt/ingestion/fuentes.json
     aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/process_and_upload.py" /opt/ingestion/process_and_upload.py
+    aws s3 cp "s3://${var.raw_bucket_name}/_bootstrap/ingresos_transformer.py" /opt/ingestion/ingresos_transformer.py
     chmod +x /opt/ingestion/process_and_upload.py
 
     export RAW_BUCKET="${var.raw_bucket_name}"

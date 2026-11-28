@@ -473,10 +473,10 @@ def process_ssco(_periodo: str, url: str) -> tuple[list[Path], str]:
 
 def conv_ingresos(src: Path, out_dir: Path) -> list[Path]:
     """Des-pivotea el Excel de SUNAT en out_dir (monto y variación); lanza si no calza."""
-    # En la EC2 (/opt/ingestion) este árbol no existe: falla el import y aplica el respaldo
-    common_dir = str(Path(__file__).resolve().parents[1] / "spark" / "common")
-    if common_dir not in sys.path:
-        sys.path.insert(0, common_dir)
+    # En la EC2 el módulo está junto al script; en el runner, en src/spark/common
+    common_dir = Path(__file__).resolve().parents[1] / "spark" / "common"
+    if common_dir.is_dir() and str(common_dir) not in sys.path:
+        sys.path.insert(0, str(common_dir))
     from ingresos_transformer import process_both_ingresos
 
     df_monto, df_var = process_both_ingresos(str(src))
